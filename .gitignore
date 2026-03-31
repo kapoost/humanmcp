@@ -1,0 +1,6 @@
+humanmcp
+*.exe
+*.test
+*.out
+config.json
+.env

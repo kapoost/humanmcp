@@ -1,0 +1,27 @@
+app = "kapoost-humanmcp"
+primary_region = "waw"
+
+[build]
+
+[env]
+  PORT        = "8080"
+  CONTENT_DIR = "/data/content"
+  AUTHOR_NAME = "kapoost"
+  AUTHOR_BIO  = "Poems and words. Human node on the MCP network."
+  DOMAIN      = "kapoost-humanmcp.fly.dev"
+
+[http_service]
+  internal_port        = 8080
+  force_https          = true
+  auto_stop_machines   = true
+  auto_start_machines  = true
+  min_machines_running = 0
+
+[[mounts]]
+  source      = "humanmcp_data"
+  destination = "/data"
+
+[[vm]]
+  memory   = "256mb"
+  cpu_kind = "shared"
+  cpus     = 1
