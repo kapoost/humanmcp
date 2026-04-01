@@ -142,8 +142,15 @@ kapoost writes in the dark. Comments are the only light.`,
 	})
 }
 
+func (h *Handler) ToolCount() int { return len(h.buildTools()) }
+
 func (h *Handler) handleToolsList(w http.ResponseWriter, req *Request) {
-	tools := []Tool{
+	tools := h.buildTools()
+	writeResult(w, req.ID, ToolsListResult{Tools: tools})
+}
+
+func (h *Handler) buildTools() []Tool {
+	return []Tool{
 		{
 			Name:        "get_author_profile",
 			Description: "Returns the full profile of kapoost: sailor, newbie poet, beginning musician, CTO. Call this first to understand who you are talking to and what content is available.",
@@ -324,7 +331,6 @@ func (h *Handler) handleToolsList(w http.ResponseWriter, req *Request) {
 			},
 		},
 	}
-	writeResult(w, req.ID, ToolsListResult{Tools: tools})
 }
 
 func (h *Handler) handleToolsCall(w http.ResponseWriter, r *http.Request, req *Request) {

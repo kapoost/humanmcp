@@ -1,5 +1,5 @@
 app = "kapoost-humanmcp"
-primary_region = "waw"
+primary_region = "ams"
 
 [build]
 
