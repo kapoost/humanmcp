@@ -462,7 +462,7 @@ a:hover{text-decoration:underline;}
 {{define "footer"}}
 <footer style="border-top:1px solid var(--border);margin-top:3.5rem;padding:1.25rem 0;font-size:.75rem;color:var(--muted);display:flex;justify-content:space-between;flex-wrap:wrap;gap:.5rem;">
   <span><a href="/connect" style="color:var(--muted);">connect MCP</a> &middot; <a href="https://github.com/kapoost/humanmcp-go" target="_blank" style="color:var(--muted);">github</a></span>
-  <span>humanMCP v0.1 &middot; {{.Author}}</span>
+  <span>humanMCP v0.2 &middot; {{.Author}}</span>
 </footer>
 {{end}}
 
@@ -615,15 +615,15 @@ input[type=radio]:checked + .type-label{border-color:var(--accent);background:va
 
 <div style="display:flex;gap:.6rem;align-items:center;margin-top:.5rem;">
   <button type="submit" class="btn btn-primary" style="padding:.4rem 1.2rem;">{{if .Piece}}Save{{else}}Post{{end}}</button>
-  {{if .Piece}}
-  <span style="flex:1"></span>
-  <form method="POST" action="/delete/{{.Piece.Slug}}" onsubmit="return confirm('Delete this post?')" style="display:inline;">
-    <button type="submit" style="padding:.3rem .7rem;border-radius:4px;border:1px solid #c0392b;background:none;color:#c0392b;cursor:pointer;font-size:.78rem;">Delete</button>
-  </form>
-  {{end}}
 </div>
 
 </form>
+
+{{if .Piece}}
+<form method="POST" action="/delete/{{.Piece.Slug}}" style="margin-top:.75rem;">
+  <button type="submit" style="padding:.3rem .7rem;border-radius:4px;border:1px solid #c0392b;background:none;color:#c0392b;cursor:pointer;font-size:.78rem;">Delete</button>
+</form>
+{{end}}
 </div>
 
 {{template "footer" .}}
