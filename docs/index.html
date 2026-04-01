@@ -659,6 +659,7 @@ footer a:hover { color: var(--ink); }
   <span class="strip-item"><span class="strip-dot"></span> <strong>136</strong> tests</span>
   <span class="strip-item"><span class="strip-dot"></span> Fly.io · ~$2/mo</span>
   <span class="strip-item"><span class="strip-dot"></span> Open source</span>
+  <span class="strip-item"><span class="strip-dot"></span> MCP Registry listed</span>
 </div>
 
 <!-- ── HERO ── -->
@@ -753,6 +754,16 @@ footer a:hover { color: var(--ink); }
             <div class="feature-icon">SAT</div>
             <div class="feature-title">Sellable</div>
             <div class="feature-body">Set a price in sats for commercial use. Lightning Network integration planned.</div>
+          </div>
+          <div class="feature-card" data-num="07">
+            <div class="feature-icon">IMG</div>
+            <div class="feature-title">Gallery</div>
+            <div class="feature-body">Images browsable at /images. Raw files served at /files/. Both humans and agents can access.</div>
+          </div>
+          <div class="feature-card" data-num="08">
+            <div class="feature-icon">AI</div>
+            <div class="feature-title">AI assist</div>
+            <div class="feature-body">Drop an image on /new — Claude suggests title, slug, description, tags, and an agent-optimised description. Client-side, your API key.</div>
           </div>
         </div>
       </div>
@@ -914,7 +925,7 @@ footer a:hover { color: var(--ink); }
       <div class="tool-item"><div class="tool-name">read_blob</div><div class="tool-desc">Read a blob — respects audience access list</div></div>
       <div class="tool-item"><div class="tool-name">request_access</div><div class="tool-desc">Get gate details for locked pieces</div></div>
       <div class="tool-item"><div class="tool-name">submit_answer</div><div class="tool-desc">Unlock a challenge-gated piece</div></div>
-      <div class="tool-item"><div class="tool-name">leave_comment</div><div class="tool-desc">Leave a reaction — visible in your dashboard</div></div>
+      <div class="tool-item"><div class="tool-name">leave_comment</div><div class="tool-desc">Leave a reaction after reading — logged to dashboard. Example: leave_comment {slug: "deka-log", from: "claude"}</div></div>
       <div class="tool-item"><div class="tool-name">leave_message</div><div class="tool-desc">Send a direct note up to 2000 characters</div></div>
     </div>
   </div>
@@ -937,9 +948,10 @@ footer a:hover { color: var(--ink); }
     <p class="author-bio">I am a poet and a builder. I grew up in Zamość, studied in Wrocław, and ended up in Warsaw &mdash; though I spend as much time as I can at sea. I write because something in me has to. I sail because something in me must. I build software because the world needs more people who understand both code and silence.</p><p class="author-bio" style="margin-top:0.75rem;">I am a CTO by trade, a sailor by temperament, and a poet by necessity. I started writing late. The poems are short. The sea is long.</p>
     <p class="section-body" style="font-size:0.88rem;">humanMCP started as a personal tool to publish poems with proper IP protection. It became something other artists might want. Contact available via the server &mdash; public links at <code style="font-size:.8rem;">kapoost-contact</code>, private email behind a gate.</p>
     <div class="author-works">
+      <a class="work-chip" href="https://kapoost-humanmcp.fly.dev/images" target="_blank" aria-label="Browse image gallery">images →</a>
       <a class="work-chip" href="https://kapoost-humanmcp.fly.dev/p/love" target="_blank" aria-label="Read poem: Niby miłość a nie miłość">Niby miłość a nie miłość</a>
       <a class="work-chip" href="https://kapoost-humanmcp.fly.dev/p/private-parts" target="_blank" aria-label="Read poem: deka-log">deka-log</a>
-      <a class="work-chip" href="https://kapoost-humanmcp.fly.dev/p/piosenki" target="_blank" aria-label="Read poem: Piosenka1.txt">Piosenka1.txt</a>
+      <a class="work-chip" href="https://kapoost-humanmcp.fly.dev/p/piosenki" target="_blank" aria-label="Read poem: Piosenka1.txt">Piosenka 1</a>
       <a class="work-chip" href="https://kapoost-humanmcp.fly.dev/p/prompty-o-ludziach" target="_blank" aria-label="Read poem: O ludziach">O ludziach</a>
     </div>
   </div>
@@ -966,6 +978,7 @@ footer a:hover { color: var(--ink); }
     <div style="margin-top:1.5rem;display:flex;gap:1rem;flex-wrap:wrap;">
       <a class="connect-btn" href="https://github.com/kapoost/humanmcp" target="_blank">Fork on GitHub →</a>
       <a class="connect-btn" href="https://kapoost-humanmcp.fly.dev" target="_blank">Live demo →</a>
+      <a class="connect-btn" href="https://registry.modelcontextprotocol.io/?search=kapoost" target="_blank">MCP Registry →</a>
     </div>
   </div>
 </div>
@@ -979,7 +992,7 @@ footer a:hover { color: var(--ink); }
     <a href="https://kapoost-humanmcp.fly.dev/connect" target="_blank">connect</a>
   </span>
   <span>Go · Ed25519 · MCP/JSON-RPC 2.0 · Fly.io</span>
-  <span><a href="https://kapoost-humanmcp.fly.dev/sitemap.xml" target="_blank">sitemap</a> · <a href="https://kapoost-humanmcp.fly.dev/robots.txt" target="_blank">robots.txt</a></span>
+  <span><a href="https://kapoost-humanmcp.fly.dev/sitemap.xml" target="_blank">sitemap</a> · <a href="https://kapoost-humanmcp.fly.dev/robots.txt" target="_blank">robots.txt</a> · <a href="https://registry.modelcontextprotocol.io/?search=kapoost" target="_blank">registry</a></span>
 </footer>
 
 <script>
