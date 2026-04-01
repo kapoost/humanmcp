@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -38,6 +39,12 @@ func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler
 			return t.Format("2 January 2006")
 		},
 		"lower": strings.ToLower,
+		"filenameFromRef": func(ref string) string {
+			// "files/img-0395-jpeg.jpeg" → "img-0395-jpeg.jpeg"
+			parts := strings.SplitN(ref, "/", 2)
+			if len(parts) == 2 { return parts[1] }
+			return ref
+		},
 		"nl2br": func(s string) template.HTML {
 			return template.HTML(strings.ReplaceAll(template.HTMLEscapeString(s), "\n", "<br>"))
 		},
@@ -82,6 +89,12 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 	// Connect page (public)
 	mux.HandleFunc("/connect", h.handleConnect)
+
+	// Raw file serving (images etc)
+	mux.HandleFunc("/files/", h.handleFile)
+
+	// Image gallery (public)
+	mux.HandleFunc("/images", h.handleImages)
 
 	// SEO / crawl
 	mux.HandleFunc("/robots.txt", h.handleRobots)
@@ -563,6 +576,45 @@ func firstLine(s string) string {
 	}
 	if len(s) > 60 { return s[:60] }
 	return strings.TrimSpace(s)
+}
+
+func (h *Handler) handleFile(w http.ResponseWriter, r *http.Request) {
+	// /files/img-0395-jpeg.jpeg → serve raw file from blobs/files/
+	slug := strings.TrimPrefix(r.URL.Path, "/files/")
+	if slug == "" {
+		http.NotFound(w, r)
+		return
+	}
+	blobs, _ := h.blobStore.Load()
+	for _, b := range blobs {
+		if b.FileRef != "" && strings.HasSuffix(b.FileRef, slug) {
+			if b.Access != content.AccessPublic {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+			filePath := filepath.Join(h.cfg.ContentDir, "blobs", slug)
+			w.Header().Set("Content-Type", b.MimeType)
+			w.Header().Set("Cache-Control", "public, max-age=86400")
+			http.ServeFile(w, r, filePath)
+			return
+		}
+	}
+	http.NotFound(w, r)
+}
+
+func (h *Handler) handleImages(w http.ResponseWriter, r *http.Request) {
+	blobs, _ := h.blobStore.Load()
+	var images []*content.Blob
+	for _, b := range blobs {
+		if b.BlobType == content.BlobImage && b.Access == content.AccessPublic {
+			images = append(images, b)
+		}
+	}
+	h.render(w, "images.html", map[string]interface{}{
+		"Author": h.cfg.AuthorName,
+		"Images": images,
+		"Domain": h.cfg.Domain,
+	})
 }
 
 func (h *Handler) handleRobots(w http.ResponseWriter, r *http.Request) {

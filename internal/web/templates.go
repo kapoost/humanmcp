@@ -385,6 +385,7 @@ a:hover{text-decoration:underline;}
         <a href="/dashboard" style="color:var(--muted);">dashboard</a>
         <a href="/logout" style="color:var(--muted);">logout</a>
       {{else}}
+        <a href="/images" style="color:var(--muted);">images</a>
         <a href="/contact" style="color:var(--muted);">contact</a>
         <a href="/connect" style="color:var(--accent);font-weight:500;">+ connect</a>
       {{end}}
