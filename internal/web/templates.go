@@ -14,9 +14,26 @@ const allTemplates = `
 {{template "header" .}}
 
 {{if .IsOwner}}
-<div class="owner-bar">
-  <a href="/new" class="btn btn-primary" style="font-size:.9rem;padding:.4rem 1.1rem;text-decoration:none;">+ post</a>
-  <a href="/dashboard" style="font-size:.78rem;color:var(--muted);margin-left:auto;text-decoration:none;">stats</a>
+<div class="owner-console">
+  <div class="owner-console-row">
+    <span class="neon-label">owner@humanmcp</span>
+    <a href="/new" class="neon-btn neon-btn-primary">+ post</a>
+    <a href="/new" class="neon-btn">+ image</a>
+    <span style="flex:1"></span>
+    <a href="/logout" class="neon-link">logout</a>
+  </div>
+  <div class="owner-console-row">
+    <span class="neon-dot">&#9632;</span>
+    <a href="/images" class="neon-link">gallery</a>
+    <span class="neon-dot">&#9632;</span>
+    <a href="/messages" class="neon-link">messages</a>
+    <span class="neon-dot">&#9632;</span>
+    <a href="/dashboard" class="neon-link">stats</a>
+    <span class="neon-dot">&#9632;</span>
+    <a href="/upload" class="neon-link">blob uploader</a>
+    <span class="neon-dot">&#9632;</span>
+    <a href="/connect" class="neon-link">mcp endpoint</a>
+  </div>
 </div>
 {{end}}
 
@@ -368,23 +385,32 @@ a:hover{text-decoration:underline;}
 .btn-sm{padding:.25rem .6rem;font-size:.78rem;}
 .edit-btn{font-size:.7rem;margin-left:.4rem;padding:1px 5px;cursor:pointer;border:1px solid var(--border);border-radius:3px;background:var(--bg);color:var(--muted);}
 .edit-btn:hover{border-color:var(--accent);color:var(--accent);}
+.owner-console{font-family:monospace;font-size:.78rem;background:#0a0f0a;border:1px solid #00ff4130;border-radius:8px;padding:.85rem 1rem;margin-bottom:1.5rem;color:#a0ffb0;display:flex;flex-direction:column;gap:.5rem;}
+.owner-console-row{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;}
+.owner-console-row:first-child{border-bottom:1px solid #00ff4115;padding-bottom:.5rem;margin-bottom:.1rem;}
+.neon-label{color:#00ff41;font-weight:bold;font-size:.7rem;letter-spacing:.12em;text-transform:uppercase;opacity:.7;}
+.neon-btn{display:inline-block;padding:.25rem .75rem;border-radius:3px;font-size:.78rem;font-family:monospace;cursor:pointer;border:1px solid #00ff4150;background:transparent;color:#00ff41;text-decoration:none;transition:all .15s;}
+.neon-btn:hover{background:#00ff4115;border-color:#00ff41;color:#00ff41;text-decoration:none;}
+.neon-btn-primary{border-color:#00ff41;background:#00ff4118;color:#00ff41;font-weight:bold;}
+.neon-btn-primary:hover{background:#00ff4130;}
+.neon-link{color:#00ff4199;text-decoration:none;font-size:.75rem;font-family:monospace;}
+.neon-link:hover{color:#00ff41;text-decoration:none;}
+.neon-dot{color:#00ff41;margin-right:.2rem;}
+@media(prefers-color-scheme:light){.owner-console{background:#0d1a0d;}}
 {{end}}
 
 {{define "header"}}
-<header style="border-bottom:1px solid var(--border);padding:1.25rem 0 .9rem;margin-bottom:1.75rem;">
-  <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:.4rem;">
+<header style="border-bottom:1px solid var(--border);padding:1.25rem 0 1rem;margin-bottom:1.75rem;">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:.5rem;">
     <div>
-      <div style="font-size:1.15rem;font-weight:600;display:flex;align-items:center;gap:.5rem;">
+      <div style="font-size:1.2rem;font-weight:600;display:flex;align-items:center;gap:.5rem;margin-bottom:.3rem;">
         <a href="/" style="color:var(--fg);">{{.Author}}</a>
-        <span style="font-size:.68rem;background:var(--accent-light);color:var(--accent);padding:2px 6px;border-radius:3px;border:1px solid var(--accent);">humanMCP</span>
+        <span style="font-size:.65rem;background:var(--accent-light);color:var(--accent);padding:2px 7px;border-radius:3px;border:1px solid var(--accent);letter-spacing:.04em;">humanMCP</span>
       </div>
-      {{if .Bio}}<div style="font-size:.82rem;color:var(--muted);margin-top:.2rem;">{{.Bio}}</div>{{end}}
+      {{if .Bio}}<div style="font-size:.82rem;color:var(--muted);max-width:420px;line-height:1.5;">{{.Bio}}</div>{{end}}
     </div>
-    <nav style="font-size:.8rem;color:var(--muted);display:flex;gap:.9rem;align-items:center;padding-top:.15rem;">
-      {{if .IsOwner}}
-        <a href="/dashboard" style="color:var(--muted);">dashboard</a>
-        <a href="/logout" style="color:var(--muted);">logout</a>
-      {{else}}
+    <nav style="font-size:.8rem;color:var(--muted);display:flex;gap:.9rem;align-items:flex-start;padding-top:.2rem;flex-wrap:wrap;">
+      {{if not .IsOwner}}
         <a href="/images" style="color:var(--muted);">images</a>
         <a href="/contact" style="color:var(--muted);">contact</a>
         <a href="/connect" style="color:var(--accent);font-weight:500;">+ connect</a>
