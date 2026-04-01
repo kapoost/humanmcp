@@ -738,11 +738,17 @@ func (h *Handler) handleContact(w http.ResponseWriter, r *http.Request) {
 	if err := h.store.Load(); err != nil {
 		log.Printf("store load: %v", err)
 	}
-	pieces := h.store.List(false)
-	h.render(w, "contact.html", map[string]interface{}{
-		"Author": h.cfg.AuthorName,
-		"Pieces": pieces,
-	})
+	regarding := r.URL.Query().Get("regarding")
+	data := map[string]interface{}{
+		"Author":    h.cfg.AuthorName,
+		"Regarding": regarding,
+	}
+	if regarding != "" {
+		if p, err := h.store.Get(regarding, false); err == nil {
+			data["RegardingTitle"] = p.Title
+		}
+	}
+	h.render(w, "contact.html", data)
 }
 
 func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {

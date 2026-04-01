@@ -115,7 +115,6 @@ const allTemplates = `
       {{if or (eq .License "commercial") (eq .License "exclusive") (eq .License "all-rights")}}
       <a href="/contact?regarding={{.Slug}}" class="info-btn">⟶ request license</a>
       {{end}}
-      <a href="/connect" class="info-btn">⊕ connect MCP</a>
     </div>
   </div>
   {{end}}
@@ -290,31 +289,27 @@ const allTemplates = `
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Contact — {{.Author}}</title>
+<title>{{if .Regarding}}Comment — {{.Author}}{{else}}Contact — {{.Author}}{{end}}</title>
 <style>{{template "css" .}}
 textarea{width:100%;padding:.5rem;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:.95rem;resize:vertical;line-height:1.6;}
 .success-box{background:#e8f5e9;border:1px solid #4caf50;border-radius:6px;padding:1.25rem;color:#2e7d32;}
+.re-badge{font-size:.82rem;color:var(--accent);background:var(--accent-light);border:1px solid var(--accent);border-radius:4px;padding:.3rem .7rem;display:inline-block;margin-bottom:1rem;}
 </style>
 </head>
 <body>
 <div class="container">
 {{template "header-simple" .}}
 <div style="max-width:520px;">
-<h1 style="font-size:1.1rem;font-weight:500;margin-bottom:1.5rem;">Leave a message</h1>
 {{if .Sent}}
-<div class="success-box"><strong>Message sent.</strong> kapoost will read it.<p style="margin-top:.5rem;font-size:.9rem;">&#8592; <a href="/">back to reading</a></p></div>
+<div class="success-box"><strong>Sent.</strong> kapoost will read it.<p style="margin-top:.5rem;font-size:.9rem;">&#8592; <a href="/">back to reading</a></p></div>
 {{else}}
+{{if .Regarding}}<div class="re-badge">re: {{.RegardingTitle}}</div>{{end}}
 {{if .Error}}<p style="color:#c0392b;margin-bottom:1rem;font-size:.85rem;">{{.Error}}</p>{{end}}
 <form method="POST" action="/contact" style="display:grid;gap:.75rem;">
+  {{if .Regarding}}<input type="hidden" name="regarding" value="{{.Regarding}}">{{end}}
   <div><label style="font-size:.82rem;color:var(--muted);display:block;margin-bottom:.3rem;">Name or handle <span style="opacity:.5">(optional)</span></label>
   <input type="text" name="from" maxlength="32" value="{{.From}}" placeholder="anonymous" style="width:100%;padding:.5rem;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);"></div>
-  {{if .Pieces}}<div><label style="font-size:.82rem;color:var(--muted);display:block;margin-bottom:.3rem;">About a piece <span style="opacity:.5">(optional)</span></label>
-  <select name="regarding" style="width:100%;padding:.5rem;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);">
-  <option value="">&#8212; general &#8212;</option>
-  {{range .Pieces}}<option value="{{.Slug}}">{{.Title}}</option>{{end}}
-  </select></div>{{end}}
-  <div><label style="font-size:.82rem;color:var(--muted);display:block;margin-bottom:.3rem;">Message <span style="color:#c0392b">*</span></label>
-  <textarea name="text" id="msg-text" maxlength="2000" rows="5" placeholder="Plain text only. No links. Max 2000 characters." oninput="document.getElementById('cc').textContent=this.value.length+'/2000'">{{.Text}}</textarea>
+  <div><textarea name="text" id="msg-text" maxlength="2000" rows="5" placeholder="Plain text only. No links. Max 2000 characters." oninput="document.getElementById('cc').textContent=this.value.length+'/2000'">{{.Text}}</textarea>
   <div style="font-size:.72rem;color:var(--muted);text-align:right;" id="cc">0/2000</div></div>
   <button type="submit" class="btn btn-primary" style="justify-self:start;">Send</button>
 </form>
