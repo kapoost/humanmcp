@@ -43,6 +43,7 @@ const allTemplates = `
     {{if $.IsOwner}}<a href="/edit/{{.Slug}}" class="edit-btn">edit</a>{{end}}
   </div>
   {{if .Description}}<div class="piece-desc">{{.Description}}</div>{{end}}
+  {{if and .Body (not (eq .Type "image")) (not (eq .Type "contact"))}}<div class="piece-excerpt">{{truncate .Body 120}}</div>{{end}}
   <div style="display:flex;align-items:center;gap:.75rem;margin-top:.35rem;flex-wrap:wrap;">
     {{if .Tags}}<div class="tags">{{range .Tags}}<span class="tag">#{{.}}</span>{{end}}</div>{{end}}
   </div>
