@@ -50,6 +50,13 @@ func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler
 			return template.HTML(strings.ReplaceAll(template.HTMLEscapeString(s), "\n", "<br>"))
 		},
 		"join": func(slice []string, sep string) string { return strings.Join(slice, sep) },
+		"truncate": func(s string, n int) string {
+			// collapse whitespace/newlines for inline preview
+			s = strings.Join(strings.Fields(s), " ")
+			runes := []rune(s)
+			if len(runes) <= n { return s }
+			return string(runes[:n]) + "…"
+		},
 		"isoDate": func(t time.Time) string {
 			if t.IsZero() { return "" }
 			return t.Format("2006-01-02T15:04")
