@@ -15,6 +15,10 @@ import (
 	"github.com/kapoost/humanmcp-go/internal/content"
 )
 
+type ToolCounter interface {
+	ToolCount() int
+}
+
 type Handler struct {
 	cfg      *config.Config
 	store    *content.Store
@@ -23,6 +27,7 @@ type Handler struct {
 	statStore  *content.StatStore
 	blobStore  *content.BlobStore
 	signingKey *content.KeyPair // parsed once at startup
+	toolCounter ToolCounter
 	tmpl  *template.Template
 }
 
@@ -65,6 +70,8 @@ func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler
 	}).Parse(allTemplates))
 	return h
 }
+
+func (h *Handler) SetToolCounter(tc ToolCounter) { h.toolCounter = tc }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/", h.handleIndex)
@@ -132,7 +139,7 @@ func (h *Handler) handleWellKnown(w http.ResponseWriter, r *http.Request) {
 		"description": h.cfg.AuthorBio,
 		"version":     "0.1.0",
 		"homepage":    "https://kapoost.github.io/humanmcp",
-		"repository":  "https://github.com/kapoost/humanmcp",
+		"repository":  map[string]string{"url": "https://github.com/kapoost/humanmcp", "source": "github"},
 		"remotes": []map[string]interface{}{
 			{"type": "streamable-http", "url": "https://" + h.cfg.Domain + "/mcp"},
 		},
@@ -640,12 +647,17 @@ func (h *Handler) handleSitemap(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "</urlset>\n")
 }
 
+func (h *Handler) getToolCount() int {
+	if h.toolCounter != nil { return h.toolCounter.ToolCount() }
+	return 0
+}
+
 func (h *Handler) handleConnect(w http.ResponseWriter, r *http.Request) {
 	h.render(w, "connect.html", map[string]interface{}{
 		"Author":    h.cfg.AuthorName,
 		"Bio":       h.cfg.AuthorBio,
 		"Domain":    h.cfg.Domain,
-		"ToolCount": 12,
+		"ToolCount": h.getToolCount(),
 	})
 }
 

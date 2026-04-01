@@ -36,6 +36,7 @@ func main() {
 	a := auth.New(cfg.EditToken)
 	mcpHandler := mcp.NewHandler(cfg, store, a)
 	webHandler := web.NewHandler(cfg, store, a)
+	webHandler.SetToolCounter(mcpHandler)
 
 	mux := http.NewServeMux()
 
