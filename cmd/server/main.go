@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"strings"
 	"os"
 
 	"github.com/kapoost/humanmcp-go/internal/auth"
@@ -52,7 +53,7 @@ func main() {
 	log.Printf("  content: %s", cfg.ContentDir)
 	log.Printf("  mcp:     http://%s/mcp", addr)
 
-	if err := http.ListenAndServe(addr, mux); err != nil {
+	if err := http.ListenAndServe(addr, secureMiddleware(mux)); err != nil {
 		log.Fatalf("server: %v", err)
 	}
 }
@@ -65,6 +66,21 @@ func corsMiddleware(next http.Handler) http.Handler {
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// secureMiddleware adds security + cache headers to all responses
+func secureMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Security headers
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		// Cache: MCP endpoints never cache, HTML pages short TTL
+		if r.URL.Path == "/mcp" || strings.HasPrefix(r.URL.Path, "/api/") {
+			w.Header().Set("Cache-Control", "no-store")
 		}
 		next.ServeHTTP(w, r)
 	})

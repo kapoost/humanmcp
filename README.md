@@ -1,90 +1,99 @@
 # humanMCP
 
-Your personal content server that speaks the [Model Context Protocol](https://modelcontextprotocol.io).
+A personal content server speaking Model Context Protocol (MCP/JSON-RPC 2.0).
 
-Every human gets a node. AI agents and human visitors can browse your poems, essays, and notes. Some content is public. Some requires answering a question. Some will require payment (coming soon).
+**Live:** https://kapoost-humanmcp.fly.dev  
+**Author:** kapoost — sailor, poet, CTO
 
-**You own the server. You own the content. You set the gates.**
+## What it is
 
-## What it does
+humanMCP lets you publish poems, essays, notes, and typed data artifacts (images, contacts, datasets, vectors) and expose them to AI agents through a standard MCP interface. Agents can read your content, verify signatures, check licenses, and leave comments.
 
-- Serves your Markdown content over MCP — any AI agent can `list_content`, `read_content`, `request_access`, `submit_answer`
-- Challenge gates: lock a poem behind a question only the right person can answer
-- Clean reading UI for human visitors (dark mode, serif typography)
-- Owner editor: password-protected in-browser editor to write and publish
-- Discoverable via `/.well-known/mcp-server.json`
-- Single static Go binary — runs on Linux, Docker, Raspberry Pi, Fly.io, anything
-
-## MCP tools
+## MCP Tools (12)
 
 | Tool | Description |
 |---|---|
-| `get_author_profile` | Author name, bio, server info |
-| `list_content` | All pieces with title, type, access level, description |
-| `read_content` | Full body for public pieces |
-| `request_access` | Gate info for locked pieces (challenge question or payment) |
-| `submit_answer` | Answer a challenge to unlock a piece |
+| `get_author_profile` | Who is kapoost |
+| `list_content` | Browse all pieces |
+| `read_content` | Read a piece (respects access gates) |
+| `request_access` | Get gate details for locked content |
+| `submit_answer` | Unlock challenge-gated content |
+| `list_blobs` | Browse typed data artifacts |
+| `read_blob` | Read image, contact, dataset, vector (respects audience) |
+| `verify_content` | Verify Ed25519 signature |
+| `get_certificate` | Full IP certificate: license, price, originality index, hash, signature |
+| `request_license` | Declare intended use, get terms, logged for audit |
+| `leave_comment` | Leave a reaction on a piece |
+| `leave_message` | Send a direct note to the author |
 
-## Content format
+## Connect
 
-Poems and essays live as plain Markdown files in `content/`:
-
-```markdown
----
-slug: the-river-knows
-title: The River Knows
-type: poem
-access: locked
-gate: challenge
-challenge: What do rivers do that we cannot?
-answer: forget
-description: A poem about rivers and what we carry.
-tags: [nature, grief]
-published: 2024-04-01
----
-
-The river carries everything downstream
-and calls it moving on.
+```json
+{
+  "mcpServers": {
+    "kapoost": {
+      "type": "http",
+      "url": "https://kapoost-humanmcp.fly.dev/mcp"
+    }
+  }
+}
 ```
 
-## Deploy to Fly.io
+## Content types
 
-```bash
-# Set secrets (do this once)
-fly secrets set \
-  EDIT_TOKEN=your-secret-password \
-  AUTHOR_NAME="Your Name" \
-  AUTHOR_BIO="Poet. Human. Node." \
-  DOMAIN="your-app.fly.dev"
+**Pieces** (Markdown files):
+- Types: `poem`, `essay`, `note`, `audio`
+- Access: `public` / `members` / `locked`
+- Gates: `challenge` (Q&A), `time`, `manual`, `trade`
+- Licenses: `free`, `cc-by`, `cc-by-nc`, `commercial`, `exclusive`, `all-rights`
 
-# Deploy
-fly deploy
-```
+**Blobs** (typed data):
+- Types: `image`, `contact`, `vector`, `document`, `dataset`, `capsule`
+- Audience: `[agent:claude, human:alice, agent:*]`
+
+## Intellectual Property
+
+Every piece is signed with Ed25519. `get_certificate` returns:
+- SHA-256 content hash
+- Ed25519 signature + public key
+- **Originality Index** (0.0–1.0): burstiness (Fano Factor), lexical density (CTTR), Shannon entropy, structural signature
+- License terms and price in sats (for commercial licenses)
+
+## Stack
+
+- Go 1.22, zero external dependencies
+- Fly.io (region: waw), persistent volume
+- Ed25519 signing (stdlib crypto)
+- Plain Markdown files as database
+
+## Limits
+
+| Field | Limit |
+|---|---|
+| Message / comment text | 2000 chars |
+| Blob inline text | 512 KB |
+| File upload | 50 MB |
+| Slug | 64 chars |
+| Title | 256 chars |
 
 ## Run locally
 
 ```bash
-EDIT_TOKEN=secret AUTHOR_NAME="You" CONTENT_DIR=./content go run ./cmd/server/
-# → http://localhost:8080
-# → http://localhost:8080/mcp  (MCP endpoint)
+go build ./cmd/server/
+EDIT_TOKEN=secret AUTHOR_NAME=yourname ./server
 ```
 
-## Environment variables
+## Deploy
 
-| Variable | Default | Description |
-|---|---|---|
-| `PORT` | `8080` | HTTP port |
-| `DOMAIN` | `localhost:8080` | Public domain (for well-known) |
-| `AUTHOR_NAME` | `Anonymous` | Your name |
-| `AUTHOR_BIO` | — | Short bio |
-| `CONTENT_DIR` | `./content` | Path to content directory |
-| `EDIT_TOKEN` | — | Secret token for owner access |
+```bash
+fly launch --name yourname-humanmcp
+fly secrets set EDIT_TOKEN=secret AUTHOR_NAME=yourname
+fly deploy
+```
 
-## Roadmap
+## Keygen
 
-- [x] MCP protocol (JSON-RPC 2.0)
-- [x] Challenge gates (answer a question to unlock)
-- [x] Owner web editor
-- [ ] Lightning Network micropayments
-- [ ] Peer-to-peer federation between humanMCP nodes
-- [ ] Agent-to-agent bilateral content transactions
+```bash
+go run ./cmd/keygen/
+fly secrets set SIGNING_PRIVATE_KEY="..." SIGNING_PUBLIC_KEY="..."
+```

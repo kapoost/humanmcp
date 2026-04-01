@@ -24,8 +24,12 @@ type Config struct {
 	OwnerPublicKey  string `json:"owner_public_key"`
 	OwnerPrivateKey string `json:"owner_private_key"`
 
-	// Edit token (simpler bearer token for phase 1)
+	// Edit token
 	EditToken string `json:"edit_token"`
+
+	// Ed25519 signing keypair (base64 private key, hex public key)
+	SigningPrivateKey string `json:"signing_private_key"`
+	SigningPublicKey  string `json:"signing_public_key"`
 }
 
 func Load() (*Config, error) {
@@ -54,6 +58,12 @@ func Load() (*Config, error) {
 	}
 	if v := os.Getenv("CONTENT_DIR"); v != "" {
 		cfg.ContentDir = v
+	}
+	if v := os.Getenv("SIGNING_PRIVATE_KEY"); v != "" {
+		cfg.SigningPrivateKey = v
+	}
+	if v := os.Getenv("SIGNING_PUBLIC_KEY"); v != "" {
+		cfg.SigningPublicKey = v
 	}
 
 	// Load from config.json if present

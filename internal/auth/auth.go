@@ -38,13 +38,19 @@ func (a *Auth) IsOwner(r *http.Request) bool {
 	return false
 }
 
-// RequireOwner is middleware that 401s if not owner
+// RequireOwner is middleware that 401s if not owner (JSON for API, redirect for browser)
 func (a *Auth) RequireOwner(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !a.IsOwner(r) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			w.Write([]byte(`{"error":"unauthorized — edit token required"}`))
+			// API paths get JSON error
+			if strings.HasPrefix(r.URL.Path, "/api/") {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				w.Write([]byte(`{"error":"unauthorized — edit token required"}`))
+				return
+			}
+			// Browser pages get redirect to login
+			http.Redirect(w, r, "/login", http.StatusFound)
 			return
 		}
 		next.ServeHTTP(w, r)

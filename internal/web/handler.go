@@ -15,19 +15,45 @@ import (
 )
 
 type Handler struct {
-	cfg   *config.Config
-	store *content.Store
-	auth  *auth.Auth
+	cfg      *config.Config
+	store    *content.Store
+	auth     *auth.Auth
+	msgStore   *content.MessageStore
+	statStore  *content.StatStore
+	blobStore  *content.BlobStore
+	signingKey *content.KeyPair // parsed once at startup
 	tmpl  *template.Template
 }
 
 func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler {
-	h := &Handler{cfg: cfg, store: store, auth: a}
+	h := &Handler{cfg: cfg, store: store, auth: a, msgStore: content.NewMessageStore(cfg.ContentDir), statStore: content.NewStatStore(cfg.ContentDir), blobStore: content.NewBlobStore(cfg.ContentDir)}
+	if cfg.SigningPrivateKey != "" {
+		if kp, err := content.KeyPairFromBase64(cfg.SigningPrivateKey); err == nil {
+			h.signingKey = kp
+		}
+	}
 	h.tmpl = template.Must(template.New("").Funcs(template.FuncMap{
-		"formatDate": func(t time.Time) string { return t.Format("2 January 2006") },
-		"lower":      strings.ToLower,
-		"nl2br":      func(s string) template.HTML {
+		"formatDate": func(t time.Time) string {
+			if t.IsZero() { return "" }
+			return t.Format("2 January 2006")
+		},
+		"lower": strings.ToLower,
+		"nl2br": func(s string) template.HTML {
 			return template.HTML(strings.ReplaceAll(template.HTMLEscapeString(s), "\n", "<br>"))
+		},
+		"join": func(slice []string, sep string) string { return strings.Join(slice, sep) },
+		"isoDate": func(t time.Time) string {
+			if t.IsZero() { return "" }
+			return t.Format("2006-01-02T15:04")
+		},
+		"slice": func(vals ...string) []string { return vals },
+		"not": func(v interface{}) bool {
+			if v == nil { return true }
+			switch b := v.(type) {
+			case bool:   return !b
+			case string: return b == ""
+			}
+			return false
 		},
 	}).Parse(allTemplates))
 	return h
@@ -44,6 +70,35 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 	// Well-known MCP discovery
 	mux.HandleFunc("/.well-known/mcp-server.json", h.handleWellKnown)
+
+	// Dashboard (owner only)
+	mux.Handle("/dashboard", h.auth.RequireOwner(http.HandlerFunc(h.handleDashboard)))
+
+	// Messages (owner only)
+	mux.Handle("/messages", h.auth.RequireOwner(http.HandlerFunc(h.handleMessages)))
+
+	// Contact form (public)
+	mux.HandleFunc("/contact", h.handleContact)
+
+	// Connect page (public)
+	mux.HandleFunc("/connect", h.handleConnect)
+
+	// New post page (owner only)
+	mux.Handle("/new", h.auth.RequireOwner(http.HandlerFunc(h.handleNew)))
+
+	// Edit page (owner only)
+	mux.Handle("/edit/", h.auth.RequireOwner(http.HandlerFunc(h.handleEdit)))
+
+	// Delete (owner only, POST)
+	mux.Handle("/delete/", h.auth.RequireOwner(http.HandlerFunc(h.handleDelete)))
+
+
+	// Blob uploader UI (owner only)
+	mux.Handle("/upload", h.auth.RequireOwner(http.HandlerFunc(h.handleUploadPage)))
+
+	// Blob upload (owner only)
+	mux.Handle("/api/blobs", h.auth.RequireOwner(http.HandlerFunc(h.handleAPIBlobs)))
+	mux.Handle("/api/blobs/", h.auth.RequireOwner(http.HandlerFunc(h.handleAPIBlobs)))
 
 	// Login/logout for web UI
 	mux.HandleFunc("/login", h.handleLogin)
@@ -71,6 +126,10 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 		log.Printf("store load error: %v", err)
 	}
 	pieces := h.store.List(false)
+	// Keep slug-tags index fresh for tag analytics
+	slugTags := make(map[string][]string)
+	for _, p := range pieces { slugTags[p.Slug] = p.Tags }
+	h.statStore.UpdateSlugTags(slugTags)
 	isOwner := h.auth.IsOwner(r)
 	h.render(w, "index.html", map[string]interface{}{
 		"Author":  h.cfg.AuthorName,
@@ -98,12 +157,36 @@ func (h *Handler) handlePiece(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isLocked := p.Access != content.AccessPublic && !isOwner
+	if p.Access == content.AccessPublic && !isOwner {
+		ua := r.Header.Get("User-Agent")
+		ref := r.Header.Get("Referer")
+		country := r.Header.Get("Fly-Region")
+		if country == "" { country = r.Header.Get("X-Country") }
+		ip := r.Header.Get("Fly-Client-IP")
+		if ip == "" { ip = r.RemoteAddr }
+		vh := content.VisitorHash(ip, time.Now().Format("2006-01-02"))
+		h.statStore.Record(content.Event{
+			Type:        content.EventRead,
+			Caller:      content.CallerFromUA(ua),
+			Slug:        slug,
+			UA:          ua[:min(len(ua), 80)],
+			Ref:         ref,
+			Country:     country,
+			VisitorHash: vh,
+		})
+	}
+
+	isLocked := !p.IsUnlocked() && !isOwner
+	var unlockDate string
+	if p.Gate == content.GateTime && !p.UnlockAfter.IsZero() {
+		unlockDate = p.UnlockAfter.Format("2 January 2006 at 15:04 UTC")
+	}
 	h.render(w, "piece.html", map[string]interface{}{
-		"Author":   h.cfg.AuthorName,
-		"Piece":    p,
-		"IsLocked": isLocked,
-		"IsOwner":  isOwner,
+		"Author":     h.cfg.AuthorName,
+		"Piece":      p,
+		"IsLocked":   isLocked,
+		"IsOwner":    isOwner,
+		"UnlockDate": unlockDate,
 	})
 }
 
@@ -171,11 +254,16 @@ func (h *Handler) handleAPIContent(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(p)
 
 	case http.MethodPut, http.MethodPost:
-		var p content.Piece
-		if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+		// Use a raw map to handle flexible time fields from JS
+		var raw map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
 			jsonError(w, "invalid json: "+err.Error(), 400)
 			return
 		}
+		// Re-encode and decode into Piece
+		data, _ := json.Marshal(raw)
+		var p content.Piece
+		json.Unmarshal(data, &p)
 		if slug != "" && p.Slug == "" {
 			p.Slug = slug
 		}
@@ -185,6 +273,12 @@ func (h *Handler) handleAPIContent(w http.ResponseWriter, r *http.Request) {
 		}
 		if p.Published.IsZero() {
 			p.Published = time.Now()
+		}
+		// Auto-sign on save
+		if h.signingKey != nil {
+			if sig, err := content.SignPiece(&p, h.signingKey); err == nil {
+				p.Signature = sig
+			}
 		}
 		if err := h.store.Save(&p); err != nil {
 			jsonError(w, err.Error(), 500)
@@ -207,6 +301,316 @@ func (h *Handler) handleAPIContent(w http.ResponseWriter, r *http.Request) {
 }
 
 // --- Login/logout ---
+
+
+func (h *Handler) handleDashboard(w http.ResponseWriter, r *http.Request) {
+	stats, err := h.statStore.Compute()
+	if err != nil {
+		http.Error(w, "stats error: "+err.Error(), 500)
+		return
+	}
+	if err := h.store.Load(); err != nil {
+		log.Printf("store load: %v", err)
+	}
+	pieces := h.store.List(false)
+	msgs, _ := h.msgStore.List()
+	h.render(w, "dashboard.html", map[string]interface{}{
+		"Author":   h.cfg.AuthorName,
+		"IsOwner":  true,
+		"Stats":    stats,
+		"Pieces":   pieces,
+		"Messages": msgs,
+	})
+}
+
+func (h *Handler) handleUploadPage(w http.ResponseWriter, r *http.Request) {
+	h.render(w, "blob-uploader.html", map[string]interface{}{
+		"Author":  h.cfg.AuthorName,
+		"IsOwner": true,
+	})
+}
+
+func (h *Handler) handleAPIBlobs(w http.ResponseWriter, r *http.Request) {
+	slug := strings.TrimPrefix(r.URL.Path, "/api/blobs/")
+
+	switch r.Method {
+	case http.MethodGet:
+		if slug == "" || slug == "/api/blobs" {
+			blobs, _ := h.blobStore.Load()
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(blobs)
+			return
+		}
+		b, err := h.blobStore.Get(slug)
+		if err != nil { jsonError(w, "not found", 404); return }
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(b)
+
+	case http.MethodPost, http.MethodPut:
+		// Multipart: supports file upload + metadata
+		r.ParseMultipartForm(50 << 20) // 50MB
+		var b content.Blob
+
+		// Try JSON body first
+		if r.Header.Get("Content-Type") == "application/json" {
+			if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+				jsonError(w, "invalid json", 400); return
+			}
+		} else {
+			// Form fields
+			b.Slug = r.FormValue("slug")
+			b.Title = r.FormValue("title")
+			b.BlobType = content.BlobType(r.FormValue("blob_type"))
+			b.Description = r.FormValue("description")
+			b.Access = content.AccessLevel(r.FormValue("access"))
+			b.MimeType = r.FormValue("mime_type")
+			b.Schema = r.FormValue("schema")
+			b.Encoding = r.FormValue("encoding")
+			b.TextData = r.FormValue("text_data")
+			b.FileRef = r.FormValue("file_ref")  // preserve existing file reference
+			if dim := r.FormValue("dimensions"); dim != "" {
+				fmt.Sscanf(dim, "%d", &b.Dimensions)
+			}
+			if tags := r.FormValue("tags"); tags != "" {
+				for _, t := range strings.Split(tags, ",") {
+					b.Tags = append(b.Tags, strings.TrimSpace(t))
+				}
+			}
+
+			// File upload
+			if file, header, err := r.FormFile("file"); err == nil {
+				defer file.Close()
+				data := make([]byte, header.Size)
+				file.Read(data)
+				if b.MimeType == "" {
+					b.MimeType = header.Header.Get("Content-Type")
+				}
+				ref, err := h.blobStore.StoreFile(b.Slug, header.Filename, data)
+				if err != nil { jsonError(w, "file save error: "+err.Error(), 500); return }
+				b.FileRef = ref
+			}
+		}
+
+		if slug != "" && b.Slug == "" { b.Slug = slug }
+		if b.Slug == "" { jsonError(w, "slug required", 400); return }
+
+		// Auto-sign blob
+		if h.signingKey != nil {
+			if sig, err := content.SignBlob(&b, h.signingKey); err == nil {
+				b.Signature = sig
+			}
+		}
+
+		if err := h.blobStore.Save(&b); err != nil {
+			jsonError(w, err.Error(), 500); return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "saved", "slug": b.Slug})
+
+	case http.MethodDelete:
+		if err := h.blobStore.Delete(slug); err != nil {
+			jsonError(w, "not found", 404); return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+
+	default:
+		jsonError(w, "method not allowed", 405)
+	}
+}
+
+func (h *Handler) handleNew(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		r.ParseMultipartForm(50 << 20)
+		p := content.Piece{
+			Slug:        slugify(r.FormValue("title") + " " + fmt.Sprintf("%d", time.Now().Unix())),
+			Title:       r.FormValue("title"),
+			Type:        r.FormValue("type"),
+			Access:      content.AccessLevel(r.FormValue("access")),
+			Gate:        content.GateType(r.FormValue("gate")),
+			Challenge:   r.FormValue("challenge"),
+			Answer:      r.FormValue("answer"),
+			Description: r.FormValue("description"),
+			Body:        r.FormValue("body"),
+			Published:   time.Now(),
+		}
+		if r.FormValue("slug_override") != "" {
+			p.Slug = r.FormValue("slug_override")
+		} else if r.FormValue("slug") != "" {
+			p.Slug = r.FormValue("slug")
+		}
+		if p.Type == "" { p.Type = "note" }
+		p.License = r.FormValue("license")
+		if ps := r.FormValue("price_sats"); ps != "" { fmt.Sscanf(ps, "%d", &p.PriceSats) }
+		if tags := r.FormValue("tags"); tags != "" {
+			for _, t := range strings.Split(tags, ",") {
+				if s := strings.TrimSpace(t); s != "" {
+					p.Tags = append(p.Tags, s)
+				}
+			}
+		}
+		if p.Title == "" { p.Title = firstLine(p.Body) }
+		if h.signingKey != nil {
+			if sig, err := content.SignPiece(&p, h.signingKey); err == nil {
+				p.Signature = sig
+			}
+		}
+		if err := h.store.Save(&p); err != nil {
+			http.Error(w, err.Error(), 500); return
+		}
+		http.Redirect(w, r, "/p/"+p.Slug, http.StatusSeeOther)
+		return
+	}
+	h.render(w, "new.html", map[string]interface{}{
+		"Author":  h.cfg.AuthorName,
+		"Bio":     h.cfg.AuthorBio,
+		"IsOwner": true,
+	})
+}
+
+func (h *Handler) handleEdit(w http.ResponseWriter, r *http.Request) {
+	slug := strings.TrimPrefix(r.URL.Path, "/edit/")
+	if slug == "" { http.Redirect(w, r, "/new", http.StatusSeeOther); return }
+
+	if r.Method == http.MethodPost {
+		r.ParseMultipartForm(50 << 20)
+		h.store.Load()
+		p, err := h.store.GetForEdit(slug)
+		if err != nil { http.Error(w, "not found", 404); return }
+		p.Title       = r.FormValue("title")
+		p.Type        = r.FormValue("type")
+		p.Access      = content.AccessLevel(r.FormValue("access"))
+		p.Gate        = content.GateType(r.FormValue("gate"))
+		p.License      = r.FormValue("license")
+		if ps := r.FormValue("price_sats"); ps != "" { fmt.Sscanf(ps, "%d", &p.PriceSats) }
+		p.Challenge   = r.FormValue("challenge")
+		p.Answer      = r.FormValue("answer")
+		p.Description = r.FormValue("description")
+		p.Body        = r.FormValue("body")
+		p.Tags        = nil
+		if tags := r.FormValue("tags"); tags != "" {
+			for _, t := range strings.Split(tags, ",") {
+				if s := strings.TrimSpace(t); s != "" {
+					p.Tags = append(p.Tags, s)
+				}
+			}
+		}
+		if p.Title == "" { p.Title = firstLine(p.Body) }
+		if h.signingKey != nil {
+			if sig, err := content.SignPiece(p, h.signingKey); err == nil {
+				p.Signature = sig
+			}
+		}
+		if err := h.store.Save(p); err != nil {
+			http.Error(w, err.Error(), 500); return
+		}
+		http.Redirect(w, r, "/p/"+slug, http.StatusSeeOther)
+		return
+	}
+
+	h.store.Load()
+	p, err := h.store.GetForEdit(slug)
+	if err != nil { http.Error(w, "not found", 404); return }
+	h.render(w, "new.html", map[string]interface{}{
+		"Author":  h.cfg.AuthorName,
+		"Bio":     h.cfg.AuthorBio,
+		"IsOwner": true,
+		"Piece":   p,
+	})
+}
+
+func (h *Handler) handleDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost { http.Redirect(w, r, "/", http.StatusSeeOther); return }
+	slug := strings.TrimPrefix(r.URL.Path, "/delete/")
+	h.store.Load()
+	h.store.Delete(slug)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// slugify generates a URL-safe slug from a string
+func slugify(s string) string {
+	s = strings.ToLower(s)
+	var b strings.Builder
+	prev := false
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			prev = false
+		} else if !prev {
+			b.WriteRune('-')
+			prev = true
+		}
+	}
+	result := strings.Trim(b.String(), "-")
+	if len(result) > 50 { result = result[:50] }
+	if result == "" { result = fmt.Sprintf("post-%d", time.Now().Unix()) }
+	return result
+}
+
+func firstLine(s string) string {
+	if idx := strings.IndexByte(s, '\n'); idx > 0 {
+		return strings.TrimSpace(s[:idx])
+	}
+	if len(s) > 60 { return s[:60] }
+	return strings.TrimSpace(s)
+}
+
+func (h *Handler) handleConnect(w http.ResponseWriter, r *http.Request) {
+	h.render(w, "connect.html", map[string]interface{}{
+		"Author": h.cfg.AuthorName,
+		"Bio":    h.cfg.AuthorBio,
+	})
+}
+
+func (h *Handler) handleContact(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		r.ParseForm()
+		from := r.FormValue("from")
+		text := r.FormValue("text")
+		regarding := r.FormValue("regarding")
+		_, err := h.msgStore.Save(from, text, regarding)
+		if err != nil {
+			h.render(w, "contact.html", map[string]interface{}{
+				"Author": h.cfg.AuthorName,
+				"Error":  err.Error(),
+				"From":   from,
+				"Text":   text,
+			})
+			return
+		}
+		h.statStore.Record(content.Event{
+			Type:   content.EventMessage,
+			Caller: content.CallerHuman,
+			UA:     r.Header.Get("User-Agent"),
+		})
+		h.render(w, "contact.html", map[string]interface{}{
+			"Author": h.cfg.AuthorName,
+			"Sent":   true,
+		})
+		return
+	}
+	if err := h.store.Load(); err != nil {
+		log.Printf("store load: %v", err)
+	}
+	pieces := h.store.List(false)
+	h.render(w, "contact.html", map[string]interface{}{
+		"Author": h.cfg.AuthorName,
+		"Pieces": pieces,
+	})
+}
+
+func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
+	msgs, err := h.msgStore.List()
+	if err != nil {
+		http.Error(w, "error loading messages: "+err.Error(), 500)
+		return
+	}
+	h.render(w, "messages.html", map[string]interface{}{
+		"Author":   h.cfg.AuthorName,
+		"Messages": msgs,
+		"IsOwner":  true,
+	})
+}
 
 func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
