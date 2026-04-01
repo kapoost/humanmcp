@@ -569,20 +569,139 @@ input[type=radio]:checked + .type-label{border-color:var(--accent);background:va
 
 {{template "footer" .}}
 </div>
+{{if .AIMetadata}}
+<div id="ai-panel" style="display:none;border:1px solid var(--border);border-radius:8px;padding:1rem;margin-bottom:.7rem;background:var(--card);">
+  <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.75rem;">
+    <span style="font-size:.78rem;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">AI metadata assist</span>
+    <span id="ai-status" style="font-size:.78rem;color:var(--muted);"></span>
+  </div>
+  <div class="field">
+    <label class="fl">Your Anthropic API key <span style="opacity:.5">(used once, not stored)</span></label>
+    <input type="text" id="ai-key" placeholder="sk-ant-..." style="font-family:monospace;font-size:.82rem;">
+  </div>
+  <button type="button" id="ai-btn" class="btn" style="padding:.35rem .9rem;font-size:.82rem;" onclick="runAI()">Generate metadata</button>
+</div>
+{{end}}
 <script>
 (function(){
   var dz=document.getElementById('drop-zone');
   var fi=dz.querySelector('input[type=file]');
   var fn=document.getElementById('file-name');
-  fi.onchange=function(){if(fi.files[0])fn.textContent=fi.files[0].name;};
+
+  function onFile(f){
+    fn.textContent=f.name;
+    {{if .AIMetadata}}
+    var panel=document.getElementById('ai-panel');
+    if(panel && f.type.startsWith('image/')){
+      panel.style.display='block';
+      document.getElementById('ai-status').textContent='Image ready — click Generate';
+    }
+    {{end}}
+  }
+
+  fi.onchange=function(){if(fi.files[0])onFile(fi.files[0]);};
   dz.addEventListener('dragover',function(e){e.preventDefault();dz.classList.add('drag');});
   dz.addEventListener('dragleave',function(){dz.classList.remove('drag');});
   dz.addEventListener('drop',function(e){
     e.preventDefault();dz.classList.remove('drag');
     var f=e.dataTransfer.files[0];if(!f)return;
-    var dt=new DataTransfer();dt.items.add(f);fi.files=dt.files;fn.textContent=f.name;
+    var dt=new DataTransfer();dt.items.add(f);fi.files=dt.files;onFile(f);
   });
 })();
+
+{{if .AIMetadata}}
+async function runAI(){
+  var key=document.getElementById('ai-key').value.trim();
+  if(!key){alert('Enter your Anthropic API key');return;}
+  var fi=document.querySelector('input[type=file]');
+  if(!fi.files[0]){alert('Select an image first');return;}
+
+  var status=document.getElementById('ai-status');
+  var btn=document.getElementById('ai-btn');
+  btn.disabled=true;
+  status.textContent='Reading image…';
+
+  // Read image as base64
+  var b64=await new Promise(function(res,rej){
+    var r=new FileReader();
+    r.onload=function(){res(r.result.split(',')[1]);};
+    r.onerror=rej;
+    r.readAsDataURL(fi.files[0]);
+  });
+  var mime=fi.files[0].type||'image/jpeg';
+
+  status.textContent='Asking Claude…';
+  try {
+    var resp=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'x-api-key':key,
+        'anthropic-version':'2023-06-01',
+        'anthropic-dangerous-direct-browser-access':'true'
+      },
+      body:JSON.stringify({
+        model:'claude-sonnet-4-20250514',
+        max_tokens:500,
+        messages:[{
+          role:'user',
+          content:[
+            {type:'image',source:{type:'base64',media_type:mime,data:b64}},
+            {type:'text',text:'Analyse this image and return ONLY valid JSON with these fields:
+{
+  "title": "short human title (3-6 words)",
+  "slug": "url-safe-slug-with-dashes",
+  "description": "one sentence for humans, evocative and honest",
+  "description_agents": "one sentence for AI agents: precise visual description, object list, colors, composition",
+  "tags": "comma-separated tags (3-6 tags, lowercase)"
+}
+No markdown, no explanation, just JSON.'}
+          ]
+        }]
+      })
+    });
+    var data=await resp.json();
+    var text=data.content[0].text.trim();
+    // Strip markdown fences if present
+    if(text.indexOf('json')===3){text=text.slice(text.indexOf('\n')+1);}
+    if(text.lastIndexOf('\n')>0){text=text.slice(0,text.lastIndexOf('\n'));}
+    text=text.trim();
+    var meta=JSON.parse(text);
+
+    // Fill form fields
+    var q=function(n){return document.querySelector('[name="'+n+'"]');};
+    if(meta.title && q('title')) q('title').value=meta.title;
+    if(meta.slug && q('slug')) q('slug').value=meta.slug;
+    if(meta.description && q('description')) q('description').value=meta.description;
+    if(meta.tags && q('tags')) q('tags').value=meta.tags;
+    // Set type to image
+    var imgRadio=document.getElementById('type_image');
+    if(imgRadio){imgRadio.checked=true;}
+    // Open details
+    var det=document.querySelector('details');
+    if(det)det.open=true;
+
+    status.textContent='✓ Done — review and edit below';
+    status.style.color='var(--accent)';
+
+    // Show agent description as a hint
+    if(meta.description_agents){
+      var hint=document.createElement('p');
+      hint.style.cssText='font-size:.75rem;color:var(--muted);margin:.5rem 0 0;font-style:italic;';
+      hint.textContent='Agent description: '+meta.description_agents;
+      document.getElementById('ai-panel').appendChild(hint);
+      // Also store it — forker can add an about/agent_desc field later
+      var hidden=document.createElement('input');
+      hidden.type='hidden';hidden.name='agent_description';hidden.value=meta.description_agents;
+      document.getElementById('ai-panel').appendChild(hidden);
+    }
+  } catch(e){
+    status.textContent='Error: '+e.message;
+    status.style.color='#c0392b';
+  }
+  btn.disabled=false;
+}
+{{end}}
 </script>
 </body></html>
 {{end}}

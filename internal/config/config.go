@@ -10,7 +10,8 @@ type Config struct {
 	// Server
 	Host   string `json:"host"`
 	Port   string `json:"port"`
-	Domain string `json:"domain"`
+	Domain     string `json:"domain"`
+	AIMetadata bool   `json:"ai_metadata"`
 
 	// Author
 	AuthorName    string `json:"author_name"`
@@ -49,6 +50,9 @@ func Load() (*Config, error) {
 	}
 	if v := os.Getenv("DOMAIN"); v != "" {
 		cfg.Domain = v
+	}
+	if v := os.Getenv("AI_METADATA"); v == "true" {
+		cfg.AIMetadata = true
 	}
 	if v := os.Getenv("AUTHOR_NAME"); v != "" {
 		cfg.AuthorName = v
