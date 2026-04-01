@@ -16,11 +16,10 @@ const allTemplates = `
 {{if .IsOwner}}
 <div class="owner-bar">
   <a href="/new" class="btn btn-primary" style="font-size:.9rem;padding:.4rem 1.1rem;text-decoration:none;">+ post</a>
-  <a href="/upload" class="btn" style="font-size:.9rem;padding:.4rem 1.1rem;text-decoration:none;">+ image</a>
+  <a href="/new" class="btn" style="font-size:.9rem;padding:.4rem 1.1rem;text-decoration:none;">+ image</a>
   <span class="owner-bar-sep">|</span>
   <a href="/images" style="font-size:.78rem;color:var(--muted);text-decoration:none;">gallery</a>
   <a href="/messages" style="font-size:.78rem;color:var(--muted);text-decoration:none;">messages</a>
-  <a href="/upload" style="font-size:.78rem;color:var(--muted);text-decoration:none;">upload</a>
   <a href="/dashboard" style="font-size:.78rem;color:var(--muted);margin-left:auto;text-decoration:none;">stats</a>
 </div>
 {{end}}
