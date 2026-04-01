@@ -27,18 +27,19 @@ func TestMessageRejectsEmpty(t *testing.T) {
 	if err == nil { t.Error("empty text should be rejected") }
 }
 
-func TestMessageRejectsLinks(t *testing.T) {
+func TestMessageAllowsLinks(t *testing.T) {
 	dir := t.TempDir()
 	ms := NewMessageStore(dir)
 
+	// URLs are now welcome in messages
 	cases := []string{
-		"check http://evil.com",
-		"go to https://spam.org",
-		"visit www.bad.com",
+		"check out https://kapoost.github.io/humanmcp great site",
+		"see https://github.com/kapoost for the code",
+		"visit www.example.com for more info",
 	}
 	for _, text := range cases {
-		_, err := ms.Save("", text, "")
-		if err == nil { t.Errorf("should reject message with link: %q", text) }
+		_, err := ms.Save("test", text, "")
+		if err != nil { t.Errorf("links should be allowed: %q — %v", text, err) }
 	}
 }
 

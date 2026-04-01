@@ -39,13 +39,8 @@ func (ms *MessageStore) Save(from, text, regarding string) (*Message, error) {
 		return nil, fmt.Errorf("message text is required")
 	}
 
-	// No URLs — keep it human
+	// URLs are welcome in messages and comments
 	lower := strings.ToLower(text)
-	for _, scheme := range []string{"http://", "https://", "www.", ".com", ".net", ".org"} {
-		if strings.Contains(lower, scheme) {
-			return nil, fmt.Errorf("links are not allowed in messages")
-		}
-	}
 
 	// No HTML/script
 	for _, bad := range []string{"<", ">", "script", "onclick", "onerror"} {

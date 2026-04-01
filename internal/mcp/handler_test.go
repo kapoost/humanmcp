@@ -292,12 +292,12 @@ func TestLeaveMessage(t *testing.T) {
 	if !bytes.Contains([]byte(text), []byte("received")) { t.Error("should confirm receipt") }
 }
 
-func TestLeaveMessageRejectsLinks(t *testing.T) {
+func TestLeaveMessageAllowsLinks(t *testing.T) {
 	h, _ := newTestHandler(t)
 	text := tool(t, h, "leave_message", map[string]interface{}{
-		"text": "visit https://spam.com for free stuff",
+		"text": "see https://kapoost.github.io/humanmcp for the landing page",
 	})
-	if bytes.Contains([]byte(text), []byte("received")) { t.Error("message with link should be rejected") }
+	if !bytes.Contains([]byte(text), []byte("received")) { t.Error("links should now be allowed in messages") }
 }
 
 func TestLeaveMessageRejectsHTML(t *testing.T) {
