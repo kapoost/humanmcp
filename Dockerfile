@@ -1,8 +1,8 @@
 # Build stage
 FROM golang:1.22-alpine AS builder
 WORKDIR /app
+# cache-bust: 20260401140904
 COPY go.mod ./
-# Copy ALL source files explicitly to prevent cache issues
 COPY cmd/ ./cmd/
 COPY internal/ ./internal/
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o humanmcp ./cmd/server/
