@@ -584,8 +584,10 @@ func (h *Handler) handleSitemap(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleConnect(w http.ResponseWriter, r *http.Request) {
 	h.render(w, "connect.html", map[string]interface{}{
-		"Author": h.cfg.AuthorName,
-		"Bio":    h.cfg.AuthorBio,
+		"Author":    h.cfg.AuthorName,
+		"Bio":       h.cfg.AuthorBio,
+		"Domain":    h.cfg.Domain,
+		"ToolCount": 12,
 	})
 }
 

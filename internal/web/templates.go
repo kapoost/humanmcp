@@ -315,7 +315,7 @@ textarea{width:100%;padding:.5rem;border:1px solid var(--border);border-radius:4
 }</div>
 </div>
 <div class="connect-section">
-  <div class="connect-title">10 available tools</div>
+  <div class="connect-title">{{.ToolCount}} available tools</div>
   <div class="tool-grid">
     <div class="tool-card"><strong>list_content</strong><span>Browse poems and essays</span></div>
     <div class="tool-card"><strong>read_content</strong><span>Read any public piece</span></div>
