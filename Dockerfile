@@ -13,7 +13,10 @@ RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /app
 COPY --from=builder /app/humanmcp .
 RUN mkdir -p /data/content
+COPY content/ /app/default-content/
+COPY entrypoint.sh .
+RUN chmod +x entrypoint.sh
 ENV PORT=8080
 ENV CONTENT_DIR=/data/content
 EXPOSE 8080
-CMD ["./humanmcp"]
+CMD ["./entrypoint.sh"]

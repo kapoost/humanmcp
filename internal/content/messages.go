@@ -143,6 +143,21 @@ func parseMessageFile(content string) *Message {
 	return m
 }
 
+// Delete removes a message by ID (owner use only).
+func (ms *MessageStore) Delete(id string) error {
+	// Only allow numeric IDs (UnixNano timestamps)
+	for _, r := range id {
+		if r < '0' || r > '9' {
+			return fmt.Errorf("invalid message id")
+		}
+	}
+	path := filepath.Join(ms.dir, id+".txt")
+	if _, err := os.Stat(path); err != nil {
+		return fmt.Errorf("message not found")
+	}
+	return os.Remove(path)
+}
+
 // sanitiseField strips control chars, trims whitespace, truncates to maxLen
 func sanitiseField(s string, maxLen int) string {
 	// Keep only printable Unicode, no control chars

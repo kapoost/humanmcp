@@ -139,99 +139,320 @@ const allTemplates = `
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Dashboard — {{.Author}}</title>
-<style>{{template "css" .}}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:9px;margin-bottom:1.75rem;}
-.card{background:var(--accent-light);border:1px solid var(--accent);border-radius:7px;padding:.75rem;}
-.card-num{font-size:1.65rem;font-weight:500;color:var(--accent);line-height:1;}
-.card-label{font-size:.68rem;color:var(--muted);margin-top:.25rem;}
-.section{margin-bottom:1.75rem;}
-.section-title{font-size:.7rem;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:.6rem;}
-.row{display:flex;justify-content:space-between;padding:.35rem 0;border-bottom:1px solid var(--border);font-size:.85rem;}
-.row:last-child{border-bottom:none;}
-.rv{font-weight:500;color:var(--accent);}
-.two-col{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;}
-.hour-bar{display:flex;align-items:flex-end;gap:2px;height:60px;margin-top:.4rem;}
-.hb{flex:1;background:var(--accent-light);border-radius:2px 2px 0 0;min-height:2px;}
-.ev-list{list-style:none;}
-.ev-item{padding:.3rem 0;border-bottom:1px solid var(--border);font-size:.75rem;color:var(--muted);display:flex;gap:.5rem;flex-wrap:wrap;}
-.ev-item:last-child{border-bottom:none;}
-.ev-type{font-weight:500;color:var(--fg);}
-.ba{font-size:.65rem;background:var(--accent-light);color:var(--accent);padding:1px 5px;border-radius:3px;border:1px solid var(--accent);}
-.bh{font-size:.65rem;background:var(--tag-bg);color:var(--tag-fg);padding:1px 5px;border-radius:3px;}
-.funnel-row{font-size:.82rem;padding:.35rem 0;border-bottom:1px solid var(--border);}
-.fp{font-size:.7rem;padding:1px 6px;border-radius:3px;margin-right:.3rem;}
-.fp-checked{background:#e3f2fd;color:#1565c0;}
-.fp-tried{background:#fff3e0;color:#e65100;}
-.fp-unlocked{background:#e8f5e9;color:#2e7d32;}
-.msg-preview{padding:.55rem 0;border-bottom:1px solid var(--border);}
-.msg-preview:last-child{border-bottom:none;}
+<title>MISSION CONTROL — {{.Author}}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --d-bg:#0b0b0f;--d-fg:#c8c8c8;--d-accent:#4fc3f7;--d-muted:#505058;
+  --d-border:#1a1a22;--d-card:#0f0f14;--d-card2:#12121a;
+  --d-red:#ef5350;--d-green:#66bb6a;--d-yellow:#ffd54f;--d-orange:#ff9800;
+}
+html,body{height:100%;}
+body{background:var(--d-bg);color:var(--d-fg);font-family:'Courier New',monospace;font-size:13px;line-height:1.5;display:flex;flex-direction:column;}
+a{color:var(--d-accent);text-decoration:none;}
+a:hover{text-decoration:underline;}
+
+/* ── TOP BAR ── */
+.top{display:flex;justify-content:space-between;align-items:center;padding:10px 24px;border-bottom:2px solid var(--d-accent);flex-shrink:0;}
+.top-title{font-size:11px;text-transform:uppercase;letter-spacing:.2em;color:var(--d-accent);}
+.top-title span{color:var(--d-muted);font-weight:400;}
+.top-right{display:flex;gap:20px;align-items:center;}
+.top-clock{font-size:12px;color:var(--d-accent);letter-spacing:.1em;font-weight:400;}
+.top-status{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--d-green);text-transform:uppercase;letter-spacing:.08em;}
+.top-status::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--d-green);animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.3;}}
+.top-nav{font-size:10px;color:var(--d-muted);letter-spacing:.06em;}
+
+/* ── METRICS STRIP ── */
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));border-bottom:1px solid var(--d-border);flex-shrink:0;}
+.metric{padding:14px 20px;border-right:1px solid var(--d-border);text-align:center;}
+.metric:last-child{border-right:none;}
+.metric-val{font-size:32px;font-weight:400;color:var(--d-accent);line-height:1;font-variant-numeric:tabular-nums;}
+.metric-label{font-size:8px;text-transform:uppercase;letter-spacing:.14em;color:var(--d-muted);margin-top:5px;}
+
+/* ── 3-COL GRID ── */
+.main{display:grid;grid-template-columns:1fr 1fr 1fr;flex:1;min-height:0;overflow:hidden;}
+@media(max-width:1000px){.main{grid-template-columns:1fr;overflow:auto;}}
+.col{padding:16px 20px;border-right:1px solid var(--d-border);overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--d-border) transparent;}
+.col:last-child{border-right:none;}
+.col::-webkit-scrollbar{width:4px;}
+.col::-webkit-scrollbar-thumb{background:var(--d-border);}
+
+/* ── SECTIONS ── */
+.sec{margin-bottom:20px;}
+.sec-h{font-size:9px;text-transform:uppercase;letter-spacing:.14em;color:var(--d-muted);padding-bottom:6px;border-bottom:1px solid var(--d-border);margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;}
+.sec-h .sec-count{font-size:10px;color:var(--d-accent);letter-spacing:0;}
+.row{display:flex;justify-content:space-between;padding:3px 0;font-size:12px;}
+.row-v{color:var(--d-accent);font-variant-numeric:tabular-nums;}
+
+/* ── MINI METRICS (col 1) ── */
+.mini-metrics{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;}
+.mini-m{background:var(--d-card2);border:1px solid var(--d-border);padding:12px 14px;border-radius:3px;}
+.mini-m-val{font-size:24px;color:var(--d-accent);line-height:1;font-variant-numeric:tabular-nums;}
+.mini-m-label{font-size:8px;text-transform:uppercase;letter-spacing:.12em;color:var(--d-muted);margin-top:4px;}
+
+/* ── HOURLY CHART ── */
+.hour-bar{display:flex;align-items:flex-end;gap:1px;height:56px;margin:8px 0 4px;}
+.hb{flex:1;background:var(--d-accent);opacity:.3;min-height:1px;border-radius:1px 1px 0 0;transition:opacity .15s;}
+.hb:hover{opacity:1;}
+.hour-labels{display:flex;justify-content:space-between;font-size:8px;color:var(--d-muted);}
+
+/* ── POEM / SESSION KEY ── */
+.poem-box{background:linear-gradient(135deg,#0d1b2a,#1b2838);border:1px solid var(--d-accent);border-radius:4px;padding:14px 16px;margin-bottom:8px;font-size:14px;color:var(--d-accent);cursor:pointer;user-select:all;position:relative;line-height:1.6;}
+.poem-box:hover{border-color:#81d4fa;box-shadow:0 0 12px rgba(79,195,247,.15);}
+.poem-box::after{content:'CLICK TO COPY';position:absolute;top:6px;right:8px;font-size:7px;letter-spacing:.1em;color:var(--d-muted);opacity:.6;}
+.poem-copied::after{content:'COPIED';color:var(--d-green);}
+.poem-countdown{font-size:10px;color:var(--d-muted);display:flex;justify-content:space-between;align-items:center;}
+.poem-countdown strong{color:var(--d-yellow);}
+
+/* ── FUNNEL ── */
+.funnel-row{padding:5px 0;font-size:12px;border-bottom:1px solid var(--d-border);}
+.funnel-row:last-child{border-bottom:none;}
+.fp{font-size:10px;margin-right:6px;}
+.fp-c{color:#42a5f5;} .fp-t{color:var(--d-orange);} .fp-u{color:var(--d-green);}
+
+/* ── BADGES ── */
+.badge{font-size:8px;padding:1px 5px;border:1px solid;letter-spacing:.06em;text-transform:uppercase;}
+.badge-a{color:var(--d-accent);border-color:var(--d-accent);}
+.badge-h{color:var(--d-muted);border-color:var(--d-muted);}
+
+/* ── EVENT TABLE ── */
+.ev-table{width:100%;font-size:11px;border-collapse:collapse;}
+.ev-table td{padding:4px 8px 4px 0;border-bottom:1px solid var(--d-border);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px;}
+.ev-table td:first-child{color:var(--d-muted);font-size:10px;}
+.ev-table td:nth-child(2){color:var(--d-fg);}
+
+/* ── MESSAGES ── */
+.msg{padding:10px 0;border-bottom:1px solid var(--d-border);position:relative;}
+.msg:last-child{border-bottom:none;}
+.msg-meta{font-size:10px;color:var(--d-muted);margin-bottom:3px;display:flex;gap:8px;align-items:center;}
+.msg-meta strong{color:var(--d-fg);font-weight:400;}
+.msg-text{font-size:12px;line-height:1.5;color:var(--d-fg);padding-right:20px;}
+.msg-del{position:absolute;top:10px;right:0;background:none;border:1px solid var(--d-border);color:var(--d-muted);cursor:pointer;font-family:inherit;font-size:10px;padding:1px 5px;border-radius:2px;}
+.msg-del:hover{color:var(--d-red);border-color:var(--d-red);}
+.msg-re{font-size:8px;color:var(--d-accent);border:1px solid var(--d-accent);padding:0 4px;letter-spacing:.04em;}
+.msg-owner{font-size:8px;color:var(--d-yellow);border:1px solid var(--d-yellow);padding:0 4px;letter-spacing:.04em;}
+
+/* ── TEST FORM ── */
+.test-form{display:grid;gap:8px;}
+.test-form input,.test-form textarea,.test-form select{background:var(--d-card);color:var(--d-fg);border:1px solid var(--d-border);padding:7px 10px;font-family:inherit;font-size:12px;width:100%;resize:vertical;border-radius:2px;}
+.test-form input:focus,.test-form textarea:focus,.test-form select:focus{outline:none;border-color:var(--d-accent);}
+.test-form button{background:var(--d-accent);color:var(--d-bg);border:none;padding:7px 20px;font-family:inherit;font-size:10px;text-transform:uppercase;letter-spacing:.12em;cursor:pointer;border-radius:2px;font-weight:700;}
+.test-form button:hover{opacity:.85;}
+.test-form button:disabled{opacity:.4;cursor:default;}
+.test-ok{font-size:11px;color:var(--d-green);margin-top:4px;}
+
+/* ── FOOTER ── */
+.foot{display:flex;justify-content:space-between;padding:8px 24px;font-size:9px;color:var(--d-muted);border-top:1px solid var(--d-border);letter-spacing:.06em;flex-shrink:0;}
 </style>
 </head>
 <body>
-<div class="container">
-{{template "header-simple" .}}
-<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:1.5rem;">
-  <h1 style="font-size:1.1rem;font-weight:500;">Dashboard</h1>
-  <a href="/" style="font-size:.82rem;color:var(--muted);">&#8592; back</a>
+
+<!-- ═══ TOP BAR ═══ -->
+<div class="top">
+  <div class="top-title">humanMCP <span>&mdash;</span> MISSION CONTROL</div>
+  <div class="top-right">
+    <div class="top-status">ONLINE</div>
+    <div class="top-clock" id="clock"></div>
+    <a href="/" class="top-nav">&#8592; SITE</a>
+  </div>
 </div>
 
 {{with .Stats}}
-<div class="grid">
-  <div class="card"><div class="card-num">{{.TotalReads}}</div><div class="card-label">reads</div></div>
-  <div class="card"><div class="card-num">{{.UniqueVisitors}}</div><div class="card-label">unique</div></div>
-  <div class="card"><div class="card-num">{{.AgentCalls}}</div><div class="card-label">agents</div></div>
-  <div class="card"><div class="card-num">{{.HumanVisits}}</div><div class="card-label">humans</div></div>
-  <div class="card"><div class="card-num">{{.TotalComments}}</div><div class="card-label">comments</div></div>
-  <div class="card"><div class="card-num">{{.TotalMessages}}</div><div class="card-label">messages</div></div>
-  <div class="card"><div class="card-num">{{.TotalUnlocks}}</div><div class="card-label">unlocks</div></div>
-  <div class="card"><div class="card-num">{{.TotalInterest}}</div><div class="card-label">gate checks</div></div>
+<!-- ═══ METRICS STRIP ═══ -->
+<div class="metrics">
+  <div class="metric"><div class="metric-val">{{$.PieceCount}}</div><div class="metric-label">pieces</div></div>
+  <div class="metric"><div class="metric-val">{{$.PersonaCount}}</div><div class="metric-label">personas</div></div>
+  <div class="metric"><div class="metric-val">{{$.SkillCount}}</div><div class="metric-label">skills</div></div>
+  <div class="metric"><div class="metric-val">{{.TotalReads}}</div><div class="metric-label">reads</div></div>
+  <div class="metric"><div class="metric-val">{{.TotalMessages}}</div><div class="metric-label">messages</div></div>
+  <div class="metric"><div class="metric-val">{{.UniqueVisitors}}</div><div class="metric-label">visitors</div></div>
+  <div class="metric"><div class="metric-val">{{.AgentCalls}}</div><div class="metric-label">agents</div></div>
+  <div class="metric"><div class="metric-val">{{.HumanVisits}}</div><div class="metric-label">humans</div></div>
 </div>
 
-{{if .HourlyReads}}
-<div class="section">
-  <div class="section-title">reads by hour (UTC)</div>
-  <div class="hour-bar" id="hour-bar"></div>
-  <div style="display:flex;justify-content:space-between;font-size:.6rem;color:var(--muted);margin-top:2px;"><span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>23h</span></div>
+<!-- ═══ 3-COLUMN LAYOUT ═══ -->
+<div class="main">
+
+<!-- ─── COLUMN 1: METRICS & ANALYTICS ─── -->
+<div class="col">
+  <div class="sec">
+    <div class="sec-h">SYSTEM METRICS</div>
+    <div class="mini-metrics">
+      <div class="mini-m"><div class="mini-m-val">{{.TotalComments}}</div><div class="mini-m-label">comments</div></div>
+      <div class="mini-m"><div class="mini-m-val">{{.TotalUnlocks}}</div><div class="mini-m-label">unlocks</div></div>
+      <div class="mini-m"><div class="mini-m-val">{{.TotalInterest}}</div><div class="mini-m-label">gate checks</div></div>
+      <div class="mini-m"><div class="mini-m-val" id="uptime-val">--</div><div class="mini-m-label">uptime</div></div>
+    </div>
+  </div>
+
+  <div class="sec">
+    <div class="sec-h">HOURLY ACTIVITY <span style="font-size:8px;color:var(--d-muted);letter-spacing:0;">(UTC)</span></div>
+    <div class="hour-bar" id="hour-bar"></div>
+    <div class="hour-labels"><span>00</span><span>06</span><span>12</span><span>18</span><span>23</span></div>
+  </div>
+
+  {{if .ReadsBySlug}}<div class="sec"><div class="sec-h">READS / PIECE</div>{{range $s,$n := .ReadsBySlug}}<div class="row"><span>{{$s}}</span><span class="row-v">{{$n}}</span></div>{{end}}</div>{{end}}
+
+  {{if .TagReads}}<div class="sec"><div class="sec-h">READS / TAG</div>{{range $t,$n := .TagReads}}<div class="row"><span>#{{$t}}</span><span class="row-v">{{$n}}</span></div>{{end}}</div>{{end}}
+
+  {{if .ChallengeFunnel}}<div class="sec"><div class="sec-h">CHALLENGE FUNNEL</div>{{range $s,$f := .ChallengeFunnel}}<div class="funnel-row"><div style="font-size:11px;">{{$s}}</div><div style="margin-top:2px;"><span class="fp fp-c">{{index $f 0}} checked</span> <span class="fp fp-t">{{index $f 1}} tried</span> <span class="fp fp-u">{{index $f 2}} unlocked</span></div></div>{{end}}</div>{{end}}
 </div>
+
+<!-- ─── COLUMN 2: SESSION & EVENTS ─── -->
+<div class="col">
+  {{if $.ActivePoem}}<div class="sec">
+    <div class="sec-h">HASLO SESJI <span class="sec-count">SESSION KEY</span></div>
+    <div class="poem-box" id="poem-box" onclick="copyPoem(this)" title="kliknij aby skopiowac">{{$.ActivePoem}}</div>
+    <div class="poem-countdown">
+      <span>wygasa za <strong id="poem-countdown">{{$.PoemExpiresIn}} min</strong></span>
+      <span style="font-size:8px;letter-spacing:.08em;">ROTATION HOURLY</span>
+    </div>
+  </div>{{end}}
+
+  <div class="sec">
+    <div class="sec-h">TRANSMIT MESSAGE</div>
+    <form class="test-form" id="test-form" onsubmit="return sendTest(event)">
+      <input type="text" name="from" value="dashboard-test" placeholder="callsign">
+      <select name="regarding"><option value="">-- GENERAL --</option>{{range $.Pieces}}<option value="{{.Slug}}">{{.Title}}</option>{{end}}</select>
+      <textarea name="text" rows="3" placeholder="message payload..." required></textarea>
+      <div style="display:flex;gap:8px;align-items:center;"><button type="submit" id="send-btn">TRANSMIT</button><span class="test-ok" id="test-ok"></span></div>
+    </form>
+  </div>
+
+  {{if .RecentEvents}}<div class="sec">
+    <div class="sec-h">RECENT EVENTS <span class="sec-count">LAST {{len .RecentEvents}}</span></div>
+    <table class="ev-table">{{range .RecentEvents}}<tr>
+      <td>{{formatDate .At}}</td>
+      <td>{{.Type}}</td>
+      <td>{{if eq (print .Caller) "agent"}}<span class="badge badge-a">AGT</span>{{else if eq (print .Caller) "human"}}<span class="badge badge-h">HMN</span>{{end}}</td>
+      <td>{{.Slug}}</td>
+      <td>{{.Country}}</td>
+    </tr>{{end}}</table>
+  </div>{{end}}
+
+  {{if .Countries}}<div class="sec"><div class="sec-h">REGIONS</div>{{range $c,$n := .Countries}}<div class="row"><span>{{$c}}</span><span class="row-v">{{$n}}</span></div>{{end}}</div>{{end}}
+</div>
+
+<!-- ─── COLUMN 3: MESSAGES & BREAKDOWN ─── -->
+<div class="col">
+  <div class="sec">
+    <div class="sec-h">INCOMING MESSAGES <span class="sec-count">{{len $.Messages}}</span></div>
+    <div id="msg-list">
+    {{if $.Messages}}{{range $.Messages}}<div class="msg" data-id="{{.ID}}">
+      <div class="msg-meta">
+        {{if .From}}<strong>{{.From}}</strong>{{else}}<span>anon</span>{{end}}
+        {{if eq .From "dashboard-test"}}<span class="msg-owner">OWNER</span>{{end}}
+        <span>{{formatDate .At}}</span>
+        {{if .Regarding}}<span class="msg-re">re: {{.Regarding}}</span>{{end}}
+      </div>
+      <div class="msg-text">{{.Text}}</div>
+      <button class="msg-del" onclick="delMsg('{{.ID}}',this)" title="delete">&#10005;</button>
+    </div>{{end}}
+    {{else}}<div style="color:var(--d-muted);font-size:11px;padding:12px 0;text-align:center;">NO INCOMING TRANSMISSIONS</div>{{end}}
+    </div>
+  </div>
+
+  {{if .TopReferrers}}<div class="sec"><div class="sec-h">REFERRERS</div>{{range $r,$n := .TopReferrers}}<div class="row"><span>{{$r}}</span><span class="row-v">{{$n}}</span></div>{{end}}</div>{{end}}
+
+  {{if .TopAgents}}<div class="sec"><div class="sec-h">KNOWN VISITORS</div>{{range $n,$c := .TopAgents}}<div class="row"><span>{{$n}}</span><span class="row-v">{{$c}}</span></div>{{end}}</div>{{end}}
+
+  {{if .InterestBySlug}}<div class="sec"><div class="sec-h">GATE INTEREST</div>{{range $s,$n := .InterestBySlug}}<div class="row"><span>{{$s}}</span><span class="row-v">{{$n}}</span></div>{{end}}</div>{{end}}
+</div>
+
+</div>
+{{end}}
+
+<!-- ═══ FOOTER ═══ -->
+<div class="foot">
+  <span>humanMCP &middot; {{.Author}} &middot; MISSION CONTROL v0.2</span>
+  <span>{{.PieceCount}} PIECES &middot; {{.SkillCount}} SKILLS &middot; {{.PersonaCount}} PERSONAS</span>
+</div>
+
 <script>
 (function(){
-  var data=[{{range .HourlyReads}}{{.}},{{end}}];
-  var max=Math.max.apply(null,data)||1;
+  /* ── UTC Clock ── */
+  var cl=document.getElementById('clock');
+  function tick(){
+    var d=new Date();
+    var h=d.getUTCHours(),m=d.getUTCMinutes(),s=d.getUTCSeconds();
+    cl.textContent=String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0')+' UTC';
+  }
+  tick();setInterval(tick,1000);
+
+  /* ── Uptime (approx from page load) ── */
+  var loadTime=Date.now();
+  var uptimeEl=document.getElementById('uptime-val');
+  function updateUptime(){
+    var sec=Math.floor((Date.now()-loadTime)/1000);
+    if(sec<60)uptimeEl.textContent=sec+'s';
+    else if(sec<3600)uptimeEl.textContent=Math.floor(sec/60)+'m';
+    else uptimeEl.textContent=Math.floor(sec/3600)+'h '+Math.floor((sec%3600)/60)+'m';
+  }
+  updateUptime();setInterval(updateUptime,10000);
+
+  /* ── Hourly bar chart ── */
+  var data=[{{with .Stats}}{{range .HourlyReads}}{{.}},{{end}}{{end}}];
   var bar=document.getElementById('hour-bar');
-  data.forEach(function(v,i){var d=document.createElement('div');d.className='hb';d.style.height=Math.max(2,Math.round(v/max*58))+'px';d.title='Hour '+i+': '+v+' reads';bar.appendChild(d);});
+  if(bar&&data.length){
+    var mx=Math.max.apply(null,data)||1;
+    data.forEach(function(v,i){
+      var d=document.createElement('div');d.className='hb';
+      d.style.height=Math.max(1,Math.round(v/mx*52))+'px';
+      d.title=String(i).padStart(2,'0')+'h: '+v+' reads';
+      /* highlight current UTC hour */
+      if(i===new Date().getUTCHours()){d.style.opacity='1';d.style.background='#81d4fa';}
+      bar.appendChild(d);
+    });
+  }
+
+  /* ── Poem countdown (live) ── */
+  var cdEl=document.getElementById('poem-countdown');
+  if(cdEl){
+    var startMin={{$.PoemExpiresIn}};
+    var cdSec=startMin*60;
+    setInterval(function(){
+      cdSec--;if(cdSec<0){location.reload();return;}
+      var mm=Math.floor(cdSec/60),ss=cdSec%60;
+      cdEl.textContent=mm+'m '+String(ss).padStart(2,'0')+'s';
+      if(cdSec<120)cdEl.style.color='var(--d-red)';
+      else if(cdSec<300)cdEl.style.color='var(--d-orange)';
+    },1000);
+  }
 })();
+
+/* ── Copy poem ── */
+function copyPoem(el){
+  navigator.clipboard.writeText(el.textContent.trim());
+  el.classList.add('poem-copied');
+  setTimeout(function(){el.classList.remove('poem-copied');},2000);
+}
+
+/* ── Send test message ── */
+function sendTest(e){
+  e.preventDefault();
+  var f=document.getElementById('test-form');
+  var btn=document.getElementById('send-btn');
+  var ok=document.getElementById('test-ok');
+  btn.disabled=true;ok.textContent='';
+  var body=new URLSearchParams(new FormData(f));
+  fetch('/contact',{method:'POST',body:body,headers:{'Content-Type':'application/x-www-form-urlencoded'}})
+    .then(function(r){
+      if(r.ok){ok.textContent='TRANSMITTED';f.querySelector('textarea').value='';setTimeout(function(){location.reload();},800);}
+      else{ok.textContent='TX ERROR';ok.style.color='var(--d-red)';}
+      btn.disabled=false;
+    })
+    .catch(function(){ok.textContent='TX FAILED';ok.style.color='var(--d-red)';btn.disabled=false;});
+  return false;
+}
+
+/* ── Delete message ── */
+function delMsg(id,btn){
+  var el=btn.closest('.msg');
+  fetch('/api/messages/'+id,{method:'DELETE'})
+    .then(function(r){if(r.ok&&el){el.style.opacity='.3';setTimeout(function(){el.remove();},300);}});
+}
 </script>
-{{end}}
-
-<div class="two-col">
-<div>
-  {{if .ReadsBySlug}}<div class="section"><div class="section-title">reads per piece</div>{{range $s,$n := .ReadsBySlug}}<div class="row"><span>{{$s}}</span><span class="rv">{{$n}}</span></div>{{end}}</div>{{end}}
-  {{if .TagReads}}<div class="section"><div class="section-title">reads per tag</div>{{range $t,$n := .TagReads}}<div class="row"><span>#{{$t}}</span><span class="rv">{{$n}}</span></div>{{end}}</div>{{end}}
-</div>
-<div>
-  {{if .ChallengeFunnel}}<div class="section"><div class="section-title">challenge funnel</div>{{range $s,$f := .ChallengeFunnel}}<div class="funnel-row"><div style="font-size:.8rem;font-weight:500;">{{$s}}</div><div style="margin-top:.2rem;"><span class="fp fp-checked">{{index $f 0}} checked</span><span class="fp fp-tried">{{index $f 1}} tried</span><span class="fp fp-unlocked">{{index $f 2}} unlocked</span></div></div>{{end}}</div>{{end}}
-  {{if .Countries}}<div class="section"><div class="section-title">by region</div>{{range $c,$n := .Countries}}<div class="row"><span>{{$c}}</span><span class="rv">{{$n}}</span></div>{{end}}</div>{{end}}
-  {{if .TopReferrers}}<div class="section"><div class="section-title">referrers</div>{{range $r,$n := .TopReferrers}}<div class="row"><span>{{$r}}</span><span class="rv">{{$n}}</span></div>{{end}}</div>{{end}}
-  {{if .TopAgents}}<div class="section"><div class="section-title">visitors</div>{{range $n,$c := .TopAgents}}<div class="row"><span>{{$n}}</span><span class="rv">{{$c}}</span></div>{{end}}</div>{{end}}
-</div>
-</div>
-
-{{if .RecentEvents}}<div class="section"><div class="section-title">recent activity</div><ul class="ev-list">{{range .RecentEvents}}<li class="ev-item"><span>{{formatDate .At}}</span><span class="ev-type">{{.Type}}</span>{{if eq (print .Caller) "agent"}}<span class="ba">agent</span>{{else if eq (print .Caller) "human"}}<span class="bh">human</span>{{end}}{{if .Slug}}<span style="color:var(--fg);">{{.Slug}}</span>{{end}}{{if .From}}<span>&#8212;{{.From}}</span>{{end}}{{if .Country}}<span>&#127760;{{.Country}}</span>{{end}}</li>{{end}}</ul></div>{{end}}
-{{end}}
-
-{{if .Messages}}<div class="section"><div class="section-title">messages &amp; comments ({{len .Messages}})</div>{{range .Messages}}<div class="msg-preview">
-  <div style="font-size:.73rem;color:var(--muted);margin-bottom:.3rem;display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">
-    {{if .From}}<strong style="color:var(--fg);font-size:.8rem;">{{.From}}</strong>{{else}}<span>anonymous</span>{{end}}
-    <span>{{formatDate .At}}</span>
-    {{if .Regarding}}<span style="background:var(--accent-light);color:var(--accent);padding:1px 7px;border-radius:10px;font-size:.7rem;border:1px solid var(--accent);">re: {{.Regarding}}</span>{{end}}
-  </div>
-  <div style="font-size:.9rem;line-height:1.55;">{{.Text}}</div>
-</div>{{end}}</div>
-{{else}}<div class="section"><div class="section-title">messages &amp; comments</div><p style="color:var(--muted);font-size:.85rem;">No messages yet.</p></div>{{end}}
-
-{{template "footer" .}}
-</div>
 </body></html>
 {{end}}
 

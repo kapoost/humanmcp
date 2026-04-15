@@ -1,9 +1,15 @@
 package config
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
+	"math/big"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 type Config struct {
@@ -26,7 +32,15 @@ type Config struct {
 	OwnerPrivateKey string `json:"owner_private_key"`
 
 	// Edit token
-	EditToken string `json:"edit_token"`
+	EditToken  string `json:"edit_token"`
+	AgentToken string `json:"agent_token"`
+
+	// Session secret — for machine auth (Fly secret, rotated locally)
+	SessionSecret string `json:"session_secret"`
+
+	// Rotating poet passwords — HMAC-selected from pool, 1h TTL
+	PoetPool   []string `json:"-"` // parsed from POET_POOL env (base64-encoded JSON array)
+	PoetSecret string   `json:"-"` // POET_SECRET env — HMAC key for poem selection
 
 	// Ed25519 signing keypair (base64 private key, hex public key)
 	SigningPrivateKey string `json:"signing_private_key"`
@@ -63,11 +77,28 @@ func Load() (*Config, error) {
 	if v := os.Getenv("CONTENT_DIR"); v != "" {
 		cfg.ContentDir = v
 	}
+	if v := os.Getenv("AGENT_TOKEN"); v != "" {
+		cfg.AgentToken = v
+	}
+	if v := os.Getenv("SESSION_SECRET"); v != "" {
+		cfg.SessionSecret = v
+	}
 	if v := os.Getenv("SIGNING_PRIVATE_KEY"); v != "" {
 		cfg.SigningPrivateKey = v
 	}
 	if v := os.Getenv("SIGNING_PUBLIC_KEY"); v != "" {
 		cfg.SigningPublicKey = v
+	}
+	if v := os.Getenv("POET_SECRET"); v != "" {
+		cfg.PoetSecret = v
+	}
+	if v := os.Getenv("POET_POOL"); v != "" {
+		if decoded, err := base64.StdEncoding.DecodeString(v); err == nil {
+			var pool []string
+			if err := json.Unmarshal(decoded, &pool); err == nil {
+				cfg.PoetPool = pool
+			}
+		}
 	}
 
 	// Load from config.json if present
@@ -86,4 +117,27 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// PickActivePoem returns the current and previous hour's poem from PoetPool.
+// Returns ("", "") if pool is empty or secret is missing.
+func (c *Config) PickActivePoem(now time.Time) (current string, previous string) {
+	if len(c.PoetPool) == 0 || c.PoetSecret == "" {
+		return "", ""
+	}
+	hourKey := now.Unix() / 3600
+	current = poemForHour(c.PoetPool, c.PoetSecret, hourKey)
+	previous = poemForHour(c.PoetPool, c.PoetSecret, hourKey-1)
+	return current, previous
+}
+
+func poemForHour(pool []string, secret string, hourKey int64) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	var buf [8]byte
+	binary.BigEndian.PutUint64(buf[:], uint64(hourKey))
+	mac.Write(buf[:])
+	sum := mac.Sum(nil)
+	idx := new(big.Int).SetBytes(sum[:8])
+	idx.Mod(idx, big.NewInt(int64(len(pool))))
+	return pool[idx.Int64()]
 }
