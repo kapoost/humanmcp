@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -83,6 +84,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 	// Messages (owner only)
 	mux.Handle("/messages", h.auth.RequireOwner(http.HandlerFunc(h.handleMessages)))
+	mux.Handle("/api/messages/", h.auth.RequireOwner(http.HandlerFunc(h.handleDeleteMessage)))
 
 	// Contact form (public)
 	mux.HandleFunc("/contact", h.handleContact)
@@ -109,6 +111,10 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	// Delete (owner only, POST)
 	mux.Handle("/delete/", h.auth.RequireOwner(http.HandlerFunc(h.handleDelete)))
 
+
+	// Skills API (owner only)
+	mux.Handle("/api/skills", h.auth.RequireOwner(http.HandlerFunc(h.handleAPISkills)))
+	mux.Handle("/api/skills/", h.auth.RequireOwner(http.HandlerFunc(h.handleAPISkills)))
 
 	// Blob uploader UI (owner only)
 	mux.Handle("/upload", h.auth.RequireOwner(http.HandlerFunc(h.handleUploadPage)))
@@ -337,13 +343,41 @@ func (h *Handler) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	pieces := h.store.List(false)
 	msgs, _ := h.msgStore.List()
+
+	now := time.Now()
+	activePoem, _ := h.cfg.PickActivePoem(now)
+	minutesLeft := 60 - now.Minute()
+
+	skillCount := len(h.loadSkills())
+	personaCount := h.countPersonas()
+
 	h.render(w, "dashboard.html", map[string]interface{}{
-		"Author":   h.cfg.AuthorName,
-		"IsOwner":  true,
-		"Stats":    stats,
-		"Pieces":   pieces,
-		"Messages": msgs,
+		"Author":        h.cfg.AuthorName,
+		"IsOwner":       true,
+		"Stats":         stats,
+		"Pieces":        pieces,
+		"Messages":      msgs,
+		"PieceCount":    len(pieces),
+		"ActivePoem":    activePoem,
+		"PoemExpiresIn": minutesLeft,
+		"SkillCount":    skillCount,
+		"PersonaCount":  personaCount,
 	})
+}
+
+func (h *Handler) countPersonas() int {
+	dir := filepath.Join(h.cfg.ContentDir, "personas")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	count := 0
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {
+			count++
+		}
+	}
+	return count
 }
 
 func (h *Handler) handleUploadPage(w http.ResponseWriter, r *http.Request) {
@@ -645,7 +679,7 @@ func (h *Handler) handleConnect(w http.ResponseWriter, r *http.Request) {
 		"Author":    h.cfg.AuthorName,
 		"Bio":       h.cfg.AuthorBio,
 		"Domain":    h.cfg.Domain,
-		"ToolCount": 12,
+		"ToolCount": 14,
 	})
 }
 
@@ -699,6 +733,24 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *Handler) handleDeleteMessage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, "/api/messages/")
+	if id == "" {
+		jsonError(w, "missing id", 400)
+		return
+	}
+	if err := h.msgStore.Delete(id); err != nil {
+		jsonError(w, err.Error(), 404)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+}
+
 func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		r.ParseForm()
@@ -735,6 +787,110 @@ func (h *Handler) render(w http.ResponseWriter, name string, data interface{}) {
 	if err := h.tmpl.ExecuteTemplate(w, name, data); err != nil {
 		log.Printf("template error %s: %v", name, err)
 		fmt.Fprintf(w, "template error: %v", err)
+	}
+}
+
+// ── Skills API ───────────────────────────────────────────────────────────────
+
+type apiSkill struct {
+	Slug      string `json:"slug"`
+	Category  string `json:"category"`
+	Title     string `json:"title"`
+	Body      string `json:"body"`
+	UpdatedAt string `json:"updated_at,omitempty"`
+	UpdatedBy string `json:"updated_by,omitempty"`
+}
+
+func (h *Handler) loadSkills() []apiSkill {
+	dir := filepath.Join(h.cfg.ContentDir, "skills")
+	var out []apiSkill
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return out
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		var s apiSkill
+		if err := json.Unmarshal(data, &s); err != nil {
+			continue
+		}
+		if s.Slug == "" {
+			s.Slug = strings.TrimSuffix(e.Name(), ".json")
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+func (h *Handler) handleAPISkills(w http.ResponseWriter, r *http.Request) {
+	slug := strings.TrimPrefix(r.URL.Path, "/api/skills/")
+	if slug == "/api/skills" {
+		slug = ""
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		if slug == "" {
+			skills := h.loadSkills()
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(skills)
+			return
+		}
+		// Get single skill
+		skills := h.loadSkills()
+		for _, s := range skills {
+			if s.Slug == slug {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(s)
+				return
+			}
+		}
+		jsonError(w, "not found", 404)
+
+	case http.MethodPost, http.MethodPut:
+		var s apiSkill
+		if err := json.NewDecoder(r.Body).Decode(&s); err != nil {
+			jsonError(w, "invalid json: "+err.Error(), 400)
+			return
+		}
+		if slug != "" && s.Slug == "" {
+			s.Slug = slug
+		}
+		if s.Slug == "" {
+			jsonError(w, "slug required", 400)
+			return
+		}
+		dir := filepath.Join(h.cfg.ContentDir, "skills")
+		os.MkdirAll(dir, 0755)
+		data, _ := json.MarshalIndent(s, "", "  ")
+		if err := os.WriteFile(filepath.Join(dir, s.Slug+".json"), data, 0644); err != nil {
+			jsonError(w, err.Error(), 500)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "saved", "slug": s.Slug})
+
+	case http.MethodDelete:
+		if slug == "" {
+			jsonError(w, "slug required", 400)
+			return
+		}
+		path := filepath.Join(h.cfg.ContentDir, "skills", slug+".json")
+		if err := os.Remove(path); err != nil {
+			jsonError(w, "not found", 404)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+
+	default:
+		jsonError(w, "method not allowed", 405)
 	}
 }
 

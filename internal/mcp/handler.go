@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kapoost/humanmcp-go/internal/auth"
@@ -52,6 +55,23 @@ type ContentBlock struct {
 	Text string `json:"text"`
 }
 
+type Persona struct {
+	Slug  string   `json:"slug"`
+	Title string   `json:"title"`
+	Role  string   `json:"role"`
+	Tags  []string `json:"tags"`
+	Body  string   `json:"body"`
+}
+
+type Skill struct {
+	Slug      string `json:"slug"`
+	Category  string `json:"category"`
+	Title     string `json:"title"`
+	Body      string `json:"body"`
+	UpdatedAt string `json:"updated_at,omitempty"`
+	UpdatedBy string `json:"updated_by,omitempty"`
+}
+
 type Handler struct {
 	cfg       *config.Config
 	store     *content.Store
@@ -59,17 +79,155 @@ type Handler struct {
 	msgStore  *content.MessageStore
 	statStore *content.StatStore
 	blobStore *content.BlobStore
+	sessions  map[string]time.Time // session ID → expiry time
+
+	mu          sync.Mutex
+	rateLimiter map[string][]time.Time // IP → attempt timestamps (sliding window)
 }
 
 func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler {
-	return &Handler{
-		cfg:       cfg,
-		store:     store,
-		auth:      a,
-		msgStore:  content.NewMessageStore(cfg.ContentDir),
-		statStore: content.NewStatStore(cfg.ContentDir),
-		blobStore: content.NewBlobStore(cfg.ContentDir),
+	h := &Handler{
+		cfg:         cfg,
+		store:       store,
+		auth:        a,
+		msgStore:    content.NewMessageStore(cfg.ContentDir),
+		statStore:   content.NewStatStore(cfg.ContentDir),
+		blobStore:   content.NewBlobStore(cfg.ContentDir),
+		sessions:    make(map[string]time.Time),
+		rateLimiter: make(map[string][]time.Time),
 	}
+	// Cleanup goroutines
+	go h.cleanupLoop()
+	return h
+}
+
+func (h *Handler) cleanupLoop() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		now := time.Now()
+		h.mu.Lock()
+		// Expire sessions
+		for sid, expiry := range h.sessions {
+			if now.After(expiry) {
+				delete(h.sessions, sid)
+			}
+		}
+		// Expire rate limiter entries
+		cutoff := now.Add(-1 * time.Minute)
+		for ip, times := range h.rateLimiter {
+			var fresh []time.Time
+			for _, t := range times {
+				if t.After(cutoff) {
+					fresh = append(fresh, t)
+				}
+			}
+			if len(fresh) == 0 {
+				delete(h.rateLimiter, ip)
+			} else {
+				h.rateLimiter[ip] = fresh
+			}
+		}
+		h.mu.Unlock()
+	}
+}
+
+func (h *Handler) loadPersonas() []Persona {
+	dir := filepath.Join(h.cfg.ContentDir, "personas")
+	var out []Persona
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return out
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		p := parsePersonaFile(string(data), strings.TrimSuffix(e.Name(), ".md"))
+		if p.Slug != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func parsePersonaFile(raw string, fallbackSlug string) Persona {
+	p := Persona{Slug: fallbackSlug}
+	parts := strings.SplitN(raw, "---", 3)
+	if len(parts) < 3 {
+		p.Body = raw
+		return p
+	}
+	// Parse frontmatter
+	for _, line := range strings.Split(parts[1], "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "slug:") {
+			p.Slug = strings.TrimSpace(strings.TrimPrefix(line, "slug:"))
+		} else if strings.HasPrefix(line, "title:") {
+			p.Title = strings.TrimSpace(strings.TrimPrefix(line, "title:"))
+		} else if strings.HasPrefix(line, "role:") {
+			p.Role = strings.TrimSpace(strings.TrimPrefix(line, "role:"))
+		} else if strings.HasPrefix(line, "tags:") {
+			tagStr := strings.TrimSpace(strings.TrimPrefix(line, "tags:"))
+			tagStr = strings.Trim(tagStr, "[]")
+			for _, t := range strings.Split(tagStr, ",") {
+				t = strings.TrimSpace(t)
+				if t != "" {
+					p.Tags = append(p.Tags, t)
+				}
+			}
+		}
+	}
+	p.Body = strings.TrimSpace(parts[2])
+	return p
+}
+
+func (h *Handler) loadSkills() []Skill {
+	dir := filepath.Join(h.cfg.ContentDir, "skills")
+	var out []Skill
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return out
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		var s Skill
+		if err := json.Unmarshal(data, &s); err != nil {
+			continue
+		}
+		if s.Slug == "" {
+			s.Slug = strings.TrimSuffix(e.Name(), ".json")
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+func (h *Handler) validateSession(code string) bool {
+	code = strings.TrimSpace(strings.ToLower(code))
+	// Check session secret (machine auth)
+	if h.cfg.SessionSecret != "" && code == strings.ToLower(h.cfg.SessionSecret) {
+		return true
+	}
+	// Check rotating poet password (human auth)
+	current, previous := h.cfg.PickActivePoem(time.Now())
+	if current != "" && code == strings.ToLower(current) {
+		return true
+	}
+	if previous != "" && code == strings.ToLower(previous) {
+		return true
+	}
+	return false
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -120,13 +278,14 @@ TOOLS — call them in this order:
 1. get_author_profile  — full profile and content overview
 2. list_content        — all pieces: title, type, access, tags
 3. read_content        — full text of any public piece
-4. verify_content      — verify a piece is authentically signed by kapoost
-5. request_access      — gate details for locked pieces
-6. submit_answer       — unlock a challenge-gated piece
-7. get_certificate     — full IP certificate: license, price, originality index
-8. request_license     — declare intended use and get terms before using content
-9. leave_comment       — leave a reaction to a piece (do this after reading)
-10. leave_message      — leave kapoost a general note
+4. list_personas       — team roster (names and roles)
+5. list_skills         — skill catalog (titles and categories)
+6. bootstrap_session   — unlock full team prompts + skills (needs session code from user — a Polish poetry fragment)
+7. get_persona         — full persona details by slug
+8. get_skill           — full skill details by slug
+9. verify_content      — verify a piece is authentically signed
+10. leave_comment      — leave a reaction to a piece (do this after reading)
+11. leave_message      — leave kapoost a general note
 
 SHARING RULES:
 - Quote, share, read aloud, include in full — all allowed
@@ -324,6 +483,99 @@ func (h *Handler) handleToolsList(w http.ResponseWriter, req *Request) {
 			},
 		},
 	}
+
+	// Team & session tools
+	tools = append(tools,
+		Tool{
+			Name:        "bootstrap_session",
+			Description: "Authenticate with a session code and receive full context: team personas with prompts, ready for work. Ask the user for the session code — it's a fragment of Polish poetry.",
+			InputSchema: map[string]interface{}{
+				"type":     "object",
+				"required": []string{"code"},
+				"properties": map[string]interface{}{
+					"code": map[string]interface{}{
+						"type":        "string",
+						"description": "Session code from the user (a short Polish poetry fragment)",
+					},
+				},
+			},
+		},
+		Tool{
+			Name:        "list_personas",
+			Description: "List available expert personas. Returns name, role, and tags for each team member. Full prompts available after bootstrap_session.",
+			InputSchema: map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+		},
+		Tool{
+			Name:        "get_persona",
+			Description: "Get full details of a persona by slug. Requires authenticated session for full prompt body.",
+			InputSchema: map[string]interface{}{
+				"type":     "object",
+				"required": []string{"slug"},
+				"properties": map[string]interface{}{
+					"slug": map[string]interface{}{
+						"type":        "string",
+						"description": "Persona slug (from list_personas)",
+					},
+				},
+			},
+		},
+		Tool{
+			Name:        "list_skills",
+			Description: "List the author's skills — instructions for how to work with them. Filter by category (e.g. tech, writing, workflow).",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"category": map[string]interface{}{
+						"type":        "string",
+						"description": "Filter by category. Empty = all.",
+					},
+				},
+			},
+		},
+		Tool{
+			Name:        "get_skill",
+			Description: "Get full details of a skill by slug. Full body available after bootstrap_session.",
+			InputSchema: map[string]interface{}{
+				"type":     "object",
+				"required": []string{"slug"},
+				"properties": map[string]interface{}{
+					"slug": map[string]interface{}{
+						"type":        "string",
+						"description": "Skill slug (from list_skills)",
+					},
+				},
+			},
+		},
+		Tool{
+			Name:        "upsert_skill",
+			Description: "Create or update a skill. Requires agent token in Authorization: Bearer <token> header.",
+			InputSchema: map[string]interface{}{
+				"type":     "object",
+				"required": []string{"slug", "category", "title", "body"},
+				"properties": map[string]interface{}{
+					"slug":     map[string]interface{}{"type": "string"},
+					"category": map[string]interface{}{"type": "string"},
+					"title":    map[string]interface{}{"type": "string"},
+					"body":     map[string]interface{}{"type": "string", "description": "Markdown instructions"},
+				},
+			},
+		},
+		Tool{
+			Name:        "delete_skill",
+			Description: "Delete a skill by slug. Requires agent token in Authorization: Bearer <token> header.",
+			InputSchema: map[string]interface{}{
+				"type":     "object",
+				"required": []string{"slug"},
+				"properties": map[string]interface{}{
+					"slug": map[string]interface{}{"type": "string"},
+				},
+			},
+		},
+	)
+
 	writeResult(w, req.ID, ToolsListResult{Tools: tools})
 }
 
@@ -363,6 +615,20 @@ func (h *Handler) handleToolsCall(w http.ResponseWriter, r *http.Request, req *R
 		h.toolLeaveComment(w, req, params.Arguments)
 	case "leave_message":
 		h.toolLeaveMessage(w, req, params.Arguments)
+	case "bootstrap_session":
+		h.toolBootstrapSession(w, r, req, params.Arguments)
+	case "list_personas":
+		h.toolListPersonas(w, req)
+	case "get_persona":
+		h.toolGetPersona(w, r, req, params.Arguments)
+	case "list_skills":
+		h.toolListSkills(w, req, params.Arguments)
+	case "get_skill":
+		h.toolGetSkill(w, r, req, params.Arguments)
+	case "upsert_skill":
+		h.toolUpsertSkill(w, r, req, params.Arguments)
+	case "delete_skill":
+		h.toolDeleteSkill(w, r, req, params.Arguments)
 	default:
 		writeError(w, req.ID, -32602, "unknown tool: "+params.Name)
 	}
@@ -964,4 +1230,281 @@ func hasTag(tags []string, tag string) bool {
 		}
 	}
 	return false
+}
+
+// ── Team & Session Tools ─────────────────────────────────────────────────────
+
+func (h *Handler) isSessionActive(r *http.Request) bool {
+	sid := r.Header.Get("Mcp-Session-Id")
+	if sid == "" {
+		return false
+	}
+	h.mu.Lock()
+	expiry, ok := h.sessions[sid]
+	h.mu.Unlock()
+	return ok && time.Now().Before(expiry)
+}
+
+func (h *Handler) clientIP(r *http.Request) string {
+	if ip := r.Header.Get("Fly-Client-IP"); ip != "" {
+		return ip
+	}
+	if ip := r.Header.Get("X-Forwarded-For"); ip != "" {
+		return strings.SplitN(ip, ",", 2)[0]
+	}
+	return r.RemoteAddr
+}
+
+func (h *Handler) checkRateLimit(ip string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	now := time.Now()
+	cutoff := now.Add(-1 * time.Minute)
+	var recent []time.Time
+	for _, t := range h.rateLimiter[ip] {
+		if t.After(cutoff) {
+			recent = append(recent, t)
+		}
+	}
+	if len(recent) >= 5 {
+		h.rateLimiter[ip] = recent
+		return false // rate limited
+	}
+	recent = append(recent, now)
+	h.rateLimiter[ip] = recent
+	return true // allowed
+}
+
+func (h *Handler) toolBootstrapSession(w http.ResponseWriter, r *http.Request, req *Request, args json.RawMessage) {
+	var params struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil || params.Code == "" {
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
+			Text: "Podaj kod sesji. Zapytaj użytkownika o fragment wiersza polskiego poety."}}})
+		return
+	}
+
+	ip := h.clientIP(r)
+
+	// Rate limit: max 5 attempts per minute per IP
+	if !h.checkRateLimit(ip) {
+		log.Printf("[AUDIT] bootstrap_session RATE_LIMITED ip=%s", ip)
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
+			Text: "Zbyt wiele prób. Poczekaj minutę."}}})
+		return
+	}
+
+	if !h.validateSession(params.Code) {
+		log.Printf("[AUDIT] bootstrap_session FAIL ip=%s", ip)
+		h.statStore.Record(content.Event{Type: content.EventAccess, Caller: content.CallerAgent})
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
+			Text: "Niepoprawne hasło sesji. Sprawdź — to powinien być fragment wiersza polskiego poety. Wielkość liter nie ma znaczenia."}}})
+		return
+	}
+
+	log.Printf("[AUDIT] bootstrap_session OK ip=%s", ip)
+
+	// Session valid — remember this session with 1h TTL
+	if sid := r.Header.Get("Mcp-Session-Id"); sid != "" {
+		h.mu.Lock()
+		h.sessions[sid] = time.Now().Add(1 * time.Hour)
+		h.mu.Unlock()
+	}
+
+	// Return full team briefing
+	personas := h.loadPersonas()
+	var sb strings.Builder
+	sb.WriteString("SESSION ACTIVE — full access granted.\n\n")
+	sb.WriteString(fmt.Sprintf("TEAM ROSTER — %d personas:\n\n", len(personas)))
+
+	for _, p := range personas {
+		sb.WriteString(fmt.Sprintf("## %s — %s\n", p.Title, p.Role))
+		sb.WriteString(fmt.Sprintf("Tags: %s\n", strings.Join(p.Tags, ", ")))
+		sb.WriteString(fmt.Sprintf("Prompt:\n%s\n\n", p.Body))
+	}
+
+	// Skills
+	skills := h.loadSkills()
+	if len(skills) > 0 {
+		sb.WriteString(fmt.Sprintf("\n---\nSKILLS — %d instructions:\n\n", len(skills)))
+		for _, s := range skills {
+			sb.WriteString(fmt.Sprintf("## %s [%s]\n%s\n\n", s.Title, s.Category, s.Body))
+		}
+	}
+
+	sb.WriteString("---\nUse these personas to assist the user. Each has a distinct perspective.\n")
+	sb.WriteString("When the user asks for a 'narada' (brainstorm), query multiple personas on the topic.\n")
+
+	writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: sb.String()}}})
+}
+
+func (h *Handler) toolListPersonas(w http.ResponseWriter, req *Request) {
+	personas := h.loadPersonas()
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("TEAM — %d personas available:\n\n", len(personas)))
+	for _, p := range personas {
+		sb.WriteString(fmt.Sprintf("  %-20s %s — %s\n", p.Slug, p.Title, p.Role))
+	}
+	sb.WriteString("\nFull prompts available after bootstrap_session (ask user for session code).")
+	writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: sb.String()}}})
+}
+
+func (h *Handler) toolGetPersona(w http.ResponseWriter, r *http.Request, req *Request, args json.RawMessage) {
+	var params struct {
+		Slug string `json:"slug"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil || params.Slug == "" {
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: "Podaj slug persony."}}})
+		return
+	}
+
+	authenticated := h.isSessionActive(r)
+	personas := h.loadPersonas()
+	for _, p := range personas {
+		if p.Slug == params.Slug {
+			if authenticated {
+				text := fmt.Sprintf("%s — %s\nTags: %s\n\n%s",
+					p.Title, p.Role, strings.Join(p.Tags, ", "), p.Body)
+				writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: text}}})
+			} else {
+				text := fmt.Sprintf("%s — %s\nTags: %s\n\nFull prompt available after bootstrap_session. Ask user for session code.",
+					p.Title, p.Role, strings.Join(p.Tags, ", "))
+				writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: text}}})
+			}
+			return
+		}
+	}
+	writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
+		Text: fmt.Sprintf("Persona '%s' nie znaleziona. Użyj list_personas.", params.Slug)}}})
+}
+
+// ── Skill Tools ──────────────────────────────────────────────────────────────
+
+func (h *Handler) toolListSkills(w http.ResponseWriter, req *Request, args json.RawMessage) {
+	var params struct {
+		Category string `json:"category"`
+	}
+	if args != nil {
+		json.Unmarshal(args, &params)
+	}
+
+	skills := h.loadSkills()
+	var sb strings.Builder
+	count := 0
+	for _, s := range skills {
+		if params.Category != "" && !strings.EqualFold(s.Category, params.Category) {
+			continue
+		}
+		count++
+	}
+	sb.WriteString(fmt.Sprintf("SKILLS — %d available:\n\n", count))
+	for _, s := range skills {
+		if params.Category != "" && !strings.EqualFold(s.Category, params.Category) {
+			continue
+		}
+		sb.WriteString(fmt.Sprintf("  %-30s [%s] %s\n", s.Slug, s.Category, s.Title))
+	}
+	sb.WriteString("\nFull body available after bootstrap_session. Use get_skill(slug) for details.")
+	writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: sb.String()}}})
+}
+
+func (h *Handler) toolGetSkill(w http.ResponseWriter, r *http.Request, req *Request, args json.RawMessage) {
+	var params struct {
+		Slug string `json:"slug"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil || params.Slug == "" {
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: "Podaj slug skilla. Użyj list_skills."}}})
+		return
+	}
+
+	authenticated := h.isSessionActive(r)
+	skills := h.loadSkills()
+	for _, s := range skills {
+		if s.Slug == params.Slug {
+			if authenticated {
+				text := fmt.Sprintf("%s\nCategory: %s\n\n%s", s.Title, s.Category, s.Body)
+				writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: text}}})
+			} else {
+				text := fmt.Sprintf("%s\nCategory: %s\n\nFull body available after bootstrap_session. Ask user for session code.", s.Title, s.Category)
+				writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: text}}})
+			}
+			return
+		}
+	}
+	writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
+		Text: fmt.Sprintf("Skill '%s' nie znaleziony. Użyj list_skills.", params.Slug)}}})
+}
+
+func (h *Handler) isOwnerRequest(r *http.Request) bool {
+	auth := r.Header.Get("Authorization")
+	if !strings.HasPrefix(auth, "Bearer ") {
+		return false
+	}
+	token := strings.TrimPrefix(auth, "Bearer ")
+	// Accept edit token
+	if h.cfg.EditToken != "" && token == h.cfg.EditToken {
+		return true
+	}
+	// Accept agent token
+	if h.cfg.AgentToken != "" && token == h.cfg.AgentToken {
+		return true
+	}
+	// Accept session secret (machine auth)
+	if h.cfg.SessionSecret != "" && token == h.cfg.SessionSecret {
+		return true
+	}
+	return false
+}
+
+func (h *Handler) toolUpsertSkill(w http.ResponseWriter, r *http.Request, req *Request, args json.RawMessage) {
+	if !h.isOwnerRequest(r) {
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
+			Text: "Unauthorized — requires agent token in Authorization: Bearer <token> header."}}})
+		return
+	}
+
+	var s Skill
+	if err := json.Unmarshal(args, &s); err != nil || s.Slug == "" {
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: "slug, category, title, body are required."}}})
+		return
+	}
+	s.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	s.UpdatedBy = "agent"
+
+	dir := filepath.Join(h.cfg.ContentDir, "skills")
+	os.MkdirAll(dir, 0755)
+	data, _ := json.MarshalIndent(s, "", "  ")
+	if err := os.WriteFile(filepath.Join(dir, s.Slug+".json"), data, 0644); err != nil {
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
+			Text: fmt.Sprintf("Write error: %v", err)}}})
+		return
+	}
+	writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
+		Text: fmt.Sprintf("Skill '%s' saved.", s.Slug)}}})
+}
+
+func (h *Handler) toolDeleteSkill(w http.ResponseWriter, r *http.Request, req *Request, args json.RawMessage) {
+	if !h.isOwnerRequest(r) {
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
+			Text: "Unauthorized — requires agent token in Authorization: Bearer <token> header."}}})
+		return
+	}
+
+	var params struct {
+		Slug string `json:"slug"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil || params.Slug == "" {
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: "slug is required."}}})
+		return
+	}
+
+	path := filepath.Join(h.cfg.ContentDir, "skills", params.Slug+".json")
+	if err := os.Remove(path); err != nil {
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
+			Text: fmt.Sprintf("Skill '%s' not found.", params.Slug)}}})
+		return
+	}
+	writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
+		Text: fmt.Sprintf("Skill '%s' deleted.", params.Slug)}}})
 }
