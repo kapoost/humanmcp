@@ -12,10 +12,11 @@ import (
 
 type Message struct {
 	ID        string    `json:"id"`
-	From      string    `json:"from"`       // optional handle, max 32 chars
-	Text      string    `json:"text"`       // max 2000 chars
-	Regarding string    `json:"regarding"`  // optional slug it refers to
+	From      string    `json:"from"`
+	Text      string    `json:"text"`
+	Regarding string    `json:"regarding"`
 	At        time.Time `json:"at"`
+	Kind      string    `json:"kind,omitempty"` // "msg" | "comment" | "license" | "response"
 }
 
 // MessageStore saves messages as simple .txt files under /data/messages/
