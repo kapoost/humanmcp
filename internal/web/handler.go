@@ -289,6 +289,10 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 		}
 		switch strings.ToLower(string(p.Type)) {
 		case "image":
+			// Skip images without a backing blob — they'd render as broken thumbnails
+			if p.FileRef == "" {
+				continue
+			}
 			images = append(images, p)
 		case "artwork":
 			artworks = append(artworks, p)
