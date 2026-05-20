@@ -369,6 +369,10 @@ func (h *Handler) handlePiece(w http.ResponseWriter, r *http.Request) {
 
 	// Translation route: /p/<slug>/translation/<lang>
 	if parts := strings.SplitN(path, "/translation/", 2); len(parts) == 2 {
+		if parts[0] == "" {
+			http.Redirect(w, r, "/", http.StatusFound)
+			return
+		}
 		h.serveTranslation(w, r, parts[0], parts[1])
 		return
 	}
