@@ -260,9 +260,15 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	h.statStore.UpdateSlugTags(slugTags)
 
+	blobMap := h.buildBlobImageMap()
+
 	// v273 index.html expects pieces split by type into separate slices
 	var poems, images, artworks []*content.Piece
 	for _, p := range pieces {
+		// Populate FileRef from blob map for image/artwork pieces
+		if url, ok := blobMap[p.Slug]; ok {
+			p.FileRef = strings.TrimPrefix(url, "/")
+		}
 		switch strings.ToLower(string(p.Type)) {
 		case "image":
 			images = append(images, p)
@@ -275,16 +281,33 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 	listings := h.listingStore.List()
 
 	h.render(w, "index.html", map[string]interface{}{
-		"Author":   h.cfg.AuthorName,
-		"Bio":      h.cfg.AuthorBio,
-		"Pieces":   pieces, // kept for any legacy template references
-		"Poems":    poems,
-		"Images":   images,
-		"Artworks": artworks,
-		"Listings": listings,
-		"IsOwner":  h.auth.IsOwner(r),
-		"Domain":   h.cfg.Domain,
+		"Author":       h.cfg.AuthorName,
+		"Bio":          h.cfg.AuthorBio,
+		"Pieces":       pieces,
+		"Poems":        poems,
+		"Images":       images,
+		"Artworks":     artworks,
+		"Listings":     listings,
+		"BlobImageMap": blobMap,
+		"IsOwner":      h.auth.IsOwner(r),
+		"Domain":       h.cfg.Domain,
 	})
+}
+
+// buildBlobImageMap returns slug -> URL for all image-type blobs.
+// Used by templates that need {{index $.BlobImageMap .Slug}}.
+func (h *Handler) buildBlobImageMap() map[string]string {
+	m := make(map[string]string)
+	blobs, err := h.blobStore.Load()
+	if err != nil {
+		return m
+	}
+	for _, b := range blobs {
+		if b.FileRef != "" {
+			m[b.Slug] = "/" + b.FileRef
+		}
+	}
+	return m
 }
 
 func (h *Handler) handlePiece(w http.ResponseWriter, r *http.Request) {
@@ -329,11 +352,12 @@ func (h *Handler) handlePiece(w http.ResponseWriter, r *http.Request) {
 		unlockDate = p.UnlockAfter.Format("2 January 2006 at 15:04 UTC")
 	}
 	h.render(w, "piece.html", map[string]interface{}{
-		"Author":     h.cfg.AuthorName,
-		"Piece":      p,
-		"IsLocked":   isLocked,
-		"IsOwner":    isOwner,
-		"UnlockDate": unlockDate,
+		"Author":       h.cfg.AuthorName,
+		"Piece":        p,
+		"IsLocked":     isLocked,
+		"IsOwner":      isOwner,
+		"UnlockDate":   unlockDate,
+		"BlobImageMap": h.buildBlobImageMap(),
 	})
 }
 
@@ -461,25 +485,26 @@ func (h *Handler) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	pieces := h.store.List(false)
 	msgs, _ := h.msgStore.List()
+	listings := h.listingStore.List()
 
 	now := time.Now()
 	activePoem, _ := h.cfg.PickActivePoem(now)
 	minutesLeft := 60 - now.Minute()
 
-	skillCount := len(h.loadSkills())
-	personaCount := h.countPersonas()
+	view := h.buildEnrichedStats(stats, len(pieces), len(listings))
 
 	h.render(w, "dashboard.html", map[string]interface{}{
 		"Author":        h.cfg.AuthorName,
 		"IsOwner":       true,
-		"Stats":         stats,
+		"Stats":         view,
 		"Pieces":        pieces,
 		"Messages":      msgs,
+		"Listings":      listings,
 		"PieceCount":    len(pieces),
 		"ActivePoem":    activePoem,
 		"PoemExpiresIn": minutesLeft,
-		"SkillCount":    skillCount,
-		"PersonaCount":  personaCount,
+		"SkillCount":    view.SkillCount,
+		"PersonaCount":  view.PersonaCount,
 	})
 }
 
@@ -1126,6 +1151,51 @@ func (h *Handler) handleArtworks(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// periodStats is daily/weekly aggregate used by mc.html and dashboard.html.
+type periodStats struct {
+	Reads, Visitors, Agents, Humans, Searches, Messages, Licenses int
+}
+
+// enrichedStats embeds *content.Stats and adds the extra fields v273
+// templates (mc.html, dashboard.html) expect inside {{with .Stats}}...
+type enrichedStats struct {
+	*content.Stats
+	PieceCount         int
+	SkillCount         int
+	PersonaCount       int
+	TotalListings      int
+	TotalLicenses      int
+	TotalSearches      int
+	TotalSubscribers   int
+	Today              periodStats
+	Yesterday          periodStats
+	Last7Days          periodStats
+	Last30Days         periodStats
+	DailyCounts        []periodStats
+	ListingReadsBySlug map[string]int
+	InboxCount         int
+	InboxCounts        map[string]int
+	Inbox              []interface{}
+	TopSearches        map[string]int
+	SessionExp         time.Time
+	Uptime             string
+	VaultOnline        bool
+	ToolCalls          int
+}
+
+func (h *Handler) buildEnrichedStats(stats *content.Stats, pieceCount, listingCount int) enrichedStats {
+	return enrichedStats{
+		Stats:         stats,
+		PieceCount:    pieceCount,
+		SkillCount:    len(h.loadSkills()),
+		PersonaCount:  h.countPersonas(),
+		TotalListings: listingCount,
+		Today:         periodStats{Reads: stats.TotalReads, Visitors: stats.UniqueVisitors, Agents: stats.AgentCalls, Humans: stats.HumanVisits, Messages: stats.TotalMessages},
+		VaultOnline:   true,
+		Uptime:        "—",
+	}
+}
+
 func (h *Handler) handleMissionControl(w http.ResponseWriter, r *http.Request) {
 	if !h.auth.IsOwner(r) {
 		http.Redirect(w, r, "/login", http.StatusFound)
@@ -1143,46 +1213,7 @@ func (h *Handler) handleMissionControl(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	activePoem, _ := h.cfg.PickActivePoem(now)
 
-	// mc.html uses {{with .Stats}}...{{.X}}... so everything must live on Stats.
-	type periodStats struct {
-		Reads, Visitors, Agents, Humans, Searches, Messages, Licenses int
-	}
-	type mcStats struct {
-		*content.Stats
-		PieceCount       int
-		SkillCount       int
-		PersonaCount     int
-		TotalListings    int
-		TotalLicenses    int
-		TotalSearches    int
-		TotalSubscribers int
-		Today            periodStats
-		Yesterday        periodStats
-		Last7Days        periodStats
-		Last30Days       periodStats
-		DailyCounts        []periodStats
-		ListingReadsBySlug map[string]int
-		InboxCount         int
-		InboxCounts        map[string]int
-		Inbox              []interface{}
-		TopSearches        map[string]int
-		SessionExp         time.Time
-		Uptime             string
-		VaultOnline        bool
-		ToolCalls          int
-	}
-	view := mcStats{
-		Stats:         stats,
-		PieceCount:    len(pieces),
-		SkillCount:    len(h.loadSkills()),
-		PersonaCount:  h.countPersonas(),
-		TotalListings: len(listings),
-		Today:         periodStats{Reads: stats.TotalReads, Visitors: stats.UniqueVisitors, Agents: stats.AgentCalls, Humans: stats.HumanVisits, Messages: stats.TotalMessages},
-		VaultOnline:   true,
-		Uptime:        "—",
-	}
-
-	// Next session rotation: top of next hour
+	view := h.buildEnrichedStats(stats, len(pieces), len(listings))
 	sessionExp := time.Date(now.Year(), now.Month(), now.Day(), now.Hour()+1, 0, 0, 0, now.Location())
 
 	h.render(w, "mc.html", map[string]interface{}{
