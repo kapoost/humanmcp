@@ -1,0 +1,40 @@
+{{define "subscribe-confirm.html"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{if .Unsubscribed}}Unsubscribed{{else}}Subscribed{{end}} — {{.Author}}</title>
+<style>{{template "css" .}}</style>
+</head>
+<body>
+<div class="container">
+{{template "header" .}}
+
+{{if .Unsubscribed}}
+<h2 style="font-size:1.2rem;">Unsubscribed</h2>
+<p style="color:var(--muted);">You have been unsubscribed from listing notifications.</p>
+{{else}}
+<h2 style="font-size:1.2rem;">Subscribed!</h2>
+<div style="background:var(--tag-bg);padding:1.2rem;border-radius:6px;max-width:500px;margin:1rem 0;">
+  <div style="font-size:.82rem;margin-bottom:.5rem;"><strong>Subscription ID:</strong> {{.Subscription.ID}}</div>
+  <div style="font-size:.82rem;margin-bottom:.5rem;"><strong>Channel:</strong> {{.Subscription.Channel}}</div>
+  {{if .Subscription.CallbackURL}}<div style="font-size:.82rem;margin-bottom:.5rem;"><strong>Callback:</strong> {{.Subscription.CallbackURL}}</div>{{end}}
+  <div style="font-size:.82rem;margin-bottom:.8rem;"><strong>Unsubscribe token:</strong> <code style="background:var(--bg);padding:2px 6px;border-radius:3px;font-size:.78rem;">{{.Subscription.Token}}</code></div>
+  <div style="font-size:.75rem;color:var(--muted);border-top:1px solid var(--border);padding-top:.6rem;">
+    Save this token — it's the only way to unsubscribe.<br>
+    Unsubscribe URL: <code>https://{{.Domain}}/subscriptions/unsubscribe/{{.Subscription.Token}}</code>
+  </div>
+  {{if eq (print .Subscription.Channel) "mcp"}}
+  <div style="font-size:.75rem;color:var(--muted);margin-top:.6rem;border-top:1px solid var(--border);padding-top:.6rem;">
+    <strong>MCP polling:</strong> Use <code>list_listings(since="{{.Subscription.Created.Format "2006-01-02T15:04:05Z07:00"}}")</code> to poll for new listings.
+  </div>
+  {{end}}
+</div>
+{{end}}
+
+<a href="/listings" style="font-size:.85rem;color:var(--accent);">back to listings</a>
+
+{{template "footer" .}}
+</div>
+</body></html>
+{{end}}

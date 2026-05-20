@@ -1,0 +1,21 @@
+{{define "login.html"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Owner Login</title>
+<style>{{template "css" .}}</style>
+</head>
+<body>
+<div class="container" style="max-width:400px;">
+<div style="padding:3rem 0;">
+<h1 style="font-size:1.2rem;margin-bottom:1.5rem;">Owner Login</h1>
+{{if .}}{{with .Error}}<p style="color:#c0392b;margin-bottom:1rem;font-size:.9rem;">{{.}}</p>{{end}}{{end}}
+<form method="POST" action="/login" style="display:grid;gap:.75rem;">
+  <input type="password" name="token" placeholder="Edit token" autofocus style="padding:.5rem;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);font-size:1rem;">
+  <button type="submit" class="btn btn-primary">Login</button>
+</form>
+<p style="margin-top:1rem;font-size:.8rem;color:var(--muted);"><a href="/">&#8592; back</a></p>
+</div>
+</div>
+</body></html>
+{{end}}

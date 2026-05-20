@@ -17,53 +17,133 @@ import (
 )
 
 type Handler struct {
-	cfg      *config.Config
-	store    *content.Store
-	auth     *auth.Auth
-	msgStore   *content.MessageStore
-	statStore  *content.StatStore
-	blobStore  *content.BlobStore
-	signingKey *content.KeyPair // parsed once at startup
-	tmpl  *template.Template
+	cfg          *config.Config
+	store        *content.Store
+	auth         *auth.Auth
+	msgStore     *content.MessageStore
+	statStore    *content.StatStore
+	blobStore    *content.BlobStore
+	listingStore *content.ListingStore
+	questionStore *content.QuestionStore
+	signingKey   *content.KeyPair
+	tmpl         *template.Template
 }
 
 func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler {
-	h := &Handler{cfg: cfg, store: store, auth: a, msgStore: content.NewMessageStore(cfg.ContentDir), statStore: content.NewStatStore(cfg.ContentDir), blobStore: content.NewBlobStore(cfg.ContentDir)}
+	h := &Handler{
+		cfg:           cfg,
+		store:         store,
+		auth:          a,
+		msgStore:      content.NewMessageStore(cfg.ContentDir),
+		statStore:     content.NewStatStore(cfg.ContentDir),
+		blobStore:     content.NewBlobStore(cfg.ContentDir),
+		listingStore:  content.NewListingStore(cfg.ContentDir),
+		questionStore: content.NewQuestionStore(cfg.ContentDir),
+	}
 	if cfg.SigningPrivateKey != "" {
 		if kp, err := content.KeyPairFromBase64(cfg.SigningPrivateKey); err == nil {
 			h.signingKey = kp
 		}
 	}
-	h.tmpl = template.Must(template.New("").Funcs(template.FuncMap{
+	funcs := template.FuncMap{
 		"formatDate": func(t time.Time) string {
-			if t.IsZero() { return "" }
+			if t.IsZero() {
+				return ""
+			}
 			return t.Format("2 January 2006")
+		},
+		"formatTime": func(t time.Time) string {
+			if t.IsZero() {
+				return ""
+			}
+			return t.Format("15:04")
+		},
+		"shortDate": func(t time.Time) string {
+			if t.IsZero() {
+				return ""
+			}
+			return t.Format("02 Jan")
+		},
+		"isoDate": func(t time.Time) string {
+			if t.IsZero() {
+				return ""
+			}
+			return t.Format("2006-01-02T15:04")
 		},
 		"lower": strings.ToLower,
 		"filenameFromRef": func(ref string) string {
-			// "files/img-0395-jpeg.jpeg" → "img-0395-jpeg.jpeg"
 			parts := strings.SplitN(ref, "/", 2)
-			if len(parts) == 2 { return parts[1] }
+			if len(parts) == 2 {
+				return parts[1]
+			}
 			return ref
 		},
 		"nl2br": func(s string) template.HTML {
 			return template.HTML(strings.ReplaceAll(template.HTMLEscapeString(s), "\n", "<br>"))
 		},
-		"join": func(slice []string, sep string) string { return strings.Join(slice, sep) },
-		"isoDate": func(t time.Time) string {
-			if t.IsZero() { return "" }
-			return t.Format("2006-01-02T15:04")
-		},
+		"join":  func(slice []string, sep string) string { return strings.Join(slice, sep) },
 		"slice": func(vals ...string) []string { return vals },
+		"truncate": func(s string, n int) string {
+			if len(s) <= n {
+				return s
+			}
+			return s[:n] + "…"
+		},
+		"licenseLabel": func(s string) string {
+			switch strings.ToLower(s) {
+			case "cc-by", "ccby":
+				return "CC BY"
+			case "cc-by-sa", "ccbysa":
+				return "CC BY-SA"
+			case "cc-by-nc", "ccbync":
+				return "CC BY-NC"
+			case "cc-by-nd", "ccbynd":
+				return "CC BY-ND"
+			case "cc0":
+				return "CC0"
+			case "all-rights-reserved", "arr":
+				return "All Rights Reserved"
+			case "":
+				return ""
+			default:
+				return s
+			}
+		},
+		"otsHash": func(s string) string {
+			if len(s) < 16 {
+				return s
+			}
+			return s
+		},
+		"otsShort": func(s string) string {
+			if len(s) < 12 {
+				return s
+			}
+			return s[:8] + "…" + s[len(s)-4:]
+		},
+		"otsStatus": func(s string) string {
+			if s == "" {
+				return "none"
+			}
+			if strings.Contains(s, "BITCOIN") || strings.Contains(s, "anchored") {
+				return "anchored"
+			}
+			return "pending"
+		},
 		"not": func(v interface{}) bool {
-			if v == nil { return true }
+			if v == nil {
+				return true
+			}
 			switch b := v.(type) {
-			case bool:   return !b
-			case string: return b == ""
+			case bool:
+				return !b
+			case string:
+				return b == ""
 			}
 			return false
 		},
-	}).Parse(allTemplates))
+	}
+	h.tmpl = template.Must(template.New("").Funcs(funcs).ParseFS(TemplatesFS, "templates/*"))
 	return h
 }
 
@@ -126,6 +206,21 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	// Login/logout for web UI
 	mux.HandleFunc("/login", h.handleLogin)
 	mux.HandleFunc("/logout", h.handleLogout)
+
+	// Recovered v273 routes
+	mux.HandleFunc("/listings", h.handleListings)
+	mux.HandleFunc("/listings/", h.handleListings)
+	mux.HandleFunc("/artworks", h.handleArtworks)
+	mux.HandleFunc("/artworks/", h.handleArtworks)
+	mux.Handle("/mc", h.auth.RequireOwner(http.HandlerFunc(h.handleMissionControl)))
+	mux.HandleFunc("/team", h.handleTeam)
+	mux.HandleFunc("/personas", h.handlePersonasPage)
+	mux.HandleFunc("/skills", h.handleSkillsPage)
+	mux.Handle("/questions", h.auth.RequireOwner(http.HandlerFunc(h.handleQuestions)))
+	mux.Handle("/questions/answer/", h.auth.RequireOwner(http.HandlerFunc(h.handleAnswerQuestion)))
+	mux.HandleFunc("/for-agents", h.handleForAgents)
+	mux.HandleFunc("/subscribe", h.handleSubscribeForm)
+	mux.HandleFunc("/subscribe/confirm", h.handleSubscribeConfirm)
 }
 
 func (h *Handler) handleWellKnown(w http.ResponseWriter, r *http.Request) {
@@ -793,12 +888,13 @@ func (h *Handler) render(w http.ResponseWriter, name string, data interface{}) {
 // ── Skills API ───────────────────────────────────────────────────────────────
 
 type apiSkill struct {
-	Slug      string `json:"slug"`
-	Category  string `json:"category"`
-	Title     string `json:"title"`
-	Body      string `json:"body"`
-	UpdatedAt string `json:"updated_at,omitempty"`
-	UpdatedBy string `json:"updated_by,omitempty"`
+	Slug      string   `json:"slug"`
+	Category  string   `json:"category"`
+	Title     string   `json:"title"`
+	Body      string   `json:"body"`
+	Tags      []string `json:"tags,omitempty"`
+	UpdatedAt string   `json:"updated_at,omitempty"`
+	UpdatedBy string   `json:"updated_by,omitempty"`
 }
 
 func (h *Handler) loadSkills() []apiSkill {
@@ -898,4 +994,343 @@ func jsonError(w http.ResponseWriter, msg string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
+// ── Recovered v273 handlers ──────────────────────────────────────────────────
+
+func (h *Handler) handleListings(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+	if path == "/listings" || path == "/listings/" {
+		listings := h.listingStore.List()
+		h.render(w, "listings.html", map[string]interface{}{
+			"Author":   h.cfg.AuthorName,
+			"IsOwner":  h.auth.IsOwner(r),
+			"Listings": listings,
+		})
+		return
+	}
+	if path == "/listings/new" {
+		if !h.auth.IsOwner(r) {
+			http.Redirect(w, r, "/login", http.StatusFound)
+			return
+		}
+		if r.Method == http.MethodPost {
+			h.handleListingCreate(w, r)
+			return
+		}
+		h.render(w, "listing-new.html", map[string]interface{}{
+			"Author": h.cfg.AuthorName,
+		})
+		return
+	}
+	slug := strings.TrimPrefix(path, "/listings/")
+	if slug == "" {
+		http.NotFound(w, r)
+		return
+	}
+	listing, err := h.listingStore.Get(slug)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	h.render(w, "listing.html", map[string]interface{}{
+		"Author":  h.cfg.AuthorName,
+		"IsOwner": h.auth.IsOwner(r),
+		"Listing": listing,
+	})
+}
+
+func (h *Handler) handleListingCreate(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	title := strings.TrimSpace(r.FormValue("title"))
+	if title == "" {
+		http.Error(w, "title required", 400)
+		return
+	}
+	slugBase := slugify(title)
+	listing := content.Listing{
+		Slug:      fmt.Sprintf("%s-%d", slugBase, time.Now().Unix()),
+		Type:      r.FormValue("type"),
+		Title:     title,
+		Body:      r.FormValue("body"),
+		Tags:      splitTags(r.FormValue("tags")),
+		Price:     r.FormValue("price"),
+		Status:    "open",
+		Access:    "public",
+		Published: time.Now().UTC(),
+		Lang:      r.FormValue("lang"),
+	}
+	if err := h.listingStore.Save(listing); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	http.Redirect(w, r, "/listings/"+listing.Slug, http.StatusFound)
+}
+
+func (h *Handler) handleArtworks(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+	if path == "/artworks" || path == "/artworks/" {
+		var artworks []*content.Piece
+		for _, p := range h.store.List(false) {
+			if strings.EqualFold(string(p.Type), "artwork") {
+				artworks = append(artworks, p)
+			}
+		}
+		h.render(w, "artworks.html", map[string]interface{}{
+			"Author":   h.cfg.AuthorName,
+			"IsOwner":  h.auth.IsOwner(r),
+			"Artworks": artworks,
+		})
+		return
+	}
+	slug := strings.TrimPrefix(path, "/artworks/")
+	p, err := h.store.Get(slug, true)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if !strings.EqualFold(string(p.Type), "artwork") {
+		http.NotFound(w, r)
+		return
+	}
+	h.render(w, "artwork.html", map[string]interface{}{
+		"Author":  h.cfg.AuthorName,
+		"IsOwner": h.auth.IsOwner(r),
+		"Piece":   p,
+	})
+}
+
+func (h *Handler) handleMissionControl(w http.ResponseWriter, r *http.Request) {
+	if !h.auth.IsOwner(r) {
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
+	stats, err := h.statStore.Compute()
+	if err != nil {
+		http.Error(w, "stats error: "+err.Error(), 500)
+		return
+	}
+	pieces := h.store.List(false)
+	msgs, _ := h.msgStore.List()
+	listings := h.listingStore.List()
+	questions := h.questionStore.List()
+	now := time.Now()
+	activePoem, _ := h.cfg.PickActivePoem(now)
+	skillCount := len(h.loadSkills())
+	personaCount := h.countPersonas()
+
+	h.render(w, "mc.html", map[string]interface{}{
+		"Author":       h.cfg.AuthorName,
+		"IsOwner":      true,
+		"Stats":        stats,
+		"Pieces":       pieces,
+		"Messages":     msgs,
+		"Listings":     listings,
+		"Questions":    questions,
+		"PieceCount":   len(pieces),
+		"ListingCount": len(listings),
+		"SkillCount":   skillCount,
+		"PersonaCount": personaCount,
+		"SessionCode":  activePoem,
+	})
+}
+
+func (h *Handler) handleTeam(w http.ResponseWriter, r *http.Request) {
+	personas := h.loadPersonasList()
+	h.render(w, "team.html", map[string]interface{}{
+		"Author":   h.cfg.AuthorName,
+		"Personas": personas,
+	})
+}
+
+func (h *Handler) handlePersonasPage(w http.ResponseWriter, r *http.Request) {
+	personas := h.loadPersonasList()
+	h.render(w, "personas.html", map[string]interface{}{
+		"Author":   h.cfg.AuthorName,
+		"IsOwner":  h.auth.IsOwner(r),
+		"Personas": personas,
+	})
+}
+
+func (h *Handler) handleSkillsPage(w http.ResponseWriter, r *http.Request) {
+	skills := h.loadSkills()
+	type skillGroup struct {
+		Name   string
+		Skills []apiSkill
+	}
+	byCat := map[string]*skillGroup{}
+	var order []string
+	for _, s := range skills {
+		g, ok := byCat[s.Category]
+		if !ok {
+			g = &skillGroup{Name: s.Category}
+			byCat[s.Category] = g
+			order = append(order, s.Category)
+		}
+		g.Skills = append(g.Skills, s)
+	}
+	groups := make([]skillGroup, 0, len(order))
+	for _, k := range order {
+		groups = append(groups, *byCat[k])
+	}
+	h.render(w, "skills.html", map[string]interface{}{
+		"Author":  h.cfg.AuthorName,
+		"IsOwner": h.auth.IsOwner(r),
+		"Skills":  skills,
+		"Groups":  groups,
+	})
+}
+
+func (h *Handler) handleQuestions(w http.ResponseWriter, r *http.Request) {
+	if !h.auth.IsOwner(r) {
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
+	all := h.questionStore.List()
+	var pending, picked, awaiting []content.Question
+	for _, q := range all {
+		switch {
+		case q.IsAwaiting():
+			awaiting = append(awaiting, q)
+		case q.IsPicked():
+			picked = append(picked, q)
+		default:
+			pending = append(pending, q)
+		}
+	}
+	h.render(w, "questions.html", map[string]interface{}{
+		"Author":   h.cfg.AuthorName,
+		"Awaiting": awaiting,
+		"Picked":   picked,
+		"Pending":  pending,
+	})
+}
+
+func (h *Handler) handleAnswerQuestion(w http.ResponseWriter, r *http.Request) {
+	if !h.auth.IsOwner(r) {
+		http.Error(w, "unauthorized", 401)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, "/questions/answer/")
+	if id == "" {
+		http.Error(w, "id required", 400)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	answer := strings.TrimSpace(r.FormValue("answer"))
+	if answer == "" {
+		http.Error(w, "answer required", 400)
+		return
+	}
+	if err := h.questionStore.Answer(id, answer); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	http.Redirect(w, r, "/questions", http.StatusFound)
+}
+
+func (h *Handler) handleForAgents(w http.ResponseWriter, r *http.Request) {
+	h.render(w, "for-agents.html", map[string]interface{}{
+		"Author": h.cfg.AuthorName,
+		"Domain": h.cfg.Domain,
+	})
+}
+
+func (h *Handler) handleSubscribeForm(w http.ResponseWriter, r *http.Request) {
+	h.render(w, "subscribe.html", map[string]interface{}{
+		"Author": h.cfg.AuthorName,
+	})
+}
+
+func (h *Handler) handleSubscribeConfirm(w http.ResponseWriter, r *http.Request) {
+	h.render(w, "subscribe-confirm.html", map[string]interface{}{
+		"Author": h.cfg.AuthorName,
+		"Domain": h.cfg.Domain,
+	})
+}
+
+func (h *Handler) loadPersonasList() []map[string]interface{} {
+	dir := filepath.Join(h.cfg.ContentDir, "personas")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var out []map[string]interface{}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		slug := strings.TrimSuffix(e.Name(), ".md")
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		body := string(data)
+		var title, role, prompt string
+		var tags []string
+		if strings.HasPrefix(body, "---\n") {
+			end := strings.Index(body[4:], "\n---")
+			if end > 0 {
+				front := body[4 : 4+end]
+				prompt = strings.TrimSpace(body[4+end+4:])
+				for _, line := range strings.Split(front, "\n") {
+					k, v, ok := strings.Cut(line, ":")
+					if !ok {
+						continue
+					}
+					k = strings.TrimSpace(strings.ToLower(k))
+					v = strings.TrimSpace(v)
+					switch k {
+					case "title":
+						title = v
+					case "role":
+						role = v
+					case "tags":
+						v = strings.Trim(v, "[]")
+						for _, t := range strings.Split(v, ",") {
+							t = strings.TrimSpace(t)
+							if t != "" {
+								tags = append(tags, t)
+							}
+						}
+					}
+				}
+			}
+		}
+		if title == "" {
+			title = slug
+		}
+		out = append(out, map[string]interface{}{
+			"Slug":   slug,
+			"Name":   title,
+			"Role":   role,
+			"Tags":   tags,
+			"Prompt": prompt,
+		})
+	}
+	return out
+}
+
+func splitTags(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var out []string
+	for _, t := range strings.Split(s, ",") {
+		t = strings.TrimSpace(t)
+		if t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }

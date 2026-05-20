@@ -1,0 +1,123 @@
+{{define "dashboard.html"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard — {{.Author}}</title>
+<style>{{template "css" .}}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:9px;margin-bottom:1.75rem;}
+.card{background:var(--accent-light);border:1px solid var(--accent);border-radius:7px;padding:.75rem;}
+.card-num{font-size:1.65rem;font-weight:500;color:var(--accent);line-height:1;}
+.card-label{font-size:.68rem;color:var(--muted);margin-top:.25rem;}
+.section{margin-bottom:1.75rem;}
+.section-title{font-size:.7rem;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:.6rem;}
+.row{display:flex;justify-content:space-between;padding:.35rem 0;border-bottom:1px solid var(--border);font-size:.85rem;}
+.row:last-child{border-bottom:none;}
+.rv{font-weight:500;color:var(--accent);}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;}
+.hour-bar{display:flex;align-items:flex-end;gap:2px;height:60px;margin-top:.4rem;}
+.hb{flex:1;background:var(--accent-light);border-radius:2px 2px 0 0;min-height:2px;}
+.ev-list{list-style:none;}
+.ev-item{padding:.3rem 0;border-bottom:1px solid var(--border);font-size:.75rem;color:var(--muted);display:flex;gap:.5rem;flex-wrap:wrap;}
+.ev-item:last-child{border-bottom:none;}
+.ev-type{font-weight:500;color:var(--fg);}
+.ba{font-size:.65rem;background:var(--accent-light);color:var(--accent);padding:1px 5px;border-radius:3px;border:1px solid var(--accent);}
+.bh{font-size:.65rem;background:var(--tag-bg);color:var(--tag-fg);padding:1px 5px;border-radius:3px;}
+.funnel-row{font-size:.82rem;padding:.35rem 0;border-bottom:1px solid var(--border);}
+.fp{font-size:.7rem;padding:1px 6px;border-radius:3px;margin-right:.3rem;}
+.fp-checked{background:#e3f2fd;color:#1565c0;}
+.fp-tried{background:#fff3e0;color:#e65100;}
+.fp-unlocked{background:#e8f5e9;color:#2e7d32;}
+.msg-preview{padding:.55rem 0;border-bottom:1px solid var(--border);}
+.msg-preview:last-child{border-bottom:none;}
+</style>
+</head>
+<body>
+<div class="container">
+{{template "header-simple" .}}
+<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:1.5rem;">
+  <h1 style="font-size:1.1rem;font-weight:500;">Dashboard</h1>
+  <a href="/" style="font-size:.82rem;color:var(--muted);">&#8592; back</a>
+</div>
+
+
+{{if .SessionCode}}
+<div class="section" style="background:var(--accent-light);border:1px solid var(--accent);border-radius:8px;padding:1rem 1.25rem;margin-bottom:1.75rem;">
+  <div class="section-title" style="color:var(--accent);margin-bottom:.5rem;">hasło sesji</div>
+  <div style="font-family:var(--mono);font-size:1rem;font-weight:400;color:var(--fg);margin-bottom:.5rem;letter-spacing:.02em;">
+    &bdquo;{{.SessionCode}}&rdquo;
+  </div>
+  <div style="font-size:.72rem;color:var(--muted);margin-bottom:.75rem;">
+    ważne do {{formatDate .SessionExp}} &middot; rotacja automatyczna co 24h
+  </div>
+  <div style="font-size:.8rem;color:var(--muted);margin-bottom:.75rem;">
+    Powiedz agentowi: <em style="color:var(--fg);">bootstrap_session, hasło: {{.SessionCode}}</em>
+  </div>
+  <form method="POST" action="/api/session/rotate" style="display:inline;">
+    <button type="submit" class="btn btn-sm" style="font-size:.75rem;">↻ rotuj teraz</button>
+  </form>
+</div>
+{{end}}
+{{with .Stats}}
+<div class="grid">
+  <div class="card"><div class="card-num">{{.TotalReads}}</div><div class="card-label">reads</div></div>
+  <div class="card"><div class="card-num">{{.UniqueVisitors}}</div><div class="card-label">unique</div></div>
+  <div class="card"><div class="card-num">{{.AgentCalls}}</div><div class="card-label">agents</div></div>
+  <div class="card"><div class="card-num">{{.HumanVisits}}</div><div class="card-label">humans</div></div>
+  <div class="card"><div class="card-num">{{.TotalComments}}</div><div class="card-label">comments</div></div>
+  <div class="card"><div class="card-num">{{.TotalMessages}}</div><div class="card-label">messages</div></div>
+  <div class="card"><div class="card-num">{{.TotalUnlocks}}</div><div class="card-label">unlocks</div></div>
+  <div class="card"><div class="card-num">{{.TotalInterest}}</div><div class="card-label">gate checks</div></div>
+  <div class="card"><div class="card-num">{{.TotalListings}}</div><div class="card-label">listings</div></div>
+  <div class="card"><div class="card-num">{{.TotalSubscribers}}</div><div class="card-label">subscribers</div></div>
+  <div class="card"><div class="card-num">{{.TotalSearches}}</div><div class="card-label">searches</div></div>
+</div>
+
+{{if .HourlyReads}}
+<div class="section">
+  <div class="section-title">reads by hour (UTC)</div>
+  <div class="hour-bar" id="hour-bar"></div>
+  <div style="display:flex;justify-content:space-between;font-size:.6rem;color:var(--muted);margin-top:2px;"><span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>23h</span></div>
+</div>
+<script>
+(function(){
+  var data=[{{range .HourlyReads}}{{.}},{{end}}];
+  var max=Math.max.apply(null,data)||1;
+  var bar=document.getElementById('hour-bar');
+  data.forEach(function(v,i){var d=document.createElement('div');d.className='hb';d.style.height=Math.max(2,Math.round(v/max*58))+'px';d.title='Hour '+i+': '+v+' reads';bar.appendChild(d);});
+})();
+</script>
+{{end}}
+
+<div class="two-col">
+<div>
+  {{if .ReadsBySlug}}<div class="section"><div class="section-title">reads per piece</div>{{range $s,$n := .ReadsBySlug}}<div class="row"><span>{{$s}}</span><span class="rv">{{$n}}</span></div>{{end}}</div>{{end}}
+  {{if .ListingReadsBySlug}}<div class="section"><div class="section-title">listing reads per slug</div>{{range $s,$n := .ListingReadsBySlug}}<div class="row"><span>{{$s}}</span><span class="rv">{{$n}}</span></div>{{end}}</div>{{end}}
+  {{if .TagReads}}<div class="section"><div class="section-title">reads per tag</div>{{range $t,$n := .TagReads}}<div class="row"><span>#{{$t}}</span><span class="rv">{{$n}}</span></div>{{end}}</div>{{end}}
+</div>
+<div>
+  {{if .ChallengeFunnel}}<div class="section"><div class="section-title">challenge funnel</div>{{range $s,$f := .ChallengeFunnel}}<div class="funnel-row"><div style="font-size:.8rem;font-weight:500;">{{$s}}</div><div style="margin-top:.2rem;"><span class="fp fp-checked">{{index $f 0}} checked</span><span class="fp fp-tried">{{index $f 1}} tried</span><span class="fp fp-unlocked">{{index $f 2}} unlocked</span></div></div>{{end}}</div>{{end}}
+  {{if .Countries}}<div class="section"><div class="section-title">by region</div>{{range $c,$n := .Countries}}<div class="row"><span>{{$c}}</span><span class="rv">{{$n}}</span></div>{{end}}</div>{{end}}
+  {{if .TopReferrers}}<div class="section"><div class="section-title">referrers</div>{{range $r,$n := .TopReferrers}}<div class="row"><span>{{$r}}</span><span class="rv">{{$n}}</span></div>{{end}}</div>{{end}}
+  {{if .TopAgents}}<div class="section"><div class="section-title">visitors</div>{{range $n,$c := .TopAgents}}<div class="row"><span>{{$n}}</span><span class="rv">{{$c}}</span></div>{{end}}</div>{{end}}
+  {{if .TopSearches}}<div class="section"><div class="section-title">top searches</div>{{range $q,$n := .TopSearches}}<div class="row"><span>&#128269; {{$q}}</span><span class="rv">{{$n}}</span></div>{{end}}</div>{{end}}
+</div>
+</div>
+
+{{if .RecentEvents}}<div class="section"><div class="section-title">recent activity</div><ul class="ev-list">{{range .RecentEvents}}<li class="ev-item"><span>{{formatDate .At}}</span><span class="ev-type">{{.Type}}</span>{{if eq (print .Caller) "agent"}}<span class="ba">agent</span>{{else if eq (print .Caller) "human"}}<span class="bh">human</span>{{end}}{{if .Slug}}<span style="color:var(--fg);">{{.Slug}}</span>{{end}}{{if .Query}}<span>"{{.Query}}"</span>{{end}}{{if .From}}<span>&#8212;{{.From}}</span>{{end}}{{if .Country}}<span>&#127760;{{.Country}}</span>{{end}}</li>{{end}}</ul></div>{{end}}
+{{end}}
+
+{{if .Messages}}<div class="section"><div class="section-title">messages &amp; comments ({{len .Messages}})</div>{{range .Messages}}<div class="msg-preview">
+  <div style="font-size:.73rem;color:var(--muted);margin-bottom:.3rem;display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">
+    {{if .From}}<strong style="color:var(--fg);font-size:.8rem;">{{.From}}</strong>{{else}}<span>anonymous</span>{{end}}
+    <span>{{formatDate .At}}</span>
+    {{if .Regarding}}<span style="background:var(--accent-light);color:var(--accent);padding:1px 7px;border-radius:10px;font-size:.7rem;border:1px solid var(--accent);">re: {{.Regarding}}</span>{{end}}
+  </div>
+  <div style="font-size:.9rem;line-height:1.55;">{{.Text}}</div>
+</div>{{end}}</div>
+{{else}}<div class="section"><div class="section-title">messages &amp; comments</div><p style="color:var(--muted);font-size:.85rem;">No messages yet.</p></div>{{end}}
+
+{{template "footer" .}}
+</div>
+</body></html>
+{{end}}

@@ -1,0 +1,61 @@
+{{define "listings.html"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Listings — {{.Author}}</title>
+<style>{{template "css" .}}</style>
+</head>
+<body>
+<div class="container">
+{{template "header" .}}
+
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
+  <h2 style="margin:0;font-size:1.3rem;">Listings</h2>
+  <div style="display:flex;gap:.6rem;align-items:center;">
+    <a href="/subscriptions/new" style="font-size:.8rem;color:var(--accent);">+ subscribe</a>
+    {{if .IsOwner}}<a href="/listings/new" class="btn btn-primary" style="font-size:.85rem;padding:.35rem .9rem;text-decoration:none;">+ new listing</a>{{end}}
+  </div>
+</div>
+
+<div style="display:flex;gap:.5rem;margin-bottom:1.2rem;flex-wrap:wrap;">
+  <a href="/listings" style="font-size:.78rem;padding:3px 10px;border-radius:12px;text-decoration:none;{{if not .FilterType}}background:var(--accent);color:#fff;{{else}}background:var(--tag-bg);color:var(--tag-fg);{{end}}">all</a>
+  {{range $t := slice "sell" "buy" "offer" "request" "trade"}}
+  <a href="/listings?type={{$t}}" style="font-size:.78rem;padding:3px 10px;border-radius:12px;text-decoration:none;{{if eq $.FilterType $t}}background:var(--accent);color:#fff;{{else}}background:var(--tag-bg);color:var(--tag-fg);{{end}}">{{$t}}</a>
+  {{end}}
+</div>
+
+{{if .Listings}}
+<ul class="pieces">
+{{range .Listings}}
+<li class="piece-item">
+  <div class="piece-row" style="display:flex;gap:1rem;">
+    {{if .ImageRef}}<div style="flex-shrink:0;"><img src="/{{.ImageRef}}" style="width:80px;height:60px;object-fit:cover;border-radius:4px;"></div>{{end}}
+    <div class="piece-left" style="flex:1;">
+      <div class="piece-meta">
+        <span>{{formatDate .Published}}</span>
+        <span class="type-badge {{.Type}}">{{.Type}}</span>
+        {{if .Price}}<span style="font-size:.75rem;font-weight:500;color:var(--accent);">{{.Price}}</span>{{end}}
+        {{if ne .Status "open"}}<span class="locked-badge">{{.Status}}</span>{{end}}
+        {{if not .ExpiresAt.IsZero}}<span style="font-size:.68rem;color:var(--muted);">expires {{formatDate .ExpiresAt}}</span>{{end}}
+        {{if .Signature}}<span class="signed-badge">&#10003; signed</span>{{end}}
+      </div>
+      <div class="piece-title">
+        <a href="/listings/{{.Slug}}">{{.Title}}</a>
+        {{if $.IsOwner}}<a href="/listings/edit/{{.Slug}}" class="edit-btn">edit</a>{{end}}
+      </div>
+      {{if .Body}}<div class="piece-excerpt">{{truncate .Body 120}}</div>{{end}}
+      {{if .Tags}}<div class="tags">{{range .Tags}}<span class="tag">#{{.}}</span>{{end}}</div>{{end}}
+    </div>
+  </div>
+</li>
+{{end}}
+</ul>
+{{else}}
+<p style="color:var(--muted);text-align:center;padding:3rem 0;">No listings yet.</p>
+{{end}}
+
+{{template "footer" .}}
+</div>
+</body></html>
+{{end}}

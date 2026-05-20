@@ -1,0 +1,33 @@
+{{define "team.html"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Team — {{.Author}}</title>
+<style>{{template "css" .}}</style>
+</head>
+<body>
+<div class="container">
+{{template "header-simple" .}}
+<a href="/" style="font-size:.82rem;color:var(--muted);">&#8592; back</a>
+<div style="margin:1.5rem 0;">
+<div class="section-head">--- #team ─────────────────────────────────────────────</div>
+<p style="font-size:.85rem;color:var(--muted);margin:.75rem 0 1.25rem;">
+AI personas that assist {{.Author}}. Connect via <a href="/connect">MCP</a> to work with them.
+</p>
+{{if .Personas}}
+{{range .Personas}}
+<div class="irc-line" style="padding:4px 0;">
+  <span style="color:var(--accent);min-width:1rem;">&#9632;</span>
+  <span style="color:var(--accent);min-width:10rem;">{{.Name}}</span>
+  <span style="color:var(--muted);">{{.Role}}</span>
+</div>
+{{end}}
+{{else}}
+<div class="empty">no personas defined</div>
+{{end}}
+</div>
+{{template "footer" .}}
+</div>
+</body></html>
+{{end}}

@@ -1,0 +1,49 @@
+{{define "subscribe.html"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Subscribe — {{.Author}}</title>
+<style>{{template "css" .}}</style>
+</head>
+<body>
+<div class="container">
+{{template "header" .}}
+<h2 style="font-size:1.2rem;">Subscribe to Listings</h2>
+<p style="color:var(--muted);font-size:.85rem;margin-bottom:1.5rem;">Get notified when new listings are published that match your filters.</p>
+
+<form method="POST" action="/subscriptions/confirm" style="max-width:500px;">
+  <div style="margin-bottom:1rem;">
+    <label style="font-size:.82rem;font-weight:500;display:block;margin-bottom:.3rem;">Channel</label>
+    <select name="channel" id="channel-select" style="width:100%;padding:.5rem;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);" onchange="document.getElementById('webhook-field').style.display=this.value==='webhook'?'block':'none'">
+      <option value="webhook">Webhook (push)</option>
+      <option value="mcp">MCP (pull)</option>
+    </select>
+  </div>
+  <div id="webhook-field" style="margin-bottom:1rem;">
+    <label style="font-size:.82rem;font-weight:500;display:block;margin-bottom:.3rem;">Webhook URL</label>
+    <input name="callback_url" type="url" placeholder="https://your-endpoint.example.com/webhook" style="width:100%;padding:.5rem;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);">
+  </div>
+  <div style="margin-bottom:1rem;">
+    <label style="font-size:.82rem;font-weight:500;display:block;margin-bottom:.5rem;">Filter by type</label>
+    <div style="display:flex;gap:.8rem;flex-wrap:wrap;">
+      <label style="font-size:.82rem;"><input type="checkbox" name="filter_types" value="sell"> sell</label>
+      <label style="font-size:.82rem;"><input type="checkbox" name="filter_types" value="buy"> buy</label>
+      <label style="font-size:.82rem;"><input type="checkbox" name="filter_types" value="offer"> offer</label>
+      <label style="font-size:.82rem;"><input type="checkbox" name="filter_types" value="request"> request</label>
+      <label style="font-size:.82rem;"><input type="checkbox" name="filter_types" value="trade"> trade</label>
+    </div>
+    <div style="font-size:.72rem;color:var(--muted);margin-top:.3rem;">Leave all unchecked to match any type.</div>
+  </div>
+  <div style="margin-bottom:1rem;">
+    <label style="font-size:.82rem;font-weight:500;display:block;margin-bottom:.3rem;">Filter by tags (comma-separated)</label>
+    <input name="filter_tags" placeholder="sailing, s2000" style="width:100%;padding:.5rem;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);">
+  </div>
+  <button type="submit" class="btn btn-primary" style="padding:.6rem 1.5rem;">Subscribe</button>
+  <a href="/listings" style="margin-left:1rem;font-size:.85rem;color:var(--muted);">cancel</a>
+</form>
+
+{{template "footer" .}}
+</div>
+</body></html>
+{{end}}

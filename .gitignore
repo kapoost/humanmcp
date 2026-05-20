@@ -4,3 +4,7 @@ humanmcp
 *.out
 config.json
 .env
+.DS_Store
+**/.DS_Store
+server
+.mcp.json

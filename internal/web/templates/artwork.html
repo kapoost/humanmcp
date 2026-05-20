@@ -1,0 +1,21 @@
+{{define "artwork.html"}}<!DOCTYPE html><html><head><meta charset="utf-8"><title>{{.Piece.Title}} — {{.Author}}</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+body{font-family:Georgia,serif;max-width:900px;margin:0 auto;padding:2rem;background:#fafaf8;color:#222}
+h1{margin-bottom:.3rem}
+.meta{color:#666;font-size:.9rem;margin-bottom:1rem}
+.body{line-height:1.7;margin:1.5rem 0}
+.artwork-img{max-width:100%;max-height:500px;border-radius:4px;margin:1rem 0}
+h2{margin-top:2rem;border-bottom:1px solid #ccc;padding-bottom:.3rem}
+.signed{color:#2a7a2a;font-size:.8rem}
+a.back{color:#666;font-size:.9rem}
+</style></head><body>
+<a class="back" href="/artworks">← all artworks</a>
+<h1>{{.Piece.Title}}</h1>
+<div class="meta">{{formatDate .Piece.Published}}{{if .Piece.Tags}} · {{join .Piece.Tags ", "}}{{end}}{{if .Piece.Signature}} · <span class="signed">✓ signed</span>{{end}}</div>
+{{if .Piece.BlobImageMap.thumb}}<img class="artwork-img" src="/files/{{.Piece.BlobImageMap.thumb}}" alt="{{.Piece.Title}}">{{end}}
+{{if .Piece.Description}}<div class="body"><em>{{.Piece.Description}}</em></div>{{end}}
+<div class="body">{{.Piece.Body | nl2br}}</div>
+<h2>Provenance (0)</h2><p>No provenance documents yet.</p>
+</body></html>
+{{end}}

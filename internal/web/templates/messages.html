@@ -1,0 +1,40 @@
+{{define "messages.html"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Messages — {{.Author}}</title>
+<style>{{template "css" .}}
+.msg-item{padding:.85rem 0;border-bottom:1px solid var(--border);}
+.msg-item:last-child{border-bottom:none;}
+.msg-meta{font-size:.73rem;color:var(--muted);margin-bottom:.35rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;}
+.msg-from{font-weight:600;color:var(--fg);font-size:.82rem;}
+.msg-re{background:var(--accent-light);color:var(--accent);padding:1px 8px;border-radius:10px;font-size:.7rem;border:1px solid var(--accent);}
+.msg-body{font-size:.9rem;line-height:1.6;white-space:pre-wrap;word-break:break-word;}
+</style>
+</head>
+<body>
+<div class="container">
+{{template "header-simple" .}}
+<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:1.5rem;">
+  <h1 style="font-size:1.05rem;font-weight:500;">Messages <span style="font-size:.78rem;color:var(--muted);font-weight:400;">({{len .Messages}})</span></h1>
+  <a href="/dashboard" style="font-size:.82rem;color:var(--muted);">&#8592; dashboard</a>
+</div>
+{{if .Messages}}
+{{range .Messages}}
+<div class="msg-item">
+  <div class="msg-meta">
+    {{if .From}}<span class="msg-from">{{.From}}</span>{{else}}<span style="color:var(--muted);">anonymous</span>{{end}}
+    <span>{{formatDate .At}}</span>
+    {{if .Regarding}}<span class="msg-re">re: {{.Regarding}}</span>{{end}}
+  </div>
+  <div class="msg-body">{{nl2br .Text}}</div>
+</div>
+{{end}}
+{{else}}
+<div class="empty">No messages yet.</div>
+{{end}}
+{{template "footer" .}}
+</div>
+</body></html>
+{{end}}

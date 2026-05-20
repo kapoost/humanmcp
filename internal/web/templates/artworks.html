@@ -1,0 +1,20 @@
+{{define "artworks.html"}}<!DOCTYPE html><html><head><meta charset="utf-8"><title>Artworks — {{.Author}}</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+body{font-family:Georgia,serif;max-width:900px;margin:0 auto;padding:2rem;background:#fafaf8;color:#222}
+h1{border-bottom:2px solid #333;padding-bottom:.5rem}
+.artwork{border:1px solid #ddd;padding:1.5rem;margin:1.5rem 0;background:#fff;border-radius:4px;overflow:hidden}
+.artwork h2{margin:0 0 .3rem}
+.artwork .meta{color:#666;font-size:.9rem;margin-bottom:.5rem}
+.artwork .desc{margin:.5rem 0}
+.prov-count{display:inline-block;background:#e8e0d4;color:#5a4a3a;padding:2px 8px;border-radius:10px;font-size:.8rem}
+a{color:#2a5a8a;text-decoration:none}
+a:hover{text-decoration:underline}
+.img-thumb{max-width:200px;max-height:150px;float:right;margin:0 0 1rem 1rem;border-radius:4px}
+</style></head><body>
+<a href="/" style="color:#666;font-size:.9rem;">← back</a>
+<h1>Artworks</h1>
+<p>Physical artworks with digital provenance. Each piece carries its full history: certificates, sales, expert opinions — all signed and verifiable.</p>
+{{if .Artworks}}{{range .Artworks}}<div class="artwork">{{if .BlobImageMap.thumb}}<img class="img-thumb" src="/files/{{.BlobImageMap.thumb}}" alt="{{.Title}}">{{end}}<h2><a href="/artworks/{{.Slug}}">{{.Title}}</a></h2><div class="meta">{{formatDate .Published}}{{if .Tags}} · {{join .Tags ", "}}{{end}}</div><div class="desc">{{.Description}}</div></div>{{end}}{{else}}<p style="color:#888">No artworks yet.</p>{{end}}
+</body></html>
+{{end}}

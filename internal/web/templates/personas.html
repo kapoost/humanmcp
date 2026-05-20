@@ -1,0 +1,47 @@
+{{define "personas.html"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Personas — {{.Author}}</title>
+<style>{{template "css" .}}
+.pe-card{border:1px solid var(--border);border-radius:8px;padding:1rem 1.1rem;margin-bottom:.75rem;}
+.pe-name{font-size:1rem;font-weight:500;margin-bottom:.15rem;}
+.pe-role{font-size:.78rem;color:var(--accent);font-weight:500;margin-bottom:.6rem;}
+.pe-prompt{font-size:.82rem;color:var(--muted);line-height:1.65;background:var(--tag-bg);border-radius:4px;padding:.65rem .8rem;border:1px solid var(--border);white-space:pre-wrap;}
+.pe-meta{font-size:.7rem;color:var(--muted);margin-top:.5rem;display:flex;gap:.75rem;flex-wrap:wrap;}
+.pe-slug{font-family:monospace;font-size:.72rem;background:var(--tag-bg);color:var(--tag-fg);padding:1px 6px;border-radius:3px;}
+.pe-by{font-size:.65rem;background:var(--accent-light);color:var(--accent);padding:1px 6px;border-radius:3px;border:1px solid var(--accent);}
+</style>
+</head>
+<body>
+<div class="container">
+{{template "header-simple" .}}
+<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:1.5rem;">
+  <div>
+    <h1 style="font-size:1.1rem;font-weight:500;">Personas</h1>
+    <p style="font-size:.82rem;color:var(--muted);margin-top:.2rem;">Expert roles an agent can adopt to assist {{.Author}}. Use <code>get_persona</code> via MCP.</p>
+  </div>
+  <a href="/" style="font-size:.82rem;color:var(--muted);">&#8592; back</a>
+</div>
+{{if .Personas}}
+  {{range .Personas}}
+  <div class="pe-card">
+    <div class="pe-name">{{.Name}}</div>
+    <div class="pe-role">{{.Role}}</div>
+    {{if .Prompt}}<div class="pe-prompt">{{.Prompt}}</div>{{end}}
+    <div class="pe-meta">
+      <span class="pe-slug">{{.Slug}}</span>
+      {{if .Tags}}<span>{{join .Tags " · "}}</span>{{end}}
+      {{if .UpdatedAt}}<span>updated {{formatDate .UpdatedAt}}</span>{{end}}
+      {{if .UpdatedBy}}<span class="pe-by">{{.UpdatedBy}}</span>{{end}}
+    </div>
+  </div>
+  {{end}}
+{{else}}
+<div class="empty">No personas defined yet.</div>
+{{end}}
+{{template "footer" .}}
+</div>
+</body></html>
+{{end}}
