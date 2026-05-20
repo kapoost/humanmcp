@@ -221,6 +221,10 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/for-agents", h.handleForAgents)
 	mux.HandleFunc("/subscribe", h.handleSubscribeForm)
 	mux.HandleFunc("/subscribe/confirm", h.handleSubscribeConfirm)
+	mux.HandleFunc("/llms.txt", h.handleLLMSTxt)
+	mux.Handle("/llms-edit", h.auth.RequireOwner(http.HandlerFunc(h.handleLLMSTxtEdit)))
+	mux.HandleFunc("/stats", h.handleStats)
+	mux.HandleFunc("/gallery", h.handleGallery)
 }
 
 func (h *Handler) handleWellKnown(w http.ResponseWriter, r *http.Request) {
@@ -1333,4 +1337,65 @@ func splitTags(s string) []string {
 		}
 	}
 	return out
+}
+
+// /stats and /gallery — aliases for /dashboard and /images respectively
+func (h *Handler) handleStats(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, "/dashboard", http.StatusFound)
+}
+
+func (h *Handler) handleGallery(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, "/images", http.StatusFound)
+}
+
+// /llms.txt — plain text catalogue for AI agents
+func (h *Handler) handleLLMSTxt(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	dataDir := filepath.Dir(h.cfg.ContentDir)
+	custom := filepath.Join(dataDir, "llms.txt")
+	if data, err := os.ReadFile(custom); err == nil {
+		w.Write(data)
+		return
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "# %s\n\n%s\n\n", h.cfg.AuthorName, h.cfg.AuthorBio)
+	fmt.Fprintf(&b, "> Personal humanMCP server. Connect via https://%s/mcp\n\n", h.cfg.Domain)
+	fmt.Fprintln(&b, "## Pieces")
+	fmt.Fprintln(&b)
+	for _, p := range h.store.List(false) {
+		fmt.Fprintf(&b, "- [%s](https://%s/p/%s)", p.Title, h.cfg.Domain, p.Slug)
+		if p.Description != "" {
+			fmt.Fprintf(&b, ": %s", p.Description)
+		}
+		fmt.Fprintln(&b)
+	}
+	w.Write([]byte(b.String()))
+}
+
+// /llms-edit — owner editor for /llms.txt
+func (h *Handler) handleLLMSTxtEdit(w http.ResponseWriter, r *http.Request) {
+	dataDir := filepath.Dir(h.cfg.ContentDir)
+	custom := filepath.Join(dataDir, "llms.txt")
+	if r.Method == http.MethodPost {
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		body := r.FormValue("body")
+		if err := os.WriteFile(custom, []byte(body), 0o644); err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		http.Redirect(w, r, "/llms.txt", http.StatusFound)
+		return
+	}
+	body := ""
+	if data, err := os.ReadFile(custom); err == nil {
+		body = string(data)
+	}
+	h.render(w, "llms-edit.html", map[string]interface{}{
+		"Author": h.cfg.AuthorName,
+		"Domain": h.cfg.Domain,
+		"Body":   body,
+	})
 }
