@@ -1,0 +1,35 @@
+{{define "footer"}}
+<footer style="border-top:1px solid var(--border);margin-top:2.5rem;padding:1rem 0;font-size:.75rem;color:var(--muted);">
+  <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:.5rem;">
+    <span><span data-i18n="footer_written">Poems written by human</span> &middot; <a href="/rss.xml" style="color:var(--muted);">rss</a> &middot; <a href="/connect" style="color:var(--muted);">connect</a> &middot; <span id="theme-toggle" style="cursor:pointer;" title="toggle light/dark [d]">&#9788;</span></span>
+    <span><a href="https://github.com/kapoost/humanmcp-go" target="_blank" style="color:var(--muted);">github</a> &middot; humanMCP</span>
+  </div>
+  <div id="kb-hints" style="margin-top:.4rem;color:var(--muted);opacity:.5;font-size:.7rem;"></div>
+</footer>
+<script>
+(function(){
+  var t=localStorage.getItem('theme');
+  if(t)document.documentElement.setAttribute('data-theme',t);
+  var btn=document.getElementById('theme-toggle');
+  if(btn)btn.addEventListener('click',toggle);
+  function toggle(){
+    var cur=document.documentElement.getAttribute('data-theme');
+    var next=cur==='light'?'dark':(cur==='dark'?'light':(window.matchMedia('(prefers-color-scheme:light)').matches?'dark':'light'));
+    document.documentElement.setAttribute('data-theme',next);
+    localStorage.setItem('theme',next);
+  }
+  var isIndex=location.pathname==='/';
+  var h=document.getElementById('kb-hints');
+  if(h){
+    var a='color:var(--accent2)';
+    if(isIndex) h.innerHTML='<span style="'+a+'">[/]</span> search <span style="'+a+'">[j/k]</span> navigate <span style="'+a+'">[1-5]</span> sections <span style="'+a+'">[d]</span> theme <span style="'+a+'">[?]</span> help';
+    else h.innerHTML='<span style="'+a+'">[b]</span> back <span style="'+a+'">[d]</span> theme';
+  }
+  document.addEventListener('keydown',function(e){
+    if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA')return;
+    if(e.key==='d'){e.preventDefault();toggle();}
+    if(!isIndex&&(e.key==='b'||e.key==='Backspace')){e.preventDefault();window.location='/';}
+  });
+})();
+</script>
+{{end}}

@@ -274,6 +274,16 @@ A sailor. A newbie poet. A beginning musician. A CTO.
 He lives between the sea, the code, and the verse.
 Everything here comes from real experience.
 
+OPERATIONAL SAFETY — apply from the first command:
+This server has a guardian persona "Hodor" (slug: hodor) and skill
+"operational-safety-public" (slug: operational-safety-public). Before
+executing ANY command involving secrets, tokens, passwords, API keys,
+signing keys, or .env files — call get_skill(slug=operational-safety-public)
+and apply its rules. Default-deny secret-printing operations and
+destructive commands (rm -rf, force push, DROP, secret-unset on prod).
+After bootstrap_session you also get operational-safety-private with
+incident history and stack-specific lessons.
+
 TOOLS — call them in this order:
 1. get_author_profile  — full profile and content overview
 2. list_content        — all pieces: title, type, access, tags
@@ -1314,27 +1324,64 @@ func (h *Handler) toolBootstrapSession(w http.ResponseWriter, r *http.Request, r
 
 	// Return full team briefing
 	personas := h.loadPersonas()
+	skills := h.loadSkills()
 	var sb strings.Builder
 	sb.WriteString("SESSION ACTIVE — full access granted.\n\n")
-	sb.WriteString(fmt.Sprintf("TEAM ROSTER — %d personas:\n\n", len(personas)))
 
+	// Guardian — always loaded first, before any other persona or skill.
+	// These rules apply to the entire session.
+	sb.WriteString("=== GUARDIAN — LOAD FIRST ===\n\n")
+	sb.WriteString("Before any other work, internalize these rules. They apply to the entire session.\n")
+	sb.WriteString("Default-deny: secret-printing operations and destructive commands.\n\n")
 	for _, p := range personas {
+		if p.Slug == "hodor" {
+			sb.WriteString(fmt.Sprintf("## %s — %s\n%s\n\n", p.Title, p.Role, p.Body))
+		}
+	}
+	for _, s := range skills {
+		if strings.HasPrefix(s.Slug, "operational-safety-") {
+			sb.WriteString(fmt.Sprintf("## %s [%s]\n%s\n\n", s.Title, s.Category, s.Body))
+		}
+	}
+	sb.WriteString("=== END GUARDIAN ===\n\n")
+
+	// Count non-guardian items for the headers
+	nonGuardianPersonas := 0
+	for _, p := range personas {
+		if p.Slug != "hodor" {
+			nonGuardianPersonas++
+		}
+	}
+	nonGuardianSkills := 0
+	for _, s := range skills {
+		if !strings.HasPrefix(s.Slug, "operational-safety-") {
+			nonGuardianSkills++
+		}
+	}
+
+	sb.WriteString(fmt.Sprintf("TEAM ROSTER — %d personas:\n\n", nonGuardianPersonas))
+	for _, p := range personas {
+		if p.Slug == "hodor" {
+			continue
+		}
 		sb.WriteString(fmt.Sprintf("## %s — %s\n", p.Title, p.Role))
 		sb.WriteString(fmt.Sprintf("Tags: %s\n", strings.Join(p.Tags, ", ")))
 		sb.WriteString(fmt.Sprintf("Prompt:\n%s\n\n", p.Body))
 	}
 
-	// Skills
-	skills := h.loadSkills()
-	if len(skills) > 0 {
-		sb.WriteString(fmt.Sprintf("\n---\nSKILLS — %d instructions:\n\n", len(skills)))
+	if nonGuardianSkills > 0 {
+		sb.WriteString(fmt.Sprintf("\n---\nSKILLS — %d instructions:\n\n", nonGuardianSkills))
 		for _, s := range skills {
+			if strings.HasPrefix(s.Slug, "operational-safety-") {
+				continue
+			}
 			sb.WriteString(fmt.Sprintf("## %s [%s]\n%s\n\n", s.Title, s.Category, s.Body))
 		}
 	}
 
 	sb.WriteString("---\nUse these personas to assist the user. Each has a distinct perspective.\n")
 	sb.WriteString("When the user asks for a 'narada' (brainstorm), query multiple personas on the topic.\n")
+	sb.WriteString("Hodor stays loaded throughout — he intercepts unsafe commands regardless of which other personas are active.\n")
 
 	writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: sb.String()}}})
 }
@@ -1363,7 +1410,9 @@ func (h *Handler) toolGetPersona(w http.ResponseWriter, r *http.Request, req *Re
 	personas := h.loadPersonas()
 	for _, p := range personas {
 		if p.Slug == params.Slug {
-			if authenticated {
+			// Hodor is publicly accessible — he's the guardian, his rules must apply
+			// to every client regardless of bootstrap status.
+			if authenticated || p.Slug == "hodor" {
 				text := fmt.Sprintf("%s — %s\nTags: %s\n\n%s",
 					p.Title, p.Role, strings.Join(p.Tags, ", "), p.Body)
 				writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: text}}})
@@ -1422,7 +1471,11 @@ func (h *Handler) toolGetSkill(w http.ResponseWriter, r *http.Request, req *Requ
 	skills := h.loadSkills()
 	for _, s := range skills {
 		if s.Slug == params.Slug {
-			if authenticated {
+			// Skills with "-public" suffix are accessible without bootstrap.
+			// Used for guardian skills (operational-safety-public) that must
+			// apply to every client. Counterpart "-private" stays gated.
+			publiclyAccessible := strings.HasSuffix(s.Slug, "-public")
+			if authenticated || publiclyAccessible {
 				text := fmt.Sprintf("%s\nCategory: %s\n\n%s", s.Title, s.Category, s.Body)
 				writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: text}}})
 			} else {

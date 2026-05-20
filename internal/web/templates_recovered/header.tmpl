@@ -1,0 +1,28 @@
+{{define "header"}}
+<header style="border-bottom:1px solid var(--border);padding:1rem 0 .7rem;margin-bottom:1.5rem;">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:.4rem;">
+    <div>
+      <div style="font-size:1rem;display:flex;align-items:center;gap:.5rem;">
+        <span style="color:var(--accent);">[</span><a href="/" style="color:var(--accent);">{{.Author}}</a><span style="color:var(--accent);">]</span>
+        {{if .Bio}}<span style="font-size:.82rem;color:var(--muted);">{{.Bio}}</span>{{end}}
+      </div>
+    </div>
+    <nav style="font-size:.8rem;color:var(--muted);display:flex;gap:.7rem;align-items:center;">
+      {{if .IsOwner}}
+        <a href="/llms-edit" style="color:var(--muted);">llms.txt</a>
+        <a href="/dashboard" style="color:var(--muted);">dashboard</a>
+        <a href="/logout" style="color:var(--muted);">logout</a>
+      {{else}}
+        {{if .Poems}}<a href="#wiersze" style="color:var(--accent2);" data-i18n="nav_wiersze">wiersze</a>{{end}}
+        {{if .Images}}<a href="#obrazy" style="color:var(--accent2);" data-i18n="nav_obrazy">obrazy</a>{{end}}
+        {{if .Artworks}}<a href="#artworks" style="color:var(--accent2);" data-i18n="nav_artworks">artworks</a>{{end}}
+        {{if .Listings}}<a href="#ogloszenia" style="color:var(--accent2);" data-i18n="nav_ogloszenia">ogłoszenia</a>{{end}}
+        <a href="/contact" style="color:var(--muted);">contact</a>
+        <a href="/connect" style="color:var(--accent);">+connect</a>
+        <span style="color:var(--muted);cursor:pointer;" id="lang-toggle" title="PL / EN">EN</span>
+        <span style="color:var(--muted);cursor:pointer;" id="help-trigger" title="keyboard shortcuts [?]">?</span>
+      {{end}}
+    </nav>
+  </div>
+</header>
+{{end}}

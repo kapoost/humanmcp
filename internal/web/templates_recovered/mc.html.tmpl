@@ -1,0 +1,338 @@
+{{define "mc.html"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{.Author}} — MISSION CONTROL</title>
+<style>
+:root{--mc-bg:#0c1117;--mc-fg:#c9d1d9;--mc-muted:#484f58;--mc-border:#21262d;--mc-accent:#58a6ff;--mc-accent-dim:#1a3a5c;--mc-green:#3fb950;--mc-orange:#d29922;--mc-red:#f85149;--mc-surface:#161b22;--mc-mono:'SF Mono',SFMono-Regular,Menlo,Consolas,monospace;--mc-sans:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--mc-bg);color:var(--mc-fg);font-family:var(--mc-mono);font-size:13px;line-height:1.5;min-height:100vh}
+a{color:var(--mc-accent);text-decoration:none}
+a:hover{text-decoration:underline}
+
+.mc-top{display:flex;justify-content:space-between;align-items:center;padding:10px 20px;border-bottom:1px solid var(--mc-border);background:var(--mc-surface)}
+.mc-title{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--mc-muted)}
+.mc-status{display:flex;align-items:center;gap:12px;font-size:11px;letter-spacing:.1em}
+.mc-dot{width:7px;height:7px;border-radius:50%;background:var(--mc-green);display:inline-block}
+.mc-clock{color:var(--mc-muted);font-variant-numeric:tabular-nums}
+
+.mc-stats{display:flex;gap:0;border-bottom:1px solid var(--mc-border)}
+.mc-stat{flex:1;text-align:center;padding:14px 8px;border-right:1px solid var(--mc-border)}
+.mc-stat:last-child{border-right:none}
+.mc-stat-num{font-size:28px;font-weight:500;color:var(--mc-fg);line-height:1}
+.mc-stat-label{font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--mc-muted);margin-top:4px}
+
+.mc-body{display:grid;grid-template-columns:1fr 1fr 1fr;min-height:calc(100vh - 120px)}
+.mc-col{padding:16px 20px;border-right:1px solid var(--mc-border)}
+.mc-col:last-child{border-right:none}
+.mc-section{margin-bottom:20px}
+.mc-label{font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--mc-muted);margin-bottom:8px;display:flex;justify-content:space-between}
+.mc-label span{color:var(--mc-accent)}
+
+.mc-session{background:var(--mc-surface);border:1px solid var(--mc-border);padding:14px 16px;margin-bottom:16px}
+.mc-session-title{font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--mc-orange);margin-bottom:6px}
+.mc-session-code{font-family:var(--mc-sans);font-size:16px;color:var(--mc-fg);font-weight:500;margin-bottom:6px}
+.mc-session-meta{font-size:11px;color:var(--mc-muted)}
+.mc-session-hint{font-size:11px;color:var(--mc-muted);margin-top:6px}
+.mc-session-hint em{color:var(--mc-fg);font-style:normal;font-weight:500}
+.mc-btn{font-family:var(--mc-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;padding:4px 10px;background:var(--mc-bg);border:1px solid var(--mc-border);color:var(--mc-muted);cursor:pointer;margin-top:8px}
+.mc-btn:hover{border-color:var(--mc-accent);color:var(--mc-accent)}
+
+.mc-row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--mc-border);font-size:12px}
+.mc-row:last-child{border-bottom:none}
+.mc-row-val{color:var(--mc-accent);font-weight:500}
+
+.mc-hour{display:flex;align-items:flex-end;gap:2px;height:50px;margin-top:6px}
+.mc-hb{flex:1;background:var(--mc-accent-dim);border-radius:1px 1px 0 0;min-height:1px}
+.mc-hour-labels{display:flex;justify-content:space-between;font-size:9px;color:var(--mc-muted);margin-top:2px}
+
+.mc-ev{padding:3px 0;border-bottom:1px solid var(--mc-border);font-size:11px;color:var(--mc-muted);display:flex;gap:8px;flex-wrap:wrap}
+.mc-ev:last-child{border-bottom:none}
+.mc-ev-type{color:var(--mc-fg)}
+.mc-badge-a{font-size:9px;background:var(--mc-accent-dim);color:var(--mc-accent);padding:1px 5px;border-radius:2px;border:1px solid var(--mc-accent)}
+.mc-badge-h{font-size:9px;background:var(--mc-surface);color:var(--mc-muted);padding:1px 5px;border-radius:2px;border:1px solid var(--mc-border)}
+
+.mc-msg{padding:8px 0;border-bottom:1px solid var(--mc-border)}
+.mc-msg:last-child{border-bottom:none}
+.mc-msg-head{font-size:10px;color:var(--mc-muted);display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:3px}
+.mc-msg-head strong{color:var(--mc-fg);font-size:11px}
+.mc-msg-tag{font-size:9px;background:var(--mc-accent-dim);color:var(--mc-accent);padding:1px 6px;border-radius:8px;border:1px solid var(--mc-accent)}
+.mc-kind{font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;margin-right:4px;letter-spacing:.5px}
+.mc-kind-msg{background:#1a3a1a;color:#4a4}
+.mc-kind-cmt{background:#1a2a3a;color:#4af}
+.mc-kind-lic{background:#3a2a1a;color:#fa4}
+.mc-kind-q{background:#3a1a2a;color:#f4a}
+.mc-kind-rsp{background:#2a2a1a;color:#aa4}
+.mc-msg-body{font-size:12px;line-height:1.5;color:var(--mc-fg)}
+.mc-msg-del{font-size:9px;color:var(--mc-muted);cursor:pointer;margin-left:auto;border:none;background:none}
+.mc-msg-del:hover{color:var(--mc-red)}
+
+.mc-foot{font-size:9px;color:var(--mc-muted);letter-spacing:.08em;padding:8px 20px;border-top:1px solid var(--mc-border);display:flex;justify-content:space-between}
+
+.mc-funnel{font-size:11px;padding:4px 0;border-bottom:1px solid var(--mc-border)}
+.mc-fp{font-size:9px;padding:1px 5px;border-radius:2px;margin-right:4px}
+.mc-fp-c{background:#0d2b1a;color:var(--mc-green);border:1px solid #1a4a2a}
+.mc-fp-t{background:#2a1a00;color:var(--mc-orange);border:1px solid #4a3a1a}
+.mc-fp-u{background:#1a2a1a;color:var(--mc-green);border:1px solid #2a4a2a}
+
+.mc-trends{background:var(--mc-surface);border:1px solid var(--mc-border);padding:12px 16px;margin-bottom:0}
+.mc-trend-table{width:100%;border-collapse:collapse;font-size:11px;font-family:var(--mc-mono)}
+.mc-trend-table th{text-align:right;color:var(--mc-muted);font-weight:400;padding:2px 8px;font-size:9px;text-transform:uppercase;letter-spacing:.08em}
+.mc-trend-table th:first-child{text-align:left}
+.mc-trend-table td{text-align:right;padding:3px 8px;border-top:1px solid var(--mc-border)}
+.mc-trend-label{text-align:left!important;color:var(--mc-accent);font-size:10px;text-transform:uppercase;letter-spacing:.06em}
+.mc-spark{display:flex;align-items:flex-end;gap:2px;height:40px;margin-top:12px}
+.mc-sb{flex:1;background:var(--mc-accent);min-width:2px;border-radius:1px 1px 0 0;opacity:.7}
+.mc-sb:hover{opacity:1}
+.mc-spark-label{display:flex;justify-content:space-between;font-size:9px;color:var(--mc-muted);margin-top:2px}
+
+@media(max-width:900px){.mc-body{grid-template-columns:1fr}.mc-col{border-right:none;border-bottom:1px solid var(--mc-border)}}
+@media(max-width:600px){.mc-stats{flex-wrap:wrap}.mc-stat{min-width:25%}}
+</style>
+</head>
+<body>
+
+<div class="mc-top">
+  <div class="mc-title">HUMANMCP — MISSION CONTROL</div>
+  <div class="mc-status">
+    <span class="mc-dot"></span>
+    <span style="color:var(--mc-green);text-transform:uppercase;letter-spacing:.1em">online</span>
+    <span class="mc-clock" id="mc-clock"></span>
+    {{if .IsOwner}}<a href="/" style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--mc-muted)">← site</a>{{end}}
+  </div>
+</div>
+
+{{with .Stats}}
+<div class="mc-stats">
+  <div class="mc-stat"><div class="mc-stat-num">{{.PieceCount}}</div><div class="mc-stat-label">pieces</div></div>
+  <div class="mc-stat"><div class="mc-stat-num">{{.SkillCount}}</div><div class="mc-stat-label">skills</div></div>
+  <div class="mc-stat"><div class="mc-stat-num">{{.TotalReads}}</div><div class="mc-stat-label">reads</div></div>
+  <div class="mc-stat"><div class="mc-stat-num">{{.TotalMessages}}</div><div class="mc-stat-label">messages</div></div>
+  <div class="mc-stat"><div class="mc-stat-num">{{.TotalLicenses}}</div><div class="mc-stat-label">licenses</div></div>
+  <div class="mc-stat"><div class="mc-stat-num">{{.UniqueVisitors}}</div><div class="mc-stat-label">visitors</div></div>
+  <div class="mc-stat"><div class="mc-stat-num">{{.AgentCalls}}</div><div class="mc-stat-label">agents</div></div>
+  <div class="mc-stat"><div class="mc-stat-num">{{.HumanVisits}}</div><div class="mc-stat-label">humans</div></div>
+  <div class="mc-stat"><div class="mc-stat-num">{{.TotalSearches}}</div><div class="mc-stat-label">searches</div></div>
+</div>
+{{end}}
+
+{{if .IsOwner}}{{with .Stats}}
+<div class="mc-trends">
+  <table class="mc-trend-table">
+    <thead><tr><th></th><th>reads</th><th>visitors</th><th>agents</th><th>humans</th><th>searches</th><th>msgs</th><th>lic</th></tr></thead>
+    <tbody>
+      <tr><td class="mc-trend-label">today</td><td>{{.Today.Reads}}</td><td>{{.Today.Visitors}}</td><td>{{.Today.Agents}}</td><td>{{.Today.Humans}}</td><td>{{.Today.Searches}}</td><td>{{.Today.Messages}}</td><td>{{.Today.Licenses}}</td></tr>
+      <tr><td class="mc-trend-label">yesterday</td><td>{{.Yesterday.Reads}}</td><td>{{.Yesterday.Visitors}}</td><td>{{.Yesterday.Agents}}</td><td>{{.Yesterday.Humans}}</td><td>{{.Yesterday.Searches}}</td><td>{{.Yesterday.Messages}}</td><td>{{.Yesterday.Licenses}}</td></tr>
+      <tr><td class="mc-trend-label">7 days</td><td>{{.Last7Days.Reads}}</td><td>{{.Last7Days.Visitors}}</td><td>{{.Last7Days.Agents}}</td><td>{{.Last7Days.Humans}}</td><td>{{.Last7Days.Searches}}</td><td>{{.Last7Days.Messages}}</td><td>{{.Last7Days.Licenses}}</td></tr>
+      <tr><td class="mc-trend-label">30 days</td><td>{{.Last30Days.Reads}}</td><td>{{.Last30Days.Visitors}}</td><td>{{.Last30Days.Agents}}</td><td>{{.Last30Days.Humans}}</td><td>{{.Last30Days.Searches}}</td><td>{{.Last30Days.Messages}}</td><td>{{.Last30Days.Licenses}}</td></tr>
+    </tbody>
+  </table>
+  <div class="mc-spark" id="mc-spark"></div>
+  <div class="mc-spark-label"><span>14d ago</span><span>today</span></div>
+</div>
+<script>
+(function(){var d=[{{range .DailyCounts}}{{.}},{{end}}];var mx=Math.max.apply(null,d)||1;var b=document.getElementById('mc-spark');d.forEach(function(v,i){var e=document.createElement('div');e.className='mc-sb';e.style.height=Math.max(1,Math.round(v/mx*36))+'px';e.title=(13-i)+' days ago: '+v;b.appendChild(e)})})();
+</script>
+{{end}}{{end}}
+
+<div class="mc-body">
+
+<!-- COL 1: metrics -->
+<div class="mc-col">
+{{if .IsOwner}}
+<div class="mc-section">
+  <div class="mc-label">SYSTEM METRICS</div>
+  {{with .Stats}}
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+    <div style="background:var(--mc-surface);border:1px solid var(--mc-border);padding:10px"><div style="font-size:20px;font-weight:500">{{.TotalComments}}</div><div style="font-size:9px;color:var(--mc-muted);text-transform:uppercase;letter-spacing:.08em;margin-top:2px">comments</div></div>
+    <div style="background:var(--mc-surface);border:1px solid var(--mc-border);padding:10px"><div style="font-size:20px;font-weight:500">{{.TotalUnlocks}}</div><div style="font-size:9px;color:var(--mc-muted);text-transform:uppercase;letter-spacing:.08em;margin-top:2px">unlocks</div></div>
+    <div style="background:var(--mc-surface);border:1px solid var(--mc-border);padding:10px"><div style="font-size:20px;font-weight:500">{{.TotalInterest}}</div><div style="font-size:9px;color:var(--mc-muted);text-transform:uppercase;letter-spacing:.08em;margin-top:2px">gate checks</div></div>
+    <div style="background:var(--mc-surface);border:1px solid var(--mc-border);padding:10px"><div style="font-size:20px;font-weight:500">{{$.Uptime}}</div><div style="font-size:9px;color:var(--mc-muted);text-transform:uppercase;letter-spacing:.08em;margin-top:2px">uptime</div></div>
+    <div style="background:var(--mc-surface);border:1px solid var(--mc-border);padding:10px"><div style="font-size:20px;font-weight:500">{{.TotalListings}}</div><div style="font-size:9px;color:var(--mc-muted);text-transform:uppercase;letter-spacing:.08em;margin-top:2px">listings</div></div>
+    <div style="background:var(--mc-surface);border:1px solid var(--mc-border);padding:10px"><div style="font-size:20px;font-weight:500">{{.TotalSubscribers}}</div><div style="font-size:9px;color:var(--mc-muted);text-transform:uppercase;letter-spacing:.08em;margin-top:2px">subscribers</div></div>
+    <div style="background:var(--mc-surface);border:1px solid var(--mc-border);padding:10px"><div style="font-size:20px;font-weight:500">{{.TotalSearches}}</div><div style="font-size:9px;color:var(--mc-muted);text-transform:uppercase;letter-spacing:.08em;margin-top:2px">searches</div></div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
+    <div style="background:var(--mc-surface);border:1px solid var(--mc-border);padding:10px"><div style="font-size:20px;font-weight:500">{{$.ToolCalls}}</div><div style="font-size:9px;color:var(--mc-muted);text-transform:uppercase;letter-spacing:.08em;margin-top:2px">mcp tool calls</div></div>
+    <div style="background:var(--mc-surface);border:1px solid var(--mc-border);padding:10px"><div style="font-size:20px;font-weight:500;{{if $.VaultOnline}}color:var(--mc-green){{else}}color:var(--mc-red){{end}}">{{if $.VaultOnline}}ONLINE{{else}}OFFLINE{{end}}</div><div style="font-size:9px;color:var(--mc-muted);text-transform:uppercase;letter-spacing:.08em;margin-top:2px">vault</div></div>
+  </div>
+  {{end}}
+</div>
+{{end}}
+
+{{with .Stats}}
+{{if .HourlyReads}}
+<div class="mc-section">
+  <div class="mc-label">HOURLY ACTIVITY <span>(UTC)</span></div>
+  <div class="mc-hour" id="mc-hour"></div>
+  <div class="mc-hour-labels"><span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>23h</span></div>
+</div>
+<script>
+(function(){var d=[{{range .HourlyReads}}{{.}},{{end}}];var mx=Math.max.apply(null,d)||1;var b=document.getElementById('mc-hour');d.forEach(function(v,i){var e=document.createElement('div');e.className='mc-hb';e.style.height=Math.max(1,Math.round(v/mx*48))+'px';e.title='Hour '+i+': '+v;b.appendChild(e)})})();
+</script>
+{{end}}
+
+{{if .ReadsBySlug}}
+<div class="mc-section">
+  <div class="mc-label">READS / PIECE</div>
+  {{range $s,$n := .ReadsBySlug}}<div class="mc-row"><span>{{$s}}</span><span class="mc-row-val">{{$n}}</span></div>{{end}}
+</div>
+{{end}}
+
+{{if .ListingReadsBySlug}}
+<div class="mc-section">
+  <div class="mc-label">LISTING READS / SLUG</div>
+  {{range $s,$n := .ListingReadsBySlug}}<div class="mc-row"><span>{{$s}}</span><span class="mc-row-val">{{$n}}</span></div>{{end}}
+</div>
+{{end}}
+
+{{if .TopAgents}}
+<div class="mc-section">
+  <div class="mc-label">TOP VISITORS</div>
+  {{range $n,$c := .TopAgents}}<div class="mc-row"><span>{{$n}}</span><span class="mc-row-val">{{$c}}</span></div>{{end}}
+</div>
+{{end}}
+
+{{if .Countries}}
+<div class="mc-section">
+  <div class="mc-label">BY REGION</div>
+  {{range $c,$n := .Countries}}<div class="mc-row"><span>{{$c}}</span><span class="mc-row-val">{{$n}}</span></div>{{end}}
+</div>
+{{end}}
+
+{{if .TopSearches}}
+<div class="mc-section">
+  <div class="mc-label">TOP SEARCHES</div>
+  {{range $q,$n := .TopSearches}}<div class="mc-row"><span>&#128269; {{$q}}</span><span class="mc-row-val">{{$n}}</span></div>{{end}}
+</div>
+{{end}}
+{{end}}
+</div>
+
+<!-- COL 2: session + transmit + events -->
+<div class="mc-col">
+{{if .IsOwner}}
+{{if .SessionCode}}
+<div class="mc-session">
+  <div class="mc-session-title">SESSION KEY</div>
+  <div class="mc-session-code">&bdquo;{{.SessionCode}}&rdquo;</div>
+  <div class="mc-session-meta">expires {{formatDate .SessionExp}} &middot; rotation hourly</div>
+  <div class="mc-session-hint">Tell agent: <em>bootstrap_session, code: {{.SessionCode}}</em></div>
+  <form method="POST" action="/api/session/rotate" style="display:inline"><button type="submit" class="mc-btn">↻ rotate now</button></form>
+</div>
+{{end}}
+{{end}}
+
+
+{{with .Stats}}
+{{if .RecentEvents}}
+<div class="mc-section">
+  <div class="mc-label">RECENT EVENTS <span>LAST 30</span></div>
+  {{range .RecentEvents}}<div class="mc-ev"><span>{{formatTime .At}}</span><span class="mc-ev-type">{{.Type}}</span>{{if eq (print .Caller) "agent"}}<span class="mc-badge-a">AGT</span>{{else if eq (print .Caller) "human"}}<span class="mc-badge-h">HMN</span>{{end}}{{if .Query}}<span style="color:var(--mc-accent);">"{{.Query}}"</span>{{end}}{{if .Slug}}<span style="color:var(--mc-fg)">{{.Slug}}</span>{{end}}{{if .From}}<span>{{.From}}</span>{{end}}{{if .Country}}<span>{{.Country}}</span>{{end}}</div>{{end}}
+</div>
+{{end}}
+{{end}}
+</div>
+
+<!-- COL 3: unified inbox + funnel -->
+<div class="mc-col">
+<div class="mc-section">
+  <div class="mc-label">INBOX {{with .InboxCounts}}<span>{{.msg}}M · {{.pending}}P · {{.awaiting}}A · {{.picked}}D</span>{{end}}</div>
+
+{{if .Inbox}}{{range .Inbox}}
+
+  {{if eq .Kind "msg"}}{{with .M}}<div class="mc-msg">
+    <div class="mc-msg-head">
+      {{if eq .Kind "comment"}}<span class="mc-kind mc-kind-cmt">CMT</span>
+      {{else if eq .Kind "license"}}<span class="mc-kind mc-kind-lic">LIC</span>
+      {{else if eq .Kind "response"}}<span class="mc-kind mc-kind-rsp">RSP</span>
+      {{else}}<span class="mc-kind mc-kind-msg">MSG</span>{{end}}
+      {{if .From}}<strong>{{.From}}</strong>{{else}}<span>anon</span>{{end}}
+      <span>{{formatTime .At}}</span>
+      {{if .Regarding}}<span class="mc-msg-tag">re: {{.Regarding}}</span>{{end}}
+    </div>
+    <div class="mc-msg-body">{{.Text}}</div>
+  </div>{{end}}{{end}}
+
+  {{if eq .Kind "q-pending"}}{{with .Q}}<div class="mc-msg">
+    <div class="mc-msg-head">
+      <span class="mc-kind mc-kind-q">Q</span>
+      {{if .From}}<strong>{{.From}}</strong>{{else}}<span>anon</span>{{end}}
+      <span>{{formatTime .AskedAt}}</span>
+      <span class="mc-msg-tag" style="background:#fff3cd;color:#856404">pending</span>
+    </div>
+    <div class="mc-msg-body">{{.Question}}</div>
+    <form method="POST" action="/questions/answer" style="margin-top:4px;display:flex;gap:4px">
+      <input type="hidden" name="question_id" value="{{.ID}}">
+      <input type="text" name="answer" placeholder="answer..." style="flex:1;background:var(--mc-bg);border:1px solid var(--mc-border);color:var(--mc-fg);padding:2px 6px;font-size:11px">
+      <button type="submit" style="background:var(--mc-cyan);color:#000;border:none;padding:2px 8px;font-size:11px;cursor:pointer">reply</button>
+    </form>
+  </div>{{end}}{{end}}
+
+  {{if eq .Kind "q-awaiting"}}{{with .Q}}<div class="mc-msg">
+    <div class="mc-msg-head">
+      <span class="mc-kind mc-kind-q">Q</span>
+      {{if .From}}<strong>{{.From}}</strong>{{else}}<span>anon</span>{{end}}
+      <span>{{formatTime .AskedAt}}</span>
+      <span class="mc-msg-tag" style="background:#fff3cd;color:#856404">awaiting pickup</span>
+      {{if .IsFetched}}<span class="mc-msg-tag" style="background:#e2e3e5;color:#495057;font-style:italic">owner peeked</span>{{end}}
+    </div>
+    <div class="mc-msg-body"><em>Q:</em> {{.Question}}</div>
+    <div class="mc-msg-body" style="border-left:2px solid var(--mc-cyan);padding-left:6px;margin-top:3px"><em>A:</em> {{.Answer}}</div>
+  </div>{{end}}{{end}}
+
+  {{if eq .Kind "q-picked"}}{{with .Q}}<div class="mc-msg">
+    <div class="mc-msg-head">
+      <span class="mc-kind mc-kind-q">Q</span>
+      {{if .From}}<strong>{{.From}}</strong>{{else}}<span>anon</span>{{end}}
+      <span>{{formatTime .AskedAt}}</span>
+      <span class="mc-msg-tag" style="background:#d4edda;color:#155724">delivered {{formatTime .FetchedAt}}</span>
+    </div>
+    <div class="mc-msg-body"><em>Q:</em> {{.Question}}</div>
+    <div class="mc-msg-body" style="border-left:2px solid var(--mc-cyan);padding-left:6px;margin-top:3px"><em>A:</em> {{.Answer}}</div>
+  </div>{{end}}{{end}}
+
+{{end}}{{else}}<div style="color:var(--mc-muted);font-size:11px;padding:12px 0">No transmissions received.</div>{{end}}
+</div>
+
+{{with .Stats}}
+{{if .ChallengeFunnel}}
+<div class="mc-section">
+  <div class="mc-label">CHALLENGE FUNNEL</div>
+  {{range $s,$f := .ChallengeFunnel}}<div class="mc-funnel"><div style="font-weight:500;margin-bottom:3px">{{$s}}</div><span class="mc-fp mc-fp-c">{{index $f 0}} checked</span><span class="mc-fp mc-fp-t">{{index $f 1}} tried</span><span class="mc-fp mc-fp-u">{{index $f 2}} unlocked</span></div>{{end}}
+</div>
+{{end}}
+
+{{if .TopReferrers}}
+<div class="mc-section">
+  <div class="mc-label">REFERRERS</div>
+  {{range $r,$n := .TopReferrers}}<div class="mc-row"><span>{{$r}}</span><span class="mc-row-val">{{$n}}</span></div>{{end}}
+</div>
+{{end}}
+
+{{if .TagReads}}
+<div class="mc-section">
+  <div class="mc-label">READS / TAG</div>
+  {{range $t,$n := .TagReads}}<div class="mc-row"><span>#{{$t}}</span><span class="mc-row-val">{{$n}}</span></div>{{end}}
+</div>
+{{end}}
+{{end}}
+</div>
+
+</div>
+
+<div class="mc-foot">
+  <span>humanMCP · {{.Author}} · MISSION CONTROL v0.3</span>
+  <span>{{with .Stats}}{{.PieceCount}} PIECES · {{.SkillCount}} SKILLS{{end}}</span>
+</div>
+
+<script>
+(function(){
+  function tick(){var d=new Date();document.getElementById('mc-clock').textContent=d.toUTCString().slice(17,25)+' UTC'}
+  tick();setInterval(tick,1000);
+})();
+</script>
+
+</body></html>
+{{end}}

@@ -1,0 +1,318 @@
+{{define "index.html"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{.Author}} — humanMCP</title>
+<link rel="alternate" type="application/rss+xml" title="{{.Author}} RSS" href="/rss.xml">
+<style>{{template "css" .}}</style>
+</head>
+<body>
+<div class="container">
+{{template "header" .}}
+
+{{if .IsOwner}}
+<div class="owner-bar">
+  <div class="ob-group">
+    <span class="ob-label" data-i18n="ob_create">create</span>
+    <a href="/new" class="btn btn-primary" data-i18n="ob_post">+ post</a>
+    <a href="/new?type=image" class="btn" data-i18n="ob_image">+ image</a>
+    <a href="/new?type=artwork" class="btn" data-i18n="ob_artwork">+ artwork</a>
+    <a href="/listings/new" class="btn" data-i18n="ob_listing">+ listing</a>
+  </div>
+  <div class="ob-sep"></div>
+  <div class="ob-group">
+    <span class="ob-label" data-i18n="ob_browse">browse</span>
+    <a href="/images" class="ob-link" data-i18n="ob_gallery">gallery</a>
+    <a href="/artworks" class="ob-link" data-i18n="ob_artworks">artworks</a>
+    <a href="/listings" class="ob-link" data-i18n="ob_listings">listings</a>
+    <a href="/messages" class="ob-link" data-i18n="ob_messages">messages</a>
+    <a href="/questions" class="ob-link" data-i18n="ob_questions">questions</a>
+  </div>
+  <span style="flex:1;"></span>
+  <div class="ob-group">
+    <a href="/llms-edit" class="ob-link">llms.txt</a>
+    <a href="/mc" class="ob-link">mc</a>
+    <a href="/dashboard" class="ob-link">stats</a>
+  </div>
+</div>
+{{end}}
+
+<div id="search-box" class="search-box">
+  <span style="color:var(--accent);">/</span> <input type="text" id="search-input" data-i18n-placeholder="search_placeholder" placeholder="search..." autocomplete="off">
+</div>
+
+<!-- wiersze -->
+{{if .Poems}}
+<div class="section" id="wiersze">
+<div class="section-head" data-i18n="sec_wiersze">--- #wiersze ─────────────────────────────────────────</div>
+<div id="poem-list">
+{{range .Poems}}
+<div class="irc-line navigable" data-href="/p/{{.Slug}}">
+  <span class="irc-date">{{shortDate .Published}}</span>
+  <span class="irc-title"><a href="/p/{{.Slug}}">{{.Title}}</a></span>
+  {{if .Signature}}<span class="irc-signed">✓</span>{{end}}
+  {{if ne (lower (print .Access)) "public"}}<span class="irc-locked">{{.Access}}</span>{{end}}
+  {{if $.IsOwner}}<a href="/edit/{{.Slug}}" class="edit-btn">edit</a>{{end}}
+</div>
+{{if .Tags}}<div class="irc-tags-line">{{range .Tags}}<span class="irc-tag">#{{.}}</span> {{end}}</div>{{end}}
+{{end}}
+</div>
+</div>
+{{end}}
+
+<!-- obrazy -->
+{{if .Images}}
+<div class="section" id="obrazy">
+<div class="section-head" data-i18n="sec_obrazy">--- #obrazy ──────────────────────────────────────────</div>
+<div class="gallery-row">
+{{range .Images}}
+<a href="/p/{{.Slug}}"><img class="gallery-thumb" src="/{{.FileRef}}" alt="{{.Title}}" loading="lazy"></a>
+{{end}}
+</div>
+</div>
+{{end}}
+
+<!-- artworks -->
+{{if .Artworks}}
+<div class="section" id="artworks">
+<div class="section-head" data-i18n="sec_artworks">--- #artworks ────────────────────────────────────────</div>
+{{range .Artworks}}
+<div class="irc-line navigable" data-href="/artworks/{{.Slug}}">
+  <span class="irc-date">{{shortDate .Published}}</span>
+  <span class="irc-title"><a href="/artworks/{{.Slug}}">{{.Title}}</a></span>
+  {{if .Signature}}<span class="irc-signed">✓</span>{{end}}
+  {{if $.IsOwner}}<a href="/edit/{{.Slug}}" class="edit-btn">edit</a>{{end}}
+</div>
+{{if .Tags}}<div class="irc-tags-line">{{range .Tags}}<span class="irc-tag">#{{.}}</span> {{end}}</div>{{end}}
+{{end}}
+</div>
+{{end}}
+
+<!-- ogłoszenia -->
+{{if .Listings}}
+<div class="section" id="ogloszenia">
+<div class="section-head" data-i18n="sec_ogloszenia">--- #ogłoszenia ──────────────────────────────────────</div>
+{{range .Listings}}
+<div class="listing-line">
+  <span class="listing-type {{.Type}}">{{.Type}}</span>
+  <a href="/listings/{{.Slug}}">{{.Title}}</a>
+  {{if .Price}}<span style="color:var(--accent3);">{{.Price}}</span>{{end}}
+</div>
+{{end}}
+</div>
+{{end}}
+
+
+{{template "footer" .}}
+</div>
+
+<!-- help overlay -->
+<div class="help-overlay" id="help-overlay">
+<div class="help-box">
+  <h3 data-i18n="help_title">keyboard shortcuts</h3>
+  <div class="help-row"><span class="help-key">j / ↓</span><span data-i18n="help_next">next item</span></div>
+  <div class="help-row"><span class="help-key">k / ↑</span><span data-i18n="help_prev">previous item</span></div>
+  <div class="help-row"><span class="help-key">Enter</span><span data-i18n="help_open">open selected</span></div>
+  <div class="help-row"><span class="help-key">/</span><span data-i18n="help_search">search</span></div>
+  <div id="help-sections"></div>
+  <div class="help-row"><span class="help-key">c</span><span>connect</span></div>
+  <div class="help-row"><span class="help-key">m</span><span>contact</span></div>
+  <div class="help-row"><span class="help-key">Tab</span><span data-i18n="help_tab">next section</span></div>
+  <div class="help-row"><span class="help-key">Esc / ?</span><span data-i18n="help_close">close help</span></div>
+</div>
+</div>
+
+<script>
+(function(){
+  var items = document.querySelectorAll('.navigable');
+  var cur = -1;
+  // --- i18n ---
+  var i18n = {
+    pl: {
+      sec_wiersze: '--- #wiersze ─────────────────────────────────────────',
+      sec_obrazy: '--- #obrazy ──────────────────────────────────────────',
+      sec_artworks: '--- #artworks ────────────────────────────────────────',
+      sec_ogloszenia: '--- #ogłoszenia ──────────────────────────────────────',
+      nav_wiersze: 'wiersze', nav_obrazy: 'obrazy', nav_artworks: 'artworks', nav_ogloszenia: 'ogłoszenia',
+      ob_create: 'utwórz', ob_post: '+ wpis', ob_image: '+ obraz', ob_artwork: '+ dzieło', ob_listing: '+ ogłoszenie',
+      ob_browse: 'przeglądaj', ob_gallery: 'galeria', ob_artworks: 'dzieła', ob_listings: 'ogłoszenia', ob_messages: 'wiadomości', ob_questions: 'pytania',
+      footer_written: 'Wiersze pisane przez człowieka',
+      search_placeholder: 'szukaj...',
+      help_title: 'skróty klawiszowe',
+      help_next: 'następny', help_prev: 'poprzedni', help_open: 'otwórz', help_search: 'szukaj',
+      help_tab: 'następna sekcja', help_close: 'zamknij pomoc',
+      sl_wiersze: 'wiersze', sl_obrazy: 'obrazy', sl_artworks: 'dzieła', sl_ogloszenia: 'ogłoszenia',
+      aw_price: 'Cena',
+      license_rules: 'Licencja i zasady użycia',
+      human_use: 'Ludzie mogą',
+      agent_use: 'Agenty AI mogą'
+    },
+    en: {
+      sec_wiersze: '--- #poems ───────────────────────────────────────────',
+      sec_obrazy: '--- #images ──────────────────────────────────────────',
+      sec_artworks: '--- #artworks ────────────────────────────────────────',
+      sec_ogloszenia: '--- #listings ────────────────────────────────────────',
+      nav_wiersze: 'poems', nav_obrazy: 'images', nav_artworks: 'artworks', nav_ogloszenia: 'listings',
+      ob_create: 'create', ob_post: '+ post', ob_image: '+ image', ob_artwork: '+ artwork', ob_listing: '+ listing',
+      ob_browse: 'browse', ob_gallery: 'gallery', ob_artworks: 'artworks', ob_listings: 'listings', ob_messages: 'messages', ob_questions: 'questions',
+      footer_written: 'Poems written by human',
+      search_placeholder: 'search...',
+      help_title: 'keyboard shortcuts',
+      help_next: 'next item', help_prev: 'previous item', help_open: 'open selected', help_search: 'search',
+      help_tab: 'next section', help_close: 'close help',
+      sl_wiersze: 'poems', sl_obrazy: 'images', sl_artworks: 'artworks', sl_ogloszenia: 'listings',
+      aw_price: 'Price',
+      license_rules: 'License & usage rules',
+      human_use: 'Humans may',
+      agent_use: 'AI agents may'
+    }
+  };
+
+  var lang = localStorage.getItem('humanmcp-lang') || 'en';
+  function applyLang(l) {
+    lang = l;
+    localStorage.setItem('humanmcp-lang', l);
+    var t = i18n[l] || i18n.en;
+    document.querySelectorAll('[data-i18n]').forEach(function(el) {
+      var k = el.getAttribute('data-i18n');
+      if (t[k]) el.textContent = t[k];
+    });
+    document.querySelectorAll('[data-i18n-placeholder]').forEach(function(el) {
+      var k = el.getAttribute('data-i18n-placeholder');
+      if (t[k]) el.placeholder = t[k];
+    });
+    // update help section labels
+    var helpSec = document.getElementById('help-sections');
+    if (helpSec) {
+      helpSec.innerHTML = '';
+      sections.forEach(function(id, i) {
+        var row = document.createElement('div');
+        row.className = 'help-row';
+        row.innerHTML = '<span class="help-key">'+(i+1)+'</span><span>'+(t['sl_'+id]||id)+'</span>';
+        helpSec.appendChild(row);
+      });
+    }
+    // update toggle button
+    var btn = document.getElementById('lang-toggle');
+    if (btn) btn.textContent = l === 'pl' ? 'EN' : 'PL';
+  }
+
+  var langBtn = document.getElementById('lang-toggle');
+  if (langBtn) langBtn.addEventListener('click', function() {
+    applyLang(lang === 'pl' ? 'en' : 'pl');
+  });
+
+  // --- sections ---
+  var allSections = ['wiersze','obrazy','artworks','ogloszenia'];
+  var sections = allSections.filter(function(id){ return document.getElementById(id); });
+  var secIdx = 0;
+
+  // apply language (populates help sections too)
+  applyLang(lang);
+
+  function highlight(i){
+    if(cur>=0 && cur<items.length) items[cur].classList.remove('active');
+    cur = Math.max(0, Math.min(i, items.length-1));
+    if(items[cur]){
+      items[cur].classList.add('active');
+      items[cur].scrollIntoView({block:'nearest'});
+    }
+  }
+
+  function isInput(e){ return e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'; }
+
+  document.addEventListener('keydown', function(e){
+    var help = document.getElementById('help-overlay');
+    var search = document.getElementById('search-box');
+    var input = document.getElementById('search-input');
+
+    // Close help/search on Escape
+    if(e.key==='Escape'){
+      help.classList.remove('visible');
+      if(search.classList.contains('visible')){
+        search.classList.remove('visible');
+        input.value='';
+        filterItems('');
+        input.blur();
+      }
+      return;
+    }
+
+    // When search is focused
+    if(document.activeElement===input){
+      if(e.key==='Enter'){
+        e.preventDefault();
+        // Navigate to first visible item
+        var first = document.querySelector('.irc-line.navigable:not([style*="display:none"])');
+        if(first) window.location = first.dataset.href;
+      }
+      filterItems(input.value);
+      return;
+    }
+
+    if(isInput(e)) return;
+
+    switch(e.key){
+      case '?':
+        e.preventDefault();
+        help.classList.toggle('visible');
+        break;
+      case '/':
+        e.preventDefault();
+        search.classList.add('visible');
+        input.focus();
+        break;
+      case 'j': case 'ArrowDown':
+        e.preventDefault();
+        highlight(cur+1);
+        break;
+      case 'k': case 'ArrowUp':
+        e.preventDefault();
+        highlight(cur<0?0:cur-1);
+        break;
+      case 'Enter':
+        if(cur>=0 && items[cur]) window.location = items[cur].dataset.href;
+        break;
+      case '1': case '2': case '3': case '4': case '5':
+        var si = parseInt(e.key) - 1;
+        if(si < sections.length){
+          document.getElementById(sections[si]).scrollIntoView({behavior:'smooth'});
+        }
+        break;
+      case 'Tab':
+        e.preventDefault();
+        secIdx = (secIdx + (e.shiftKey ? sections.length-1 : 1)) % sections.length;
+        document.getElementById(sections[secIdx]).scrollIntoView({behavior:'smooth'});
+        break;
+      case 'c':
+        window.location='/connect';
+        break;
+      case 'm':
+        window.location='/contact';
+        break;
+    }
+  });
+
+  // Search filter
+  function filterItems(q){
+    q = q.toLowerCase();
+    items.forEach(function(el){
+      var text = el.textContent.toLowerCase();
+      el.style.display = (!q || text.indexOf(q)!==-1) ? '' : 'none';
+    });
+  }
+
+  document.getElementById('search-input').addEventListener('input', function(){
+    filterItems(this.value);
+  });
+
+  // Help trigger button
+  var trigger = document.getElementById('help-trigger');
+  if(trigger) trigger.addEventListener('click', function(){
+    document.getElementById('help-overlay').classList.toggle('visible');
+  });
+})();
+</script>
+</body></html>
+{{end}}
