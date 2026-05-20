@@ -46,6 +46,15 @@ type Piece struct {
 	Body        string      `json:"Body"`
 	Signature   string      `json:"Signature"`  // Ed25519 signature (base64)
 	FilePath    string      `json:"-"`
+
+	// v273 fields used by templates (best-effort: empty by default,
+	// can be wired to blob storage / OTS later)
+	FileRef      string            `json:"FileRef,omitempty"`
+	ImageRef     string            `json:"ImageRef,omitempty"`
+	Excerpt      string            `json:"Excerpt,omitempty"`
+	Lang         string            `json:"Lang,omitempty"`
+	OTSProof     string            `json:"OTSProof,omitempty"`
+	BlobImageMap map[string]string `json:"BlobImageMap,omitempty"`
 }
 
 // IsUnlocked returns true if the piece is accessible without a gate
@@ -73,10 +82,26 @@ func NewStore(dir string) *Store {
 	}
 }
 
+// skipDirs — directories that have their own loaders (personas, skills)
+var skipDirs = map[string]bool{
+	"personas": true,
+	"skills":   true,
+}
+
 func (s *Store) Load() error {
 	s.pieces = make(map[string]*Piece)
 	return filepath.WalkDir(s.dir, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".md") {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			// Skip directories managed by their own stores
+			if skipDirs[d.Name()] && path != s.dir {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".md") {
 			return nil
 		}
 		p, err := parsePiece(path)
