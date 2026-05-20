@@ -150,6 +150,24 @@ fly secrets set EDIT_TOKEN=secret AUTHOR_NAME=yourname
 fly deploy
 ```
 
+**Before every `fly deploy`:** commit your code (`git status` should be clean for tracked files). The Docker build bundles `internal/` and `content/` from the working tree — if you deploy with uncommitted changes and the image is later GC'd, that code is lost. Treat `git commit` + `git push` as part of the deploy procedure, not optional.
+
+**After every deploy with template or struct changes:** check for silent template errors. Go's `html/template` renders a partial HTML and returns 200 OK on missing fields rather than failing loud. Catch them with:
+
+```bash
+fly logs -a yourname-humanmcp | grep "template error"
+```
+
+## Operational safety — Hodor
+
+The server ships with a guardian persona **Hodor** and a public skill `operational-safety-public`. Both are accessible **without** `bootstrap_session` — so any MCP client connecting to this server reads the rules from the first command. The full incident-specific history lives in `operational-safety-private` (gated).
+
+- `internal/mcp/handler.go::handleInitialize` injects an `OPERATIONAL SAFETY` block into the MCP server instructions.
+- `bootstrap_session` returns a `=== GUARDIAN — LOAD FIRST ===` block at the top of its response, before any other persona or skill.
+- The guardian rules cover: never print secrets to terminal, don't paste multi-line shell commands with backslash-continuation, default-deny destructive commands, rotation/audit order after a leak.
+
+This is a personal pattern — your fork can keep it, modify it, or remove the persona and rely on a generic guardian. The mechanism (server instructions visible without bootstrap) is the load-bearing piece.
+
 ## Configuration (fly.toml)
 
 ```toml
