@@ -391,8 +391,22 @@ func (h *Handler) handleUnlock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ua := r.Header.Get("User-Agent")
+	ip := r.Header.Get("Fly-Client-IP")
+	if ip == "" {
+		ip = r.RemoteAddr
+	}
+	vh := content.VisitorHash(ip, time.Now().Format("2006-01-02"))
+	caller := content.CallerFromUA(ua)
+
 	if h.store.CheckAnswer(slug, answer) {
-		// Show full content on success
+		h.statStore.Record(content.Event{
+			Type:        content.EventUnlock,
+			Caller:      caller,
+			Slug:        slug,
+			Query:       answer, // record the successful answer
+			VisitorHash: vh,
+		})
 		h.render(w, "piece.html", map[string]interface{}{
 			"Author":   h.cfg.AuthorName,
 			"Piece":    func() *content.Piece { p2, _ := h.store.Get(slug, true); return p2 }(),
@@ -403,7 +417,14 @@ func (h *Handler) handleUnlock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Wrong answer
+	// Wrong answer — log the attempt so owner can see what was tried
+	h.statStore.Record(content.Event{
+		Type:        content.EventUnlockFail,
+		Caller:      caller,
+		Slug:        slug,
+		Query:       answer, // record the wrong answer attempted
+		VisitorHash: vh,
+	})
 	h.render(w, "piece.html", map[string]interface{}{
 		"Author":       h.cfg.AuthorName,
 		"Piece":        p,
@@ -1251,9 +1272,8 @@ func (h *Handler) handleMissionControl(w http.ResponseWriter, r *http.Request) {
 	pendingCount := 0
 	awaitingCount := 0
 	pickedCount := 0
-	for i := range msgs {
-		m := msgs[i]
-		inbox = append(inbox, inboxItem{Kind: "msg", M: &m})
+	for _, m := range msgs {
+		inbox = append(inbox, inboxItem{Kind: "msg", M: m})
 		msgCount++
 	}
 	for i := range questions {
