@@ -254,17 +254,36 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 		log.Printf("store load error: %v", err)
 	}
 	pieces := h.store.List(false)
-	// Keep slug-tags index fresh for tag analytics
 	slugTags := make(map[string][]string)
-	for _, p := range pieces { slugTags[p.Slug] = p.Tags }
+	for _, p := range pieces {
+		slugTags[p.Slug] = p.Tags
+	}
 	h.statStore.UpdateSlugTags(slugTags)
-	isOwner := h.auth.IsOwner(r)
+
+	// v273 index.html expects pieces split by type into separate slices
+	var poems, images, artworks []*content.Piece
+	for _, p := range pieces {
+		switch strings.ToLower(string(p.Type)) {
+		case "image":
+			images = append(images, p)
+		case "artwork":
+			artworks = append(artworks, p)
+		default:
+			poems = append(poems, p)
+		}
+	}
+	listings := h.listingStore.List()
+
 	h.render(w, "index.html", map[string]interface{}{
-		"Author":  h.cfg.AuthorName,
-		"Bio":     h.cfg.AuthorBio,
-		"Pieces":  pieces,
-		"IsOwner": isOwner,
-		"Domain":  h.cfg.Domain,
+		"Author":   h.cfg.AuthorName,
+		"Bio":      h.cfg.AuthorBio,
+		"Pieces":   pieces, // kept for any legacy template references
+		"Poems":    poems,
+		"Images":   images,
+		"Artworks": artworks,
+		"Listings": listings,
+		"IsOwner":  h.auth.IsOwner(r),
+		"Domain":   h.cfg.Domain,
 	})
 }
 
@@ -1123,22 +1142,55 @@ func (h *Handler) handleMissionControl(w http.ResponseWriter, r *http.Request) {
 	questions := h.questionStore.List()
 	now := time.Now()
 	activePoem, _ := h.cfg.PickActivePoem(now)
-	skillCount := len(h.loadSkills())
-	personaCount := h.countPersonas()
+
+	// mc.html uses {{with .Stats}}...{{.X}}... so everything must live on Stats.
+	type periodStats struct {
+		Reads, Visitors, Agents, Humans, Searches, Messages, Licenses int
+	}
+	type mcStats struct {
+		*content.Stats
+		PieceCount       int
+		SkillCount       int
+		PersonaCount     int
+		TotalListings    int
+		TotalLicenses    int
+		TotalSearches    int
+		TotalSubscribers int
+		Today            periodStats
+		Yesterday        periodStats
+		Last7Days        periodStats
+		Last30Days       periodStats
+		DailyCounts        []periodStats
+		ListingReadsBySlug map[string]int
+		InboxCount         int
+		InboxCounts        map[string]int
+		Inbox              []interface{}
+		TopSearches        map[string]int
+		SessionExp         time.Time
+		Uptime             string
+		VaultOnline        bool
+		ToolCalls          int
+	}
+	view := mcStats{
+		Stats:         stats,
+		PieceCount:    len(pieces),
+		SkillCount:    len(h.loadSkills()),
+		PersonaCount:  h.countPersonas(),
+		TotalListings: len(listings),
+		Today:         periodStats{Reads: stats.TotalReads, Visitors: stats.UniqueVisitors, Agents: stats.AgentCalls, Humans: stats.HumanVisits, Messages: stats.TotalMessages},
+		VaultOnline:   true,
+		Uptime:        "—",
+	}
 
 	h.render(w, "mc.html", map[string]interface{}{
-		"Author":       h.cfg.AuthorName,
-		"IsOwner":      true,
-		"Stats":        stats,
-		"Pieces":       pieces,
-		"Messages":     msgs,
-		"Listings":     listings,
-		"Questions":    questions,
-		"PieceCount":   len(pieces),
-		"ListingCount": len(listings),
-		"SkillCount":   skillCount,
-		"PersonaCount": personaCount,
-		"SessionCode":  activePoem,
+		"Author":      h.cfg.AuthorName,
+		"IsOwner":     true,
+		"Stats":       view,
+		"Pieces":      pieces,
+		"Messages":    msgs,
+		"Listings":    listings,
+		"Questions":   questions,
+		"SessionCode": activePoem,
 	})
 }
 
