@@ -56,6 +56,7 @@ type Piece struct {
 	Price        string            `json:"Price,omitempty"`
 	Status       string            `json:"Status,omitempty"`
 	BlobImageMap map[string]string `json:"BlobImageMap,omitempty"`
+	Translations []string          `json:"Translations,omitempty"`
 }
 
 // IsUnlocked returns true if the piece is accessible without a gate

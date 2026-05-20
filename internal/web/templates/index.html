@@ -52,6 +52,7 @@
   <span class="irc-date">{{shortDate .Published}}</span>
   <span class="irc-title"><a href="/p/{{.Slug}}">{{.Title}}</a></span>
   {{if .Signature}}<span class="irc-signed">✓</span>{{end}}
+  {{if .Translations}}{{range .Translations}}<a class="trans-badge" href="/p/{{$.Slug}}/translation/{{.}}" title="read with {{.}} translation">{{.}}</a>{{end}}{{end}}
   {{if ne (lower (print .Access)) "public"}}<span class="irc-locked">{{.Access}}</span>{{end}}
   {{if $.IsOwner}}<a href="/edit/{{.Slug}}" class="edit-btn">edit</a>{{end}}
 </div>

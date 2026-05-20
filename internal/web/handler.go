@@ -288,6 +288,8 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 		if url, ok := blobMap[p.Slug]; ok {
 			p.FileRef = strings.TrimPrefix(url, "/")
 		}
+		// Populate Translations for the badge in index/template
+		p.Translations = h.availableTranslations(p.Slug)
 		pieceSlugs[p.Slug] = true
 		switch strings.ToLower(string(p.Type)) {
 		case "image":
@@ -372,6 +374,16 @@ func (h *Handler) handlePiece(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slug := path
+
+	// If a translation exists and the user didn't explicitly ask for the
+	// Polish-only view (?lang=pl) or login as owner — show the trilingual
+	// page by default. Polish reader can still ?lang=pl out.
+	if r.URL.Query().Get("lang") != "pl" && !h.auth.IsOwner(r) {
+		if langs := h.availableTranslations(slug); len(langs) > 0 {
+			h.serveTranslation(w, r, slug, langs[0])
+			return
+		}
+	}
 	if err := h.store.Load(); err != nil {
 		log.Printf("store load error: %v", err)
 	}
