@@ -281,23 +281,43 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 	blobMap := h.buildBlobImageMap()
 
 	// v273 index.html expects pieces split by type into separate slices
-	var poems, images, artworks []*content.Piece
+	var poems, artworks []*content.Piece
+	pieceSlugs := make(map[string]bool)
 	for _, p := range pieces {
 		// Populate FileRef from blob map for image/artwork pieces
 		if url, ok := blobMap[p.Slug]; ok {
 			p.FileRef = strings.TrimPrefix(url, "/")
 		}
+		pieceSlugs[p.Slug] = true
 		switch strings.ToLower(string(p.Type)) {
 		case "image":
-			// Skip images without a backing blob — they'd render as broken thumbnails
-			if p.FileRef == "" {
-				continue
-			}
-			images = append(images, p)
+			// Image-typed pieces fall through to gallery via blob iteration below
 		case "artwork":
 			artworks = append(artworks, p)
 		default:
 			poems = append(poems, p)
+		}
+	}
+
+	// #images gallery: iterate image blobs (more authoritative than .md
+	// pieces — v273 worked this way). Each blob becomes a tiny piece-like
+	// struct for the template (Slug, Title, FileRef).
+	var images []*content.Piece
+	if blobs, err := h.blobStore.Load(); err == nil {
+		for _, b := range blobs {
+			if string(b.BlobType) != "image" || b.FileRef == "" {
+				continue
+			}
+			if b.Access != content.AccessPublic {
+				continue
+			}
+			images = append(images, &content.Piece{
+				Slug:      b.Slug,
+				Title:     b.Title,
+				Type:      "image",
+				FileRef:   b.FileRef,
+				Published: b.Published,
+			})
 		}
 	}
 	listings := h.listingStore.List()
