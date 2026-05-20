@@ -1,0 +1,6 @@
+{
+  "slug": "humanmcp-project",
+  "category": "project",
+  "title": "humanMCP — kontekst projektu",
+  "body": "Open-source osobisty serwer MCP.\nAutor: kapoost (Łukasz Kapuśniak)\nLive: kapoost-humanmcp.fly.dev\nRegistry: io.github.kapoost/humanmcp\nLicencja: MIT\n\nCel: publikacja wierszy i esejów z kryptograficznym dowodem autorstwa (Ed25519), gate'ami dostępu i licencjami.\n\n16 MCP tools. RPG client w osobnym repo (humanmcp-rpg).\nKażdy człowiek może postawić własną instancję.\nHobby/side project.\n\nZASADA: Nigdy nie halucinuj. Jeśli nie wiesz — powiedz nie wiem."
+}

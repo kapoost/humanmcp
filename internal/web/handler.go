@@ -50,7 +50,7 @@ func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler
 			if t.IsZero() {
 				return ""
 			}
-			return t.Format("2 January 2006")
+			return t.Format("2 January 2006 15:04")
 		},
 		"formatTime": func(t time.Time) string {
 			if t.IsZero() {
@@ -109,11 +109,25 @@ func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler
 				return s
 			}
 		},
-		"otsHash": func(s string) string {
-			if len(s) < 16 {
-				return s
+		"otsHash": func(v interface{}) string {
+			switch x := v.(type) {
+			case string:
+				return x
+			case *content.Piece:
+				if x == nil {
+					return ""
+				}
+				if x.Signature != "" {
+					return x.Signature
+				}
+				return x.Slug
+			case content.Piece:
+				if x.Signature != "" {
+					return x.Signature
+				}
+				return x.Slug
 			}
-			return s
+			return fmt.Sprintf("%v", v)
 		},
 		"otsShort": func(s string) string {
 			if len(s) < 12 {
@@ -756,12 +770,21 @@ func firstLine(s string) string {
 }
 
 func (h *Handler) handleFile(w http.ResponseWriter, r *http.Request) {
-	// /files/img-0395-jpeg.jpeg → serve raw file from blobs/files/
+	// /files/X → serve raw file from /data/blobs/files/X
+	// Used by both blob-registered pieces AND listing images (which live
+	// in blobs/files/ without a separate blob entry).
 	slug := strings.TrimPrefix(r.URL.Path, "/files/")
 	if slug == "" {
 		http.NotFound(w, r)
 		return
 	}
+	dataDir := filepath.Dir(h.cfg.ContentDir)
+	filePath := filepath.Join(dataDir, "blobs", "files", slug)
+	if _, err := os.Stat(filePath); err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	// If this file belongs to a registered blob, honour its access level.
 	blobs, _ := h.blobStore.Load()
 	for _, b := range blobs {
 		if b.FileRef != "" && strings.HasSuffix(b.FileRef, slug) {
@@ -769,14 +792,14 @@ func (h *Handler) handleFile(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "forbidden", http.StatusForbidden)
 				return
 			}
-			filePath := filepath.Join(h.cfg.ContentDir, "blobs", slug)
-			w.Header().Set("Content-Type", b.MimeType)
-			w.Header().Set("Cache-Control", "public, max-age=86400")
-			http.ServeFile(w, r, filePath)
-			return
+			if b.MimeType != "" {
+				w.Header().Set("Content-Type", b.MimeType)
+			}
+			break
 		}
 	}
-	http.NotFound(w, r)
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	http.ServeFile(w, r, filePath)
 }
 
 func (h *Handler) handleImages(w http.ResponseWriter, r *http.Request) {

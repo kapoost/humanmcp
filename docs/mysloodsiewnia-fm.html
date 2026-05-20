@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<title>MYŚLOODSIEWNIA — Field Manual</title>
+<style>
+@page {
+  size: A4;
+  margin: 2cm;
+  @top-left { content: "MYŚLOODSIEWNIA FM"; font-size: 8pt; color: #666; }
+  @top-right { content: "POUFNE — TYLKO DLA PRZYJACIÓŁ"; font-size: 8pt; color: #999; }
+  @bottom-center { content: counter(page); font-size: 9pt; color: #666; }
+}
+body {
+  font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 10.5pt;
+  line-height: 1.5;
+  color: #1a1a1a;
+  max-width: 100%;
+}
+h1 { font-size: 16pt; margin-top: 1.5em; border-bottom: 2px solid #333; padding-bottom: 0.3em; page-break-after: avoid; }
+h2 { font-size: 13pt; margin-top: 1.2em; color: #333; page-break-after: avoid; }
+h3 { font-size: 11pt; margin-top: 1em; color: #555; page-break-after: avoid; }
+code { font-family: "Menlo", "Consolas", monospace; font-size: 9pt; background: #f4f4f4; padding: 1px 4px; border-radius: 3px; }
+pre { background: #f4f4f4; padding: 10px 14px; border-radius: 5px; border-left: 3px solid #333; overflow-x: auto; font-size: 9pt; line-height: 1.4; page-break-inside: avoid; }
+pre code { background: none; padding: 0; }
+table { border-collapse: collapse; width: 100%; margin: 0.8em 0; font-size: 10pt; page-break-inside: avoid; }
+th { background: #333; color: #fff; padding: 6px 10px; text-align: left; font-weight: 600; }
+td { padding: 5px 10px; border-bottom: 1px solid #ddd; }
+tr:nth-child(even) { background: #fafafa; }
+.title-block { text-align: center; margin: 2em 0 2.5em 0; }
+.title-block h1 { border: none; font-size: 28pt; margin-bottom: 0.1em; letter-spacing: 2px; }
+.title-block .subtitle { font-size: 12pt; color: #666; margin: 0.3em 0; }
+.title-block .meta { font-size: 9pt; color: #999; }
+.title-block hr { width: 60%; margin: 1em auto; border: none; border-top: 1px solid #ccc; }
+.tip { background: #e8f5e9; border-left: 4px solid #4caf50; padding: 8px 14px; margin: 1em 0; border-radius: 0 4px 4px 0; font-size: 10pt; page-break-inside: avoid; }
+.warning { background: #fff3e0; border-left: 4px solid #ff9800; padding: 8px 14px; margin: 1em 0; border-radius: 0 4px 4px 0; font-size: 10pt; page-break-inside: avoid; }
+.danger { background: #ffebee; border-left: 4px solid #f44336; padding: 8px 14px; margin: 1em 0; border-radius: 0 4px 4px 0; font-size: 10pt; page-break-inside: avoid; }
+ol, ul { padding-left: 1.5em; }
+li { margin-bottom: 0.3em; }
+.footer { text-align: center; margin-top: 2em; font-style: italic; color: #888; font-size: 10pt; }
+.cheatsheet { background: #f0f0f0; padding: 14px; border-radius: 6px; margin: 1em 0; }
+.cheatsheet pre { background: #e0e0e0; border-left-color: #666; }
+</style>
+</head>
+<body>
+
+<div class="title-block">
+  <h1>MYŚLOODSIEWNIA</h1>
+  <div class="subtitle">Field Manual v1.0 — Instrukcja dla przyjaciół</div>
+  <hr>
+  <div class="meta">Wersja: 2026-04-19 &middot; Autor: kapoost &middot; Klasyfikacja: POUFNE</div>
+</div>
+
+<h1>Co to jest</h1>
+
+<p>Myśloodsiewnia to <strong>osobisty skarbiec wiedzy</strong> — w pełni lokalny, offline, bez chmury. Zbiera, transkrybuje, indeksuje i przeszukuje Twoje notatki, dokumenty PDF, kontakty i nagrania głosowe.</p>
+
+<p>Wszystko zostaje na Twoim komputerze. Zero telemetrii. Zero chmury.</p>
+
+<table>
+<tr><th>Element</th><th>Technologia</th></tr>
+<tr><td>Język</td><td>Python 3.10+</td></tr>
+<tr><td>Serwer</td><td>FastAPI + Uvicorn</td></tr>
+<tr><td>Baza danych</td><td>SQLite + FTS5 (BM25 ranking)</td></tr>
+<tr><td>Transkrypcja</td><td>Whisper large-v3</td></tr>
+<tr><td>Diaryzacja</td><td>pyannote (rozróżnianie mówców)</td></tr>
+<tr><td>Port</td><td><code>7331</code></td></tr>
+</table>
+
+<h1>Uruchamianie</h1>
+
+<h2>Metoda 1: Alias w terminalu</h2>
+<pre><code>mysloodsiewnia</code></pre>
+<p>Alias powinien być w <code>~/.zshrc</code>. Jeśli go nie masz — metoda 2.</p>
+
+<h2>Metoda 2: Launcher TUI</h2>
+<pre><code>cd ~/mysloodsiewnia
+python launcher.py</code></pre>
+
+<p>Otworzy się interfejs w stylu Norton Commander:</p>
+
+<table>
+<tr><th>Klawisz</th><th>Akcja</th></tr>
+<tr><td><strong>F2</strong></td><td>Start serwera</td></tr>
+<tr><td><strong>F3</strong></td><td>Stop serwera</td></tr>
+<tr><td><strong>F4</strong></td><td>Konfiguracja</td></tr>
+<tr><td><strong>F5</strong></td><td>Pokaż log</td></tr>
+<tr><td><strong>F8</strong></td><td>Otwórz Web UI w przeglądarce</td></tr>
+<tr><td><strong>F10</strong></td><td>Wyjście</td></tr>
+</table>
+
+<h2>Metoda 3: Bezpośrednio</h2>
+<pre><code>cd ~/mysloodsiewnia
+uvicorn main:app --host 0.0.0.0 --port 7331</code></pre>
+
+<h1>Konfiguracja</h1>
+
+<p>Zmienne środowiskowe (plik <code>.env</code> lub eksport w shellu):</p>
+
+<table>
+<tr><th>Zmienna</th><th>Domyślna</th><th>Opis</th></tr>
+<tr><td><code>WHISPER_MODEL</code></td><td><code>large-v3</code></td><td>Model transkrypcji</td></tr>
+<tr><td><code>VAULT_PORT</code></td><td><code>7331</code></td><td>Port serwera</td></tr>
+<tr><td><code>USE_SSL</code></td><td><code>false</code></td><td>HTTPS (opcjonalne)</td></tr>
+<tr><td><code>HF_TOKEN</code></td><td><em>(brak)</em></td><td>Token Hugging Face — wymagany do diaryzacji</td></tr>
+</table>
+
+<div class="warning">
+<strong>HF_TOKEN:</strong> Bez niego transkrypcja działa, ale nie rozróżnia mówców. Zarejestruj się na <code>huggingface.co</code>, wygeneruj token i zaakceptuj warunki modelu <code>pyannote/speaker-diarization</code>.
+</div>
+
+<h1>Codzienne użycie</h1>
+
+<h2>Przeszukiwanie</h2>
+
+<p><strong>Web UI:</strong> Otwórz przeglądarkę → <code>http://localhost:7331/search</code></p>
+
+<p><strong>API:</strong></p>
+<pre><code>curl -s http://localhost:7331/query \
+  -H "Content-Type: application/json" \
+  -d '{"q": "twoje zapytanie"}' | python -m json.tool</code></pre>
+
+<p><strong>CLI:</strong></p>
+<pre><code>python cli.py search "twoje zapytanie"</code></pre>
+
+<div class="tip">
+Wyszukiwarka używa BM25 ranking (FTS5) — rozumie polskie frazy i sortuje po trafności. Zacznij od prostych zapytań (1–2 słowa).
+</div>
+
+<h2>Dodawanie dokumentów</h2>
+
+<h3>PDF</h3>
+<pre><code># CLI
+python cli.py add-pdf ~/Documents/dokument.pdf
+
+# API
+curl -X POST http://localhost:7331/ingest/pdf \
+  -F "file=@dokument.pdf"</code></pre>
+
+<h3>Notatka tekstowa</h3>
+<pre><code>curl -X POST http://localhost:7331/ingest/note \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Tytuł", "content": "Treść notatki"}'</code></pre>
+
+<h3>Kontakt</h3>
+<pre><code>curl -X POST http://localhost:7331/ingest/contact \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Jan Kowalski", "email": "jan@example.com", "notes": "Notatka"}'</code></pre>
+
+<h2>Transkrypcja nagrań</h2>
+
+<h3>Wrzuć plik audio</h3>
+<pre><code>curl -X POST http://localhost:7331/transcripts/upload \
+  -F "file=@nagranie.mp3"</code></pre>
+
+<h3>Transkrypcja na żywo</h3>
+<p>WebSocket: <code>http://localhost:7331/ws/transcribe</code> — mikrofon → tekst w czasie rzeczywistym.</p>
+
+<h3>Podsumowanie i eksport</h3>
+<pre><code># Podsumowanie
+curl http://localhost:7331/transcripts/{id}/summarize
+
+# Eksport do Markdown
+curl http://localhost:7331/transcripts/{id}/export?format=md</code></pre>
+
+<h2>Leksykon</h2>
+
+<p>Myśloodsiewnia automatycznie wyciąga kluczowe terminy z transkrypcji i buduje osobisty leksykon.</p>
+
+<pre><code># Przejrzyj leksykon
+curl http://localhost:7331/lexicon
+
+# Dodaj ręcznie termin
+curl -X POST http://localhost:7331/lexicon \
+  -H "Content-Type: application/json" \
+  -d '{"term": "baksztag", "definition": "Kurs żaglowy — wiatr od rufy ukośnie"}'</code></pre>
+
+<h1>Narada — Zespołowa analiza tematu</h1>
+
+<p>Moduł <strong>narad</strong> pozwala zapytać o zdanie kilku ekspertów AI (personas) jednocześnie. Każdy odpowiada ze swojej perspektywy — potem Hermiona zbiera ustalenia.</p>
+
+<h2>Jak to działa</h2>
+<ol>
+<li>Wybierasz temat</li>
+<li>Dobierasz skład ekspertów (lub używasz gotowego)</li>
+<li>Każdy ekspert odpowiada ze swojej perspektywy</li>
+<li>Hermiona zbiera ustalenia i dokumentuje decyzje</li>
+</ol>
+
+<h2>Gotowe składy</h2>
+
+<table>
+<tr><th>Temat</th><th>Skład ekspertów</th></tr>
+<tr><td><strong>Security review</strong></td><td>Ghost (Red Team) + Yuki (Blue Team) + Harvey (Prawo)</td></tr>
+<tr><td><strong>Architektura</strong></td><td>Mira Chen (Inżynieria) + Axel (QA) + Hermes (Proces)</td></tr>
+<tr><td><strong>Design & komunikacja</strong></td><td>Eleanor (UX) + Sophia (Persuazja) + Łukasz Mazur (Kontrarian)</td></tr>
+<tr><td><strong>Dane & AI</strong></td><td>Tomas (Data/ML) + Mira + Zara (Prompty)</td></tr>
+<tr><td><strong>Deep research</strong></td><td>Julka (Nauka) + Ela (Biznes) — para dialektyczna</td></tr>
+</table>
+
+<h2>Meta-warstwa (zawsze aktywna)</h2>
+
+<table>
+<tr><th>Persona</th><th>Rola w naradzie</th></tr>
+<tr><td><strong>Zara</strong></td><td>Projektuje interakcje między ekspertami</td></tr>
+<tr><td><strong>Hermiona</strong></td><td>Dokumentuje ustalenia i decyzje</td></tr>
+<tr><td><strong>Hermes</strong></td><td>Pilnuje postępu, wykrywa kręcenie się w kółko</td></tr>
+<tr><td><strong>George Carlin</strong></td><td>Mówi na koniec — niekomfortowe prawdy</td></tr>
+</table>
+
+<h2>Użycie</h2>
+<pre><code>curl -X POST http://localhost:7331/personas/discuss \
+  -H "Content-Type: application/json" \
+  -d '{
+    "topic": "Czy powinniśmy zmienić architekturę auth?",
+    "personas": ["ghost", "yuki", "harvey", "mira-chen"]
+  }'</code></pre>
+
+<div class="tip">
+<strong>Pro tip:</strong> Nie musisz znać slugów na pamięć. Najpierw sprawdź listę: <code>curl http://localhost:7331/personas</code>
+</div>
+
+<h1>Komunikacja — zasady Sophii</h1>
+
+<p>Sophia Marchetti (persona ds. komunikacji) radzi jak formułować zapytania i prezentować wyniki:</p>
+
+<h2>Zanim zapytasz — odpowiedz sobie</h2>
+<ol>
+<li><strong>Kto jest odbiorcą?</strong> (technik, biznes, prawnik)</li>
+<li><strong>Jaki jest frame?</strong> (problem, szansa, ryzyko)</li>
+<li><strong>Gdzie jest opór?</strong> (co odbiorca może odrzucić)</li>
+<li><strong>Co jest niewypowiedziane?</strong> (ukryte założenia)</li>
+</ol>
+
+<h2>Format odpowiedzi</h2>
+<ul>
+<li><strong>Zacznij od konkluzji</strong> — nie od kontekstu</li>
+<li><strong>Jedno zdanie na decyzję</strong> — nie trzy akapity</li>
+<li><strong>Fakty → interpretacja → rekomendacja</strong> — w tej kolejności</li>
+<li><strong>Jeśli nie wiesz — powiedz „nie wiem"</strong> — zero halucynacji</li>
+</ul>
+
+<div class="warning">
+<strong>Zasada zero halucynacji:</strong> Myśloodsiewnia i wszystkie persony działają wg tej samej reguły — jeśli czegoś nie wiedzą, mówią wprost. Nigdy nie zmyślają odpowiedzi.
+</div>
+
+<h1>Rozwiązywanie problemów</h1>
+
+<h2>Serwer nie startuje</h2>
+<pre><code># Sprawdź czy port jest wolny
+lsof -i :7331
+
+# Zabij proces jeśli wisi
+kill -9 $(lsof -ti :7331)
+
+# Uruchom ponownie
+python launcher.py   # → F2</code></pre>
+
+<h2>Transkrypcja nie działa</h2>
+<ol>
+<li>Sprawdź czy model Whisper jest pobrany:
+<pre><code>python -c "import whisper; whisper.load_model('large-v3')"</code></pre></li>
+<li>Sprawdź <code>HF_TOKEN</code> jeśli diaryzacja nie działa</li>
+<li>Logi: <code>F5</code> w launcherze lub <code>tail -f logs/vault.log</code></li>
+</ol>
+
+<h2>Brak wyników wyszukiwania</h2>
+<ul>
+<li>Upewnij się, że dokumenty zostały zaindeksowane (<code>/ingest</code>)</li>
+<li>Spróbuj prostszego zapytania (1–2 słowa)</li>
+<li>Sprawdź czy baza istnieje: <code>ls vault.db</code></li>
+</ul>
+
+<h2>Baza jest za duża / wolna</h2>
+<pre><code>sqlite3 vault.db "INSERT INTO documents_fts(documents_fts) VALUES('optimize');"</code></pre>
+
+<h1>Bezpieczeństwo</h1>
+
+<div class="danger">
+<strong>Ważne:</strong>
+<ul style="margin:0.3em 0 0 0;">
+<li>Myśloodsiewnia działa <strong>tylko lokalnie</strong> — nie wystawiaj portu 7331 na świat</li>
+<li>Jeśli musisz udostępnić zdalnie — użyj <strong>Tailscale</strong> (mesh VPN, zero konfiguracji)</li>
+<li>Baza <code>vault.db</code> zawiera Twoje dane — rób backupy</li>
+<li><code>HF_TOKEN</code> jest poufny — nie commituj go do repo</li>
+</ul>
+</div>
+
+<h1>Szybka ściągawka</h1>
+
+<div class="cheatsheet">
+<pre><code>mysloodsiewnia            # start (alias zsh)
+http://localhost:7331      # web UI
+F2 start · F3 stop · F5 log · F8 browser · F10 quit
+
+# szukaj
+curl localhost:7331/query -d '{"q":"szukana fraza"}'
+
+# dodaj PDF
+curl -X POST localhost:7331/ingest/pdf -F "file=@plik.pdf"
+
+# transkrybuj
+curl -X POST localhost:7331/transcripts/upload -F "file=@audio.mp3"
+
+# leksykon
+curl localhost:7331/lexicon
+
+# narada
+curl -X POST localhost:7331/personas/discuss \
+  -d '{"topic":"temat","personas":["ghost","mira-chen"]}'
+
+# lista person
+curl localhost:7331/personas</code></pre>
+</div>
+
+<div class="footer">
+<p><em>Myśloodsiewnia — bo wiedza, której nie przeszukasz, nie istnieje.</em></p>
+<p>— kapoost, 2026</p>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,6 @@
+{
+  "slug": "security-scope",
+  "category": "workflow",
+  "title": "Zakres testów bezpieczeństwa",
+  "body": "Persony security: Ghost (Red Team), Yuki (Blue Team).\n\nDozwolone:\n- Authorized pentesting\n- CTF (Capture The Flag)\n- Defensive research\n- Security review kodu\n\nZakazane:\n- Destructive actions, DoS\n- Mass targeting\n- Supply chain attacks\n- Malware\n\nhumanMCP auth:\n- Edit token — właściciel (full access)\n- Agent token — skill CRUD\n- Session secret — auth maszynowy\n- Poet passwords — auth ludzki\n\nContent gates: challenge, payment, time, manual, trade.\nSigning: Ed25519.\n\nZASADA: Nigdy nie halucinuj. Jeśli nie wiesz — powiedz nie wiem."
+}

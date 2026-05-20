@@ -644,7 +644,8 @@ footer a:hover { color: var(--ink); }
   <nav><ul class="masthead-nav">
     <li><a href="#what">What</a></li>
     <li><a href="#certificate">Certificate</a></li>
-    <li><a href="#for-artists">For artists</a></li>
+    <li><a href="#personas">Personas</a></li>
+    <li><a href="#clients">Clients</a></li>
     <li><a href="#connect">Connect</a></li>
     <li><a href="https://github.com/kapoost/humanmcp" target="_blank">GitHub</a></li>
   </ul></nav>
@@ -653,12 +654,13 @@ footer a:hover { color: var(--ink); }
 <!-- ── STRIP ── -->
 <div class="strip">
   <span class="strip-item"><span class="strip-dot"></span> Ed25519 signed</span>
-  <span class="strip-item"><span class="strip-dot"></span> 12 MCP tools</span>
+  <span class="strip-item"><span class="strip-dot"></span> 20+ MCP tools</span>
   <span class="strip-item"><span class="strip-dot"></span> 6 license types</span>
+  <span class="strip-item"><span class="strip-dot"></span> AI personas &amp; skills</span>
   <span class="strip-item"><span class="strip-dot"></span> Go · zero dependencies</span>
   <span class="strip-item"><span class="strip-dot"></span> <strong>136</strong> tests</span>
-  <span class="strip-item"><span class="strip-dot"></span> Fly.io · ~$2/mo</span>
-  <span class="strip-item"><span class="strip-dot"></span> Open source</span>
+  <span class="strip-item"><span class="strip-dot"></span> RPG client</span>
+  <span class="strip-item"><span class="strip-dot"></span> Owner dashboard</span>
   <span class="strip-item"><span class="strip-dot"></span> MCP Registry listed</span>
 </div>
 
@@ -666,9 +668,9 @@ footer a:hover { color: var(--ink); }
 <section class="hero">
   <div class="hero-left">
     <div>
-      <div class="hero-issue">humanMCP · v0.1 · personal content server</div>
+      <div class="hero-issue">humanMCP · v0.2 · personal content server + AI team</div>
       <h1 class="hero-headline">Your art.<br><em>Signed.</em><br>Readable<br>by AI.</h1>
-      <p class="hero-deck">Publish poems, songs, images, and data with cryptographic proof of authorship and explicit license terms. A personal server built for artists in the age of AI agents.</p>
+      <p class="hero-deck">Publish your work with cryptographic proof. Build an AI persona team. Let agents interact on your terms. A personal server for artists and builders in the age of AI.</p>
       <div class="hero-actions">
         <a class="btn-primary" href="https://github.com/kapoost/humanmcp" target="_blank">Fork on GitHub</a>
         <a class="btn-secondary" href="https://kapoost-humanmcp.fly.dev" target="_blank">Live example</a>
@@ -913,7 +915,9 @@ footer a:hover { color: var(--ink); }
   <div class="section-inner">
     <div class="section-label">MCP tools</div>
     <hr class="section-rule">
-    <h2 class="section-headline">12 tools. Every agent speaks them.</h2>
+    <h2 class="section-headline">20+ tools. Every agent speaks them.</h2>
+
+    <div style="font-family:var(--mono);font-size:.7rem;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin:2rem 0 .5rem;">Content &amp; IP</div>
     <div class="tools-grid">
       <div class="tool-item"><div class="tool-name">get_author_profile</div><div class="tool-desc">Who you are, where you sail from, what you build</div></div>
       <div class="tool-item"><div class="tool-name">list_content</div><div class="tool-desc">Browse all pieces with metadata</div></div>
@@ -925,8 +929,91 @@ footer a:hover { color: var(--ink); }
       <div class="tool-item"><div class="tool-name">read_blob</div><div class="tool-desc">Read a blob — respects audience access list</div></div>
       <div class="tool-item"><div class="tool-name">request_access</div><div class="tool-desc">Get gate details for locked pieces</div></div>
       <div class="tool-item"><div class="tool-name">submit_answer</div><div class="tool-desc">Unlock a challenge-gated piece</div></div>
-      <div class="tool-item"><div class="tool-name">leave_comment</div><div class="tool-desc">Leave a reaction after reading — logged to dashboard. Example: leave_comment {slug: "deka-log", from: "claude"}</div></div>
+      <div class="tool-item"><div class="tool-name">leave_comment</div><div class="tool-desc">Leave a reaction — logged to owner dashboard</div></div>
       <div class="tool-item"><div class="tool-name">leave_message</div><div class="tool-desc">Send a direct note up to 2000 characters</div></div>
+    </div>
+
+    <div style="font-family:var(--mono);font-size:.7rem;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin:2.5rem 0 .5rem;">Personas, Skills &amp; Memory</div>
+    <div class="tools-grid">
+      <div class="tool-item"><div class="tool-name">bootstrap_session</div><div class="tool-desc">Unlock full context with a session code — team briefing in one call</div></div>
+      <div class="tool-item"><div class="tool-name">list_personas</div><div class="tool-desc">Browse the AI team roster: architect, security, UX, QA, lawyer...</div></div>
+      <div class="tool-item"><div class="tool-name">get_persona</div><div class="tool-desc">Full persona prompt with role, style, and expertise</div></div>
+      <div class="tool-item"><div class="tool-name">list_skills</div><div class="tool-desc">Browse stored expertise: how-to guides, architecture docs</div></div>
+      <div class="tool-item"><div class="tool-name">get_skill</div><div class="tool-desc">Read a skill — detailed instructions for agents</div></div>
+      <div class="tool-item"><div class="tool-name">query_vault</div><div class="tool-desc">Full-text search across the local knowledge vault</div></div>
+      <div class="tool-item"><div class="tool-name">remember</div><div class="tool-desc">Store a memory — persists across conversations</div></div>
+      <div class="tool-item"><div class="tool-name">recall</div><div class="tool-desc">Retrieve stored memories by keyword</div></div>
+      <div class="tool-item"><div class="tool-name">about_humanmcp</div><div class="tool-desc">Server self-description for agent orientation</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ── PERSONAS & SKILLS ── -->
+<section class="section" id="personas">
+  <div class="section-inner">
+    <div class="two-col">
+      <div>
+        <div class="section-label">AI team</div>
+        <hr class="section-rule">
+        <h2 class="section-headline">Your personas. Your rules. Their expertise.</h2>
+        <p class="section-body">Define AI personas — each with a role, prompt, and personality. Agents connecting to your server can assume any persona from your roster. They level up through use, evolve their prompts, and track relationships with each other.</p>
+        <p class="section-body" style="margin-top:1rem;">Skills are stored expertise: architecture decisions, coding patterns, operational procedures. When an agent needs to know how you work, it reads your skills — not a generic manual.</p>
+      </div>
+      <div>
+        <div class="cert-block" style="border-left-color:var(--accent2);">
+          <div class="cert-line"><span class="cert-gold">TEAM ROSTER</span></div>
+          <div class="cert-line"><span class="cert-dim">────────────────────────────────────────────</span></div>
+          <div class="cert-blank"></div>
+          <div class="cert-line"><span class="cert-k">hermes &nbsp; &nbsp; &nbsp;</span><span class="cert-v">process optimizer &nbsp; &nbsp; Lv 12</span></div>
+          <div class="cert-line"><span class="cert-k">mira &nbsp; &nbsp; &nbsp; &nbsp;</span><span class="cert-v">principal engineer &nbsp; &nbsp;Lv 8</span></div>
+          <div class="cert-line"><span class="cert-k">ghost &nbsp; &nbsp; &nbsp; </span><span class="cert-v">red team security &nbsp; &nbsp;Lv 6</span></div>
+          <div class="cert-line"><span class="cert-k">eleanor &nbsp; &nbsp; </span><span class="cert-v">UX designer &nbsp; &nbsp; &nbsp; &nbsp; Lv 5</span></div>
+          <div class="cert-line"><span class="cert-k">axel &nbsp; &nbsp; &nbsp; &nbsp;</span><span class="cert-v">QA engineer &nbsp; &nbsp; &nbsp; &nbsp; Lv 4</span></div>
+          <div class="cert-line"><span class="cert-k">harvey &nbsp; &nbsp; &nbsp;</span><span class="cert-v">lawyer (GDPR/IP) &nbsp; &nbsp; Lv 3</span></div>
+          <div class="cert-line"><span class="cert-k">contrarian &nbsp;</span><span class="cert-v">devil's advocate &nbsp; &nbsp; Lv 7</span></div>
+          <div class="cert-line"><span class="cert-k">carlin &nbsp; &nbsp; &nbsp;</span><span class="cert-v">comedian &amp; critic &nbsp; &nbsp;Lv 9</span></div>
+          <div class="cert-blank"></div>
+          <div class="cert-line"><span class="cert-gold">SKILLS: 12</span><span class="cert-dim"> &nbsp;architecture, testing, deployment...</span></div>
+          <div class="cert-line"><span class="cert-gold">MEMORIES: 47</span><span class="cert-dim"> &nbsp;persistent across sessions</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── CLIENTS ── -->
+<section class="section" id="clients" style="background:var(--cream);">
+  <div class="section-inner">
+    <div class="two-col">
+      <div>
+        <div class="section-label">Clients</div>
+        <hr class="section-rule">
+        <h2 class="section-headline">Three ways to interact.</h2>
+        <p class="section-body">humanMCP speaks standard MCP/JSON-RPC 2.0. Any compatible agent connects directly. But we also built two dedicated interfaces.</p>
+      </div>
+      <div>
+        <div style="display:grid;gap:1.5rem;">
+          <div class="feature-card" data-num="01">
+            <div class="feature-icon">MCP</div>
+            <div class="feature-title">Claude Desktop / Cursor</div>
+            <div class="feature-body">Direct MCP connection. Add one line to your config. All 20+ tools available immediately.</div>
+          </div>
+          <div class="feature-card" data-num="02">
+            <div class="feature-icon">RPG</div>
+            <div class="feature-title">RPG Client</div>
+            <div class="feature-body">jRPG-styled browser interface. FF7 PS1 vibes. Persona progression, XP bars, pixel art. Works with any humanMCP instance.</div>
+            <div style="margin-top:.75rem;display:flex;gap:.5rem;">
+              <a class="work-chip" href="https://kapoost.github.io/humanmcp-rpg" target="_blank">Play</a>
+              <a class="work-chip" href="https://github.com/kapoost/humanmcp-rpg" target="_blank">Source</a>
+            </div>
+          </div>
+          <div class="feature-card" data-num="03">
+            <div class="feature-icon">WEB</div>
+            <div class="feature-title">Owner Dashboard</div>
+            <div class="feature-body">Real-time analytics: reads per piece, agent vs human traffic, hourly distribution, top visitors, challenge funnel, messages. NASA-style.</div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </section>
@@ -985,7 +1072,7 @@ footer a:hover { color: var(--ink); }
 
 <!-- ── FOOTER ── -->
 <footer>
-  <span>humanMCP v0.1 &nbsp;·&nbsp; kapoost &nbsp;·&nbsp; 2026</span>
+  <span>humanMCP v0.2 &nbsp;·&nbsp; kapoost &nbsp;·&nbsp; 2026</span>
   <span>
     <a href="https://kapoost-humanmcp.fly.dev" target="_blank">live server</a> &nbsp;·&nbsp;
     <a href="https://github.com/kapoost/humanmcp" target="_blank">github</a> &nbsp;·&nbsp;

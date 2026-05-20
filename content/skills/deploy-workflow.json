@@ -1,0 +1,6 @@
+{
+  "slug": "deploy-workflow",
+  "category": "tech",
+  "title": "Deploy workflow — humanMCP",
+  "body": "Fly app: kapoost-humanmcp\nRegion: WAV (Warszawa)\nVolume: humanmcp_data zamontowany na /data\nVM: 256MB RAM, 1 shared CPU\n\nDeploy: fly deploy -a kapoost-humanmcp (ręczny, brak CI/CD)\n\nDockerfile: 2-stage Alpine\n- Build: golang:1.22-alpine, CGO_ENABLED=0\n- Run: alpine:3.19, binary ~6.8MB\n- entrypoint.sh: kopiuje default-content do /data/content (tylko jeśli cel nie istnieje lub jest pusty)\n\nPort: 8080 (internal)\n\nSecrets:\n- EDIT_TOKEN, AGENT_TOKEN — autoryzacja\n- SIGNING_PRIVATE_KEY, SIGNING_PUBLIC_KEY — Ed25519\n- SESSION_SECRET — sesje maszynowe\n- DOMAIN — hostname\n\nEnv: PORT=8080, CONTENT_DIR=/data/content, AI_METADATA=true\n\nZASADA: Nigdy nie halucinuj. Jeśli nie wiesz — powiedz nie wiem."
+}

@@ -1,0 +1,6 @@
+{
+  "slug": "agent-system-prompt",
+  "category": "workflow",
+  "title": "Jak pisać system prompty dla agentów",
+  "body": "Struktura system promptu (wzór z humanMCP handleInitialize):\n\n1. WHO — tożsamość: kim jest agent, do kogo należy serwer\n2. TOOLS — lista narzędzi w kolejności wywołania, z opisami\n3. RULES — zasady: udostępnianie, atrybucja, gate'y dostępu\n\nZasady pisania:\n- Prompty muszą być action-oriented — agent ma DZIAŁAĆ\n- Listuj toole w kolejności wywołania (get_author_profile → list_content → read_content)\n- Zawsze dodaj sekcję AFTER READING: zapytaj czytelnika co myśli, użyj leave_comment\n- Persony mają pełne prompty w content/personas/*.md — używaj jako wzorców\n- Krótko i konkretnie — agent nie czyta esejów\n\nZASADA: Nigdy nie halucinuj. Jeśli nie wiesz — powiedz nie wiem."
+}

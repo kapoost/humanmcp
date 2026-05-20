@@ -22,10 +22,11 @@ type Question struct {
 	FetchedBy  string
 }
 
-func (q Question) IsAnswered() bool  { return q.Answer != "" }
-func (q Question) IsFetched() bool   { return !q.FetchedAt.IsZero() }
-func (q Question) IsPicked() bool    { return q.IsAnswered() && !q.IsFetched() }
-func (q Question) IsAwaiting() bool  { return !q.IsAnswered() }
+func (q Question) IsAnswered() bool   { return q.Answer != "" }
+func (q Question) IsFetched() bool    { return !q.FetchedAt.IsZero() }
+func (q Question) IsPicked() bool     { return q.IsAnswered() && !q.IsFetched() }
+func (q Question) IsAwaiting() bool   { return !q.IsAnswered() }
+func (q Question) Answered() time.Time { return q.AnsweredAt }
 
 type QuestionStore struct {
 	dir string

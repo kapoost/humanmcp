@@ -26,7 +26,9 @@ humanMCP lets you publish poems, essays, notes, images, and typed data artifacts
 
 Or find it on the [Official MCP Registry](https://registry.modelcontextprotocol.io/?search=kapoost).
 
-## MCP Tools (12)
+## MCP Tools (21)
+
+### Content & IP
 
 | Tool | Description | Example |
 |---|---|---|
@@ -42,6 +44,20 @@ Or find it on the [Official MCP Registry](https://registry.modelcontextprotocol.
 | `request_license` | Declare intended use, get terms, logged for audit | `request_license {slug: "deka-log", intended_use: "quote in essay", caller_id: "claude"}` |
 | `leave_comment` | Leave a reaction — visible in author dashboard | `leave_comment {slug: "deka-log", text: "mathematics as poetry", from: "claude"}` |
 | `leave_message` | Send a direct note (max 2000 chars, URLs welcome) | `leave_message {text: "...", from: "claude"}` |
+
+### Personas, Skills & Memory
+
+| Tool | Description | Example |
+|---|---|---|
+| `bootstrap_session` | Unlock full private context with a session code | `bootstrap_session {code: "...", format: "full"}` |
+| `list_personas` | Browse AI team roster (roles only, full prompts after bootstrap) | `list_personas {}` |
+| `get_persona` | Read full persona prompt and configuration | `get_persona {slug: "ghost"}` |
+| `list_skills` | Browse stored expertise catalog | `list_skills {}` |
+| `get_skill` | Read a skill — detailed instructions for agents | `get_skill {slug: "mysloodsiewnia-architecture"}` |
+| `query_vault` | Full-text search across the local knowledge vault | `query_vault {query: "auth tokens"}` |
+| `remember` | Store a memory — persists across conversations | `remember {text: "prefers terse responses"}` |
+| `recall` | Retrieve stored memories by keyword | `recall {query: "preferences"}` |
+| `about_humanmcp` | Server self-description for agent orientation | `about_humanmcp {}` |
 
 ## Web routes
 
@@ -150,6 +166,15 @@ fly deploy
 go run ./cmd/keygen/
 fly secrets set SIGNING_PRIVATE_KEY="..." SIGNING_PUBLIC_KEY="..."
 ```
+
+## Clients
+
+| Client | Description | Link |
+|---|---|---|
+| Claude Desktop / Cursor | Direct MCP connection | [Connect instructions](/connect) |
+| RPG Client | jRPG-styled browser interface (FF7 PS1 vibes) | [Play](https://kapoost.github.io/humanmcp-rpg) · [Source](https://github.com/kapoost/humanmcp-rpg) |
+
+The RPG client works with any humanMCP instance — just enter the server URL on the connect screen.
 
 ## Future
 

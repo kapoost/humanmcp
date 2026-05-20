@@ -1,0 +1,6 @@
+{
+  "slug": "bookkido-rebuild",
+  "category": "project",
+  "title": "Bookkido v2 — Go Rebuild Plan",
+  "body": "## Stack\n- Backend: Go (stdlib, net/http, wzorzec humanMCP)\n- DB: SQLite lokalnie, Supabase (Postgres) na produkcji\n- Frontend: Go templ + htmx + Alpine.js + Tailwind CSS\n- Płatności: Autopay (BLIK, karta, przelew, recurring)\n- Deploy: Fly.dev (single Go binary)\n\n## Architektura\n- Single Go binary: SSR HTML (templ) + REST API (JSON) + htmx partials\n- Auth: JWT w httpOnly cookies (nie localStorage!)\n- Rate limiting na login/register\n- Kalendarz i payment flow: Preact/Svelte islands\n\n## Fazy\n- Faza 0: scaffold, auth, deploy\n- Faza 1: homepage, listing, offer detail, merchant dashboard\n- Faza 2: Autopay, rezerwacje, order flow, subskrypcje, faktury\n- Faza 3: messaging, reviews, documents, CRM\n\n## Core entities (MVP ~40 endpointów z 150+)\n- User (Merchant + Customer)\n- Offer, Package, Location, Category\n- Reservation, Order, Payment\n- Child (participant), Instructor\n- MerchantSubscription, Invoice\n\n## Źródło designu\n- Pixel-perfect z istniejącego frontendu Next.js\n- Tailwind klasy kopiowane 1:1 do templ\n- Komponenty React → templ components\n- Źródło: bookkido-frontend__prod__13_04/src/"
+}

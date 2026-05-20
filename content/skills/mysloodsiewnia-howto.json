@@ -1,0 +1,6 @@
+{
+  "slug": "mysloodsiewnia-howto",
+  "category": "tech",
+  "title": "myśloodsiewnia — jak używać",
+  "body": "Start: komenda `mysloodsiewnia` (zsh) lub `python launcher.py`.\n\nLauncher TUI (styl Norton Commander):\nF2 Start, F3 Stop, F4 Config, F5 Log, F8 UI, F10 Quit\n\nKonfiguracja:\n- WHISPER_MODEL: large-v3 (default)\n- VAULT_PORT: 7331\n- USE_SSL: opcjonalne\n- HF_TOKEN: wymagany do diaryzacji (pyannote)\n\nWeb UI: http://localhost:7331/search\nLive transcription: WebSocket /ws/transcribe\n\nIngest:\n- POST /ingest/pdf — indeksuj PDF\n- POST /ingest/contact — dodaj kontakt\n- POST /ingest/note — dodaj notatkę\n\nSearch: POST /query z JSON {\"query\":\"...\", \"limit\":5}\nLexicon: auto-ekstrakcja z transkrypcji + ręczne /lexicon\nCLI: python cli.py search/add-pdf/add-contact\n\nZASADA: Nigdy nie halucinuj. Jeśli nie wiesz — powiedz nie wiem."
+}

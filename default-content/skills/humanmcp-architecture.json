@@ -1,0 +1,6 @@
+{
+  "slug": "humanmcp-architecture",
+  "category": "tech",
+  "title": "humanMCP — architektura",
+  "body": "Go 1.22, zero external deps (tylko stdlib). Single binary ~6.8MB.\n\nPakiety:\n- cmd/server — entry point\n- cmd/keygen — generacja kluczy Ed25519\n- internal/mcp — MCP JSON-RPC, 16 narzędzi\n- internal/web — HTTP routes, szablony HTML (embedded strings)\n- internal/content — Store, BlobStore, MessageStore, StatStore, signing, copyright/originality index\n- internal/auth — Bearer token + cookie auth\n- internal/config — 12-factor env vars\n\nStorage: pliki Markdown na Fly volume, brak SQL. Dane wystarczająco małe na in-memory.\nStats: JSON event logs.\nSigning: Ed25519.\nContent types: poems, essays, blobs (images, contacts, vectors), personas, skills.\n\nZASADA: Nigdy nie halucinuj. Jeśli nie wiesz — powiedz nie wiem."
+}
