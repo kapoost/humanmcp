@@ -262,9 +262,7 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 	// v273 index.html expects pieces split by type into separate slices
 	var poems, images, artworks []*content.Piece
-	typeCounts := map[string]int{}
 	for _, p := range pieces {
-		typeCounts[p.Type]++
 		switch strings.ToLower(string(p.Type)) {
 		case "image":
 			images = append(images, p)
@@ -275,8 +273,6 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	listings := h.listingStore.List()
-	log.Printf("[index] pieces=%d types=%v poems=%d images=%d artworks=%d listings=%d",
-		len(pieces), typeCounts, len(poems), len(images), len(artworks), len(listings))
 
 	h.render(w, "index.html", map[string]interface{}{
 		"Author":   h.cfg.AuthorName,
