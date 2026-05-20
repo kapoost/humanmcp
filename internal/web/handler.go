@@ -301,8 +301,10 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 	// #images gallery: iterate image blobs (more authoritative than .md
 	// pieces — v273 worked this way). Each blob becomes a tiny piece-like
-	// struct for the template (Slug, Title, FileRef).
+	// struct for the template. Dedup by FileRef so the same file isn't
+	// shown twice when blobs share an asset under different slugs.
 	var images []*content.Piece
+	seenFiles := make(map[string]bool)
 	if blobs, err := h.blobStore.Load(); err == nil {
 		for _, b := range blobs {
 			if string(b.BlobType) != "image" || b.FileRef == "" {
@@ -311,6 +313,10 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 			if b.Access != content.AccessPublic {
 				continue
 			}
+			if seenFiles[b.FileRef] {
+				continue
+			}
+			seenFiles[b.FileRef] = true
 			images = append(images, &content.Piece{
 				Slug:      b.Slug,
 				Title:     b.Title,
