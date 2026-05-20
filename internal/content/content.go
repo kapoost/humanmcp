@@ -47,13 +47,14 @@ type Piece struct {
 	Signature   string      `json:"Signature"`  // Ed25519 signature (base64)
 	FilePath    string      `json:"-"`
 
-	// v273 fields used by templates (best-effort: empty by default,
-	// can be wired to blob storage / OTS later)
+	// v273 fields used by templates (best-effort: empty by default)
 	FileRef      string            `json:"FileRef,omitempty"`
 	ImageRef     string            `json:"ImageRef,omitempty"`
 	Excerpt      string            `json:"Excerpt,omitempty"`
 	Lang         string            `json:"Lang,omitempty"`
 	OTSProof     string            `json:"OTSProof,omitempty"`
+	Price        string            `json:"Price,omitempty"`
+	Status       string            `json:"Status,omitempty"`
 	BlobImageMap map[string]string `json:"BlobImageMap,omitempty"`
 }
 
