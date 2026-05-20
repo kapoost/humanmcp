@@ -144,6 +144,10 @@ func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler
 			}
 			return "pending"
 		},
+		"isHEIC": func(ref string) bool {
+			lower := strings.ToLower(ref)
+			return strings.HasSuffix(lower, ".heic") || strings.HasSuffix(lower, ".heif")
+		},
 		"not": func(v interface{}) bool {
 			if v == nil {
 				return true
@@ -1228,6 +1232,28 @@ type enrichedStats struct {
 }
 
 func (h *Handler) buildEnrichedStats(stats *content.Stats, pieceCount, listingCount int) enrichedStats {
+	// Drop stale slugs from ChallengeFunnel and AttemptsBySlug — pieces
+	// can be deleted but their historical events stay in stats.ndjson
+	// forever, polluting the dashboard with ghost entries.
+	live := h.liveSlugs()
+	if len(stats.ChallengeFunnel) > 0 {
+		filtered := make(map[string][3]int, len(stats.ChallengeFunnel))
+		for slug, f := range stats.ChallengeFunnel {
+			if live[slug] {
+				filtered[slug] = f
+			}
+		}
+		stats.ChallengeFunnel = filtered
+	}
+	if len(stats.AttemptsBySlug) > 0 {
+		filtered := make(map[string][]content.Event, len(stats.AttemptsBySlug))
+		for slug, attempts := range stats.AttemptsBySlug {
+			if live[slug] {
+				filtered[slug] = attempts
+			}
+		}
+		stats.AttemptsBySlug = filtered
+	}
 	return enrichedStats{
 		Stats:         stats,
 		PieceCount:    pieceCount,
@@ -1238,6 +1264,19 @@ func (h *Handler) buildEnrichedStats(stats *content.Stats, pieceCount, listingCo
 		VaultOnline:   true,
 		Uptime:        "—",
 	}
+}
+
+// liveSlugs returns the set of slugs currently backed by a piece or listing.
+// Used to filter out stats entries for deleted content.
+func (h *Handler) liveSlugs() map[string]bool {
+	live := make(map[string]bool)
+	for _, p := range h.store.List(false) {
+		live[p.Slug] = true
+	}
+	for _, l := range h.listingStore.List() {
+		live[l.Slug] = true
+	}
+	return live
 }
 
 // inboxItem is what mc.html's {{range .Inbox}} iterates over.

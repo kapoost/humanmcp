@@ -30,7 +30,7 @@
 {{range .Listings}}
 <li class="piece-item">
   <div class="piece-row" style="display:flex;gap:1rem;">
-    {{if .ImageRef}}<div style="flex-shrink:0;"><img src="/{{.ImageRef}}" style="width:80px;height:60px;object-fit:cover;border-radius:4px;"></div>{{end}}
+    {{if .ImageRef}}{{if isHEIC .ImageRef}}<a href="/{{.ImageRef}}" style="flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;width:80px;height:60px;border:1px dashed var(--border);border-radius:4px;background:var(--tag-bg);color:var(--muted);font-size:.65rem;text-decoration:none;text-align:center;line-height:1.2" title="HEIC — open in Safari or download">HEIC<br>↓</a>{{else}}<div style="flex-shrink:0;"><img src="/{{.ImageRef}}" style="width:80px;height:60px;object-fit:cover;border-radius:4px;"></div>{{end}}{{end}}
     <div class="piece-left" style="flex:1;">
       <div class="piece-meta">
         <span>{{formatDate .Published}}</span>
