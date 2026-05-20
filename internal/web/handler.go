@@ -1182,6 +1182,9 @@ func (h *Handler) handleMissionControl(w http.ResponseWriter, r *http.Request) {
 		Uptime:        "—",
 	}
 
+	// Next session rotation: top of next hour
+	sessionExp := time.Date(now.Year(), now.Month(), now.Day(), now.Hour()+1, 0, 0, 0, now.Location())
+
 	h.render(w, "mc.html", map[string]interface{}{
 		"Author":      h.cfg.AuthorName,
 		"IsOwner":     true,
@@ -1191,6 +1194,8 @@ func (h *Handler) handleMissionControl(w http.ResponseWriter, r *http.Request) {
 		"Listings":    listings,
 		"Questions":   questions,
 		"SessionCode": activePoem,
+		"SessionExp":  sessionExp,
+		"VaultOnline": true,
 	})
 }
 
