@@ -304,6 +304,21 @@ a:hover{text-decoration:underline}
 </div>
 {{end}}
 
+{{if .AttemptsBySlug}}
+<div class="mc-section">
+  <div class="mc-label">ATTEMPTS / SLUG</div>
+  {{range $s,$attempts := .AttemptsBySlug}}<div class="mc-funnel">
+    <div style="font-weight:500;margin-bottom:3px">{{$s}} <span style="color:var(--mc-muted);font-weight:400">({{len $attempts}})</span></div>
+    {{range $attempts}}<div style="font-family:var(--mc-mono);font-size:10px;padding:1px 0;display:flex;gap:6px;align-items:baseline">
+      {{if eq (print .Type) "unlock"}}<span class="mc-fp mc-fp-u" style="min-width:42px;text-align:center">OK</span>
+      {{else}}<span class="mc-fp mc-fp-t" style="min-width:42px;text-align:center">×</span>{{end}}
+      <span style="color:var(--mc-muted);font-size:9px">{{formatTime .At}}</span>
+      <span style="color:var(--mc-fg)">{{.Query}}</span>
+    </div>{{end}}
+  </div>{{end}}
+</div>
+{{end}}
+
 {{if .TopReferrers}}
 <div class="mc-section">
   <div class="mc-label">REFERRERS</div>

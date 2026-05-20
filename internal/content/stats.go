@@ -73,6 +73,10 @@ type Stats struct {
 	// Challenge funnel per slug: [checked, attempted, succeeded]
 	ChallengeFunnel map[string][3]int `json:"challenge_funnel"`
 
+	// Unlock attempts per slug — newest first. Each event has Query
+	// (the answer that was tried) and Type (EventUnlock or EventUnlockFail).
+	AttemptsBySlug map[string][]Event `json:"attempts_by_slug,omitempty"`
+
 	// Hour-of-day distribution (0-23)
 	HourlyReads [24]int `json:"hourly_reads"`
 
@@ -146,6 +150,7 @@ func (ss *StatStore) Compute() (*Stats, error) {
 		TopReferrers:    make(map[string]int),
 		Countries:       make(map[string]int),
 		ChallengeFunnel: make(map[string][3]int),
+		AttemptsBySlug:  make(map[string][]Event),
 	}
 
 	data, err := os.ReadFile(ss.path)
@@ -224,12 +229,18 @@ func (ss *StatStore) Compute() (*Stats, error) {
 				f := s.ChallengeFunnel[e.Slug]
 				f[2]++
 				s.ChallengeFunnel[e.Slug] = f
+				if e.Query != "" {
+					s.AttemptsBySlug[e.Slug] = append(s.AttemptsBySlug[e.Slug], e)
+				}
 			}
 		case EventUnlockFail:
 			if e.Slug != "" {
 				f := s.ChallengeFunnel[e.Slug]
 				f[1]++
 				s.ChallengeFunnel[e.Slug] = f
+				if e.Query != "" {
+					s.AttemptsBySlug[e.Slug] = append(s.AttemptsBySlug[e.Slug], e)
+				}
 			}
 		case EventAccess:
 			s.TotalInterest++
@@ -248,6 +259,17 @@ func (ss *StatStore) Compute() (*Stats, error) {
 	// Last 30 events, newest first
 	for i := len(all) - 1; i >= 0 && len(s.RecentEvents) < 30; i-- {
 		s.RecentEvents = append(s.RecentEvents, all[i])
+	}
+
+	// Reverse each AttemptsBySlug list (newest first) and cap at 20 per slug
+	for slug, list := range s.AttemptsBySlug {
+		for i, j := 0, len(list)-1; i < j; i, j = i+1, j-1 {
+			list[i], list[j] = list[j], list[i]
+		}
+		if len(list) > 20 {
+			list = list[:20]
+		}
+		s.AttemptsBySlug[slug] = list
 	}
 
 	ss.cache.Set(s)
