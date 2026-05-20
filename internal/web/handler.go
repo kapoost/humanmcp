@@ -1297,6 +1297,9 @@ func (h *Handler) handleMissionControl(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "stats error: "+err.Error(), 500)
 		return
 	}
+	if err := h.store.Load(); err != nil {
+		log.Printf("store load: %v", err)
+	}
 	pieces := h.store.List(false)
 	msgs, _ := h.msgStore.List()
 	listings := h.listingStore.List()
