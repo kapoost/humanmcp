@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Z pamiętnika młodego — translation — kapoost</title>
+<style>
+:root{
+  --bg:#0c0c0c;--fg:#c0c0c0;--muted:#707070;--border:#333;
+  --accent:#00cc00;--accent2:#00cccc;--accent3:#cccc00;--accent4:#cc00cc;--accent5:#cc0000;
+  --tag-bg:#1a1a1a;--tag-fg:#00cccc;
+  --mono:'IBM Plex Mono','Cascadia Code','Fira Code','Courier New',monospace;
+}
+@media(prefers-color-scheme:light){:root{
+  --bg:#f5f5f0;--fg:#1a1a1a;--muted:#666;--border:#ccc;
+  --accent:#006600;--accent2:#006666;--accent3:#666600;--accent4:#660066;--accent5:#990000;
+  --tag-bg:#e8e8e0;--tag-fg:#006666;
+}}
+[data-theme="light"]{--bg:#f5f5f0;--fg:#1a1a1a;--muted:#666;--border:#ccc;--accent:#006600;--accent2:#006666;--accent3:#666600;--accent4:#660066;--accent5:#990000;--tag-bg:#e8e8e0;--tag-fg:#006666;}
+[data-theme="dark"]{--bg:#0c0c0c;--fg:#c0c0c0;--muted:#707070;--border:#333;--accent:#00cc00;--accent2:#00cccc;--accent3:#cccc00;--accent4:#cc00cc;--accent5:#cc0000;--tag-bg:#1a1a1a;--tag-fg:#00cccc;}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{background:var(--bg);color:var(--fg);font-family:var(--mono);font-size:14px;line-height:1.7;}
+a{color:var(--accent);text-decoration:none;}
+a:hover{color:var(--accent);text-decoration:underline;filter:brightness(1.3);}
+.container{max-width:1400px;margin:0 auto;padding:1.25rem 1.25rem 4rem;}
+
+header{border-bottom:1px solid var(--border);padding:1rem 0 .7rem;margin-bottom:1.5rem;}
+.header-top{display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:.4rem;}
+.brand{font-size:1rem;display:flex;align-items:center;gap:.5rem;}
+.brand .br-tok{color:var(--accent);}
+.brand a{color:var(--accent);}
+.brand .sub{font-size:.82rem;color:var(--muted);}
+nav.top{font-size:.8rem;color:var(--muted);display:flex;gap:.7rem;align-items:center;}
+nav.top a{color:var(--accent2);}
+nav.top .toggle{color:var(--muted);cursor:pointer;user-select:none;padding:0 .15rem;}
+nav.top .toggle:hover{color:var(--fg);}
+
+.title-row{margin-top:1.5rem;display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:.5rem;}
+h1{font-family:var(--mono);font-weight:500;font-size:1.4rem;color:var(--fg);}
+.meta{font-size:.78rem;color:var(--muted);margin-top:.4rem;letter-spacing:.04em;}
+.meta a{color:var(--accent);}
+.meta code{font-size:.72rem;background:var(--tag-bg);padding:1px 6px;border-radius:3px;color:var(--accent2);}
+.translator-tag{display:inline-block;font-size:.72rem;color:var(--accent3);border:1px solid var(--accent3);padding:1px 7px;border-radius:10px;letter-spacing:.05em;}
+
+.col-heads{
+  display:grid;grid-template-columns:1fr 1fr 1.1fr;gap:1.6rem;
+  margin:2rem 0 .6rem;padding-bottom:.4rem;
+  border-bottom:1px solid var(--border);
+  position:sticky;top:0;background:var(--bg);z-index:10;
+}
+.col-head{font-size:.7rem;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);}
+.col-head .lang{color:var(--accent3);margin-right:.5em;font-weight:500;}
+
+.stanza{
+  display:grid;grid-template-columns:1fr 1fr 1.1fr;gap:1.6rem;
+  padding:1.1rem 0;border-bottom:1px solid var(--border);
+  scroll-margin-top:60px;
+}
+.stanza:last-of-type{border-bottom:none;}
+.stanza.active{background:var(--tag-bg);}
+
+.pl,.en{font-family:var(--mono);white-space:pre-line;line-height:1.7;font-size:.95rem;}
+.pl{color:var(--fg);}
+.en{color:var(--fg);}
+.en em{color:var(--accent2);font-style:italic;}
+.ref{color:var(--accent3);font-size:.65em;vertical-align:super;margin-left:1px;}
+
+.notes{font-family:var(--mono);font-size:.76rem;color:var(--muted);line-height:1.65;}
+.notes p{margin-bottom:.55rem;}
+.notes p:last-child{margin-bottom:0;}
+.notes .n-num{color:var(--accent3);font-weight:500;margin-right:.3em;}
+.notes a{color:var(--accent);border-bottom:1px dotted var(--accent);}
+.notes a:hover{border-bottom-style:solid;}
+.notes strong{color:var(--fg);}
+.notes em{color:var(--accent2);font-style:italic;}
+.notes ul{padding-left:0;list-style:none;margin:.3rem 0;}
+.notes li{padding:.15rem 0;padding-left:.8em;text-indent:-.8em;}
+.notes li:before{content:"·  ";color:var(--accent3);}
+
+footer{margin-top:2.5rem;padding-top:1rem;border-top:1px solid var(--border);font-size:.75rem;color:var(--muted);line-height:1.7;}
+footer .sig{color:var(--accent);font-weight:500;}
+footer .small{font-style:italic;}
+footer .kb-hints{margin-top:.6rem;opacity:.7;font-size:.7rem;}
+footer .kb-hints span{color:var(--accent2);}
+
+.help-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);z-index:100;justify-content:center;align-items:center;}
+.help-overlay.visible{display:flex;}
+.help-box{border:1px solid var(--accent);background:var(--bg);padding:1.5rem 2rem;max-width:420px;font-size:.85rem;}
+.help-box h3{color:var(--accent);margin-bottom:.75rem;font-weight:500;}
+.help-row{display:flex;justify-content:space-between;padding:2px 0;}
+.help-key{color:var(--accent3);min-width:6rem;}
+
+@media(max-width:900px){
+  .col-heads,.stanza{grid-template-columns:1fr;gap:.8rem;}
+  .col-head{padding-top:.5rem;border-top:1px solid var(--border);}
+  .col-head:first-child{padding-top:0;border-top:none;}
+  .pl{padding-bottom:.4rem;border-bottom:1px dashed var(--border);}
+  .en{padding-bottom:.4rem;border-bottom:1px dashed var(--border);}
+}
+</style>
+</head>
+<body>
+<div class="container">
+
+<header>
+  <div class="header-top">
+    <div class="brand">
+      <span class="br-tok">[</span>
+      <a href="https://kapoost-humanmcp.fly.dev/">kapoost</a>
+      <span class="br-tok">]</span>
+      <span class="sub">junior human prompt developer</span>
+    </div>
+    <nav class="top">
+      <a href="https://kapoost-humanmcp.fly.dev/p/z-pami-tnika-m-odego-1776419775">← original</a>
+      <span class="translator-tag">EN translation</span>
+      <span class="toggle" id="theme-toggle" title="toggle light/dark [d]">&#9788;</span>
+      <span class="toggle" id="help-trigger" title="keyboard shortcuts [?]">?</span>
+    </nav>
+  </div>
+
+  <div class="title-row">
+    <h1>Z pamiętnika młodego</h1>
+  </div>
+  <div class="meta">
+    poem · published 17 Apr 2026 · <code>z-pami-tnika-m-odego-1776419775</code> · gate: challenge
+  </div>
+</header>
+
+<div class="col-heads">
+  <div class="col-head"><span class="lang">PL</span> oryginał</div>
+  <div class="col-head"><span class="lang">EN</span> spoken-word</div>
+  <div class="col-head"><span class="lang">·</span> notes &amp; references</div>
+</div>
+
+<div class="stanza" id="s1" data-i="1">
+  <div class="pl">Zanim wywołam linczu pomyje
+Mizoginistycznym nazwiecie mnie ryjem
+Zanim ucieknę na własny okręt
+Że szkoły w Polsce mam płaski śrubokręt
+Za wręcz wybitne własne wyniki
+nim ja! Komunę dobiłem na lekcji techniki</div>
+  <div class="en">Before I trigger the lynching slop
+You call me a misogynist snout
+Before I bolt for my own ship
+Because all Polish schools gave me was a flathead screwdriver
+— well, <em>I</em> lifted it —
+For my so-called outstanding grades
+And I — <em>me</em> — finished off communism
+in shop class<span class="ref">¹</span></div>
+  <div class="notes">
+    <p><span class="n-num">1.</span> <strong>I finished off communism in shop class</strong> — <em>"Komunę dobiłem na lekcji techniki"</em>. <em>Technika</em> was the Polish primary-school subject combining workshop with home-ec (<a href="https://en.wikipedia.org/wiki/Education_in_Poland">PL school system</a>). The author was a child during the 1989 transition (<a href="https://en.wikipedia.org/wiki/Polish_People%27s_Republic">Polish People's Republic</a>). The boast is personal and literal: he stole a flathead screwdriver from school property — state property — and considers that small act of theft his own contribution to finishing off the regime.</p>
+  </div>
+</div>
+
+<div class="stanza" id="s2" data-i="2">
+  <div class="pl">Melodia życia metronom czasu
+jednak dość płaski bez bassów psów pasów
+Przed dwiema wieżami i total lockdown
+w głowie nuciłem the final countdown
+I zanim ktoś kamieniem odważy się rzucić
+to właśnie wtedy musiałem uczyć</div>
+  <div class="en">Life's melody, time's metronome
+Just pretty flat
+No bass
+No cops
+No beatings<span class="ref">²</span>
+
+Before the two towers and the total lockdown<span class="ref">³</span>
+In my skull humming the final countdown<span class="ref">⁴</span>
+And before anyone dares to throw the first stone<span class="ref">⁵</span>
+That's exactly when I had to learn</div>
+  <div class="notes">
+    <p><span class="n-num">2.</span> <strong>No bass, no cops, no beatings</strong> — <em>"bez bassów, psów, pasów"</em>. <em>Psy</em> (dogs) is Polish street slang for cops; <em>pasy</em> (belts/straps) is the metonym for a beating administered with one. A flat life, missing both the music and the brutality.</p>
+    <p><span class="n-num">3.</span> <strong>The total lockdown</strong> — March 2020 (<a href="https://en.wikipedia.org/wiki/COVID-19_pandemic_in_Poland">COVID-19 in Poland</a>). Paired with September 2001 (<a href="https://en.wikipedia.org/wiki/September_11_attacks">9/11 attacks</a>).</p>
+    <p><span class="n-num">4.</span> <strong>The Final Countdown</strong> — Europe, 1986 (<a href="https://en.wikipedia.org/wiki/The_Final_Countdown_(song)">song</a>). Every Polish school disco of the era.</p>
+    <p><span class="n-num">5.</span> <strong>"…cast the first stone"</strong> — John 8:7 (<a href="https://en.wikipedia.org/wiki/Jesus_and_the_woman_taken_in_adultery">pericope adulterae</a>).</p>
+  </div>
+</div>
+
+<div class="stanza" id="s3" data-i="3">
+  <div class="pl">W sekcji bystrzaków mistrzem i asem
+mówili będziesz Pitagorasem
+„Leksykon pojęć" git push ledger
+to dla mnie było: „Kapusniak Ł" INDEX zwrot biblioteka: REWERS</div>
+  <div class="en">In the gifted-kid bracket, the champ, the ace
+They told me: you'll be Pythagoras<span class="ref">⁶</span>
+"Lexicon of Concepts"<span class="ref">⁷</span> git push ledger
+For me it read:
+"Kapusniak Ł." — INDEX — library return: REWERS<span class="ref">⁸</span></div>
+  <div class="notes">
+    <p><span class="n-num">6.</span> <strong>You'll be Pythagoras</strong> — direct quote from the title of a popular Polish math problem-book series, <em>"I Ty zostaniesz Pitagorasem"</em> ("You too will become a Pythagoras"), used in Polish primary and secondary schools from the 1990s onward. Adults pointed at the workbook cover and projected onto the gifted-track kid. (<a href="https://en.wikipedia.org/wiki/Pythagoras">Pythagoras</a>.)</p>
+    <p><span class="n-num">7.</span> <strong>Lexicon of Concepts</strong> — <em>Leksykon pojęć</em> and its siblings: pocket-sized study aids that compressed Polish primary-school math curriculum and high-school literature <em>opracowania</em> into bullet points. Cliff's Notes for the kid who didn't read. "Git push ledger" turns the lexicon into a programmer's commit log — a different kind of cheating.</p>
+    <p><span class="n-num">8.</span> <strong>INDEX / REWERS</strong> — old Polish library cards. <em>Index</em> = loan record; <em>rewers</em> = return slip (<a href="https://pl.wikipedia.org/wiki/Karta_biblioteczna">karta biblioteczna</a>). The image: being filed and returned by the system, like a book on a shelf — surname, initial, stamp, dot.</p>
+  </div>
+</div>
+
+<div class="stanza" id="s4" data-i="4">
+  <div class="pl">Więc zanim ocenisz to męskim kryzysem
+po wiedzę w butach i z długopisem dziadkiem w ostrogach i tatą kat A z wpisem</div>
+  <div class="en">So before you call this a male midlife crisis
+I came for knowledge
+In boots
+With a pen
+Grandfather with cavalry spurs
+Father — category A with a note<span class="ref">⁹</span></div>
+  <div class="notes">
+    <p><span class="n-num">9.</span> <strong>Category A with a note</strong> — Polish military draft classification (<a href="https://pl.wikipedia.org/wiki/Kategoria_zdolno%C5%9Bci_do_s%C5%82u%C5%BCby_wojskowej">kategoria zdolności</a>). <em>Kategoria A</em> meant fit for active duty; <em>z wpisem</em> meant a written medical caveat that — without formally disqualifying — allowed the holder to skip the actual service. The line celebrates the dodge.</p>
+  </div>
+</div>
+
+<div class="stanza" id="s5" data-i="5">
+  <div class="pl">O piątej rano motyle w brzuchu
+bo nowy content jest w kiosku ruchu
+Żółć krat obleśnych po lewej: podróba
+dalej pożółkła pre alpha pornhuba
+Krata Mallboro, brutal - podróba - tyogodnik Zamojski dalej, olej, „Pyszne lody: lodówa"</div>
+  <div class="en">Five in the morning, butterflies in the gut
+Because new content was in at the Ruch<span class="ref">¹⁰</span>
+Yellow grids of filth on the left — knock-off
+Further on a yellowed pre-alpha Pornhub
+A Marlboro grid — Brutal — knock-off<span class="ref">¹¹</span>
+<em>Tygodnik Zamojski</em><span class="ref">¹²</span> further down, motor oil
+"Yummy Ice Cream: ICE-CART"<span class="ref">¹³</span></div>
+  <div class="notes">
+    <p><span class="n-num">10.</span> <strong>Ruch</strong> — Poland's near-monopoly newsstand chain, 1918–2020 (<a href="https://en.wikipedia.org/wiki/Ruch_(company)">Ruch (company)</a>). Cigarettes, magazines, candy bars; the morning ritual of millions. <em>Rhyme in the original: brzuchu / ruchu.</em></p>
+    <p><span class="n-num">11.</span> <strong>Marlboro grid, Brutal — knock-off</strong> — <a href="https://en.wikipedia.org/wiki/Marlboro_(cigarette)">Marlboro</a> pack pattern and <em>Brutal</em>, a low-cost Polish cigarette brand often counterfeited.</p>
+    <p><span class="n-num">12.</span> <strong>Tygodnik Zamojski</strong> — local weekly from Zamość, the author's hometown (<a href="https://pl.wikipedia.org/wiki/Tygodnik_Zamojski">Tygodnik Zamojski</a>).</p>
+    <p><span class="n-num">13.</span> <strong>"Lodówa"</strong> — folk-rural ice-cream signage; the diminutive sits between a cart and a freezer. Rendered as "ICE-CART". <em>Private reference: known to the author and one friend, Miłosz.</em></p>
+  </div>
+</div>
+
+<div class="stanza" id="s6" data-i="6">
+  <div class="pl">Faeria kolorów całość wyników
+pokaże Pani „humanizm dla mechaników"
+Kompendium wiedzy tensor kultury za żółtą kratą i żółtej rury</div>
+  <div class="en">A whole <em>Faeria</em><span class="ref">¹⁴</span> of colors as the total picture
+"Humanism for mechanics" she'll show you
+A tensor<span class="ref">¹⁵</span> of culture
+behind a yellow grid and a yellow pipe</div>
+  <div class="notes">
+    <p><span class="n-num">14.</span> <strong>Faeria</strong> — both a fantasy realm and a Polish-distributed trading-card game (<a href="https://en.wikipedia.org/wiki/Faeria">Faeria</a>); here the impossibly colorful magazine rack. <em>Rhyme in the original: wyników / mechaników.</em></p>
+    <p><span class="n-num">15.</span> <strong>Tensor</strong> — mathematical object central to modern machine learning (<a href="https://en.wikipedia.org/wiki/Tensor">tensor</a>). The image: culture flattened into model weights.</p>
+  </div>
+</div>
+
+<div class="stanza" id="s7" data-i="7">
+  <div class="pl">Patrzeć lornetką
+Z dziadów mam szkiełko
+Zgubione dawno Dziesięć milimetrów z zestawu moich płaskich kluczy
+Przez nie wszystkiego co mogłem się uczyć
+W żelaznej skrzynce „otwórz po 2020" płaski otworek
+Ale już nie masz tamtego klucza</div>
+  <div class="en">To look through binoculars
+From the elders I have a lens<span class="ref">¹⁶</span>
+Long gone:
+A 10 mm socket from my set of flat keys<span class="ref">¹⁷</span>
+Because of that
+Everything I might have learned
+Sits in an iron box marked
+<em>"open after 2020"</em>
+Flathead keyhole
+But you don't have that key anymore</div>
+  <div class="notes">
+    <p><span class="n-num">16.</span> <strong>The elders' lens</strong> — <a href="https://en.wikipedia.org/wiki/Adam_Mickiewicz">Adam Mickiewicz</a>, <em>Romantyczność</em> (1822, <a href="https://pl.wikipedia.org/wiki/Romantyczno%C5%9B%C4%87">poem</a>): <em>"feeling and faith speak louder to me than the sage's lens and eye."</em> The poem inverts him — the speaker now holds the very lens Mickiewicz dismissed.</p>
+    <p><span class="n-num">17.</span> <strong>The 10 mm socket</strong> — the universal lost wrench. Every Polish (and global) toolbox is missing it. A workshop joke older than the speaker.</p>
+  </div>
+</div>
+
+<div class="stanza" id="s8" data-i="8">
+  <div class="pl">Na zamku sznyty: krzyż, covid, Bucza</div>
+  <div class="en">Scratches on the lock:
+A cross
+COVID
+Bucha<span class="ref">¹⁸</span></div>
+  <div class="notes">
+    <p><span class="n-num">18.</span> <strong>The three scratches</strong> — three traumas of the last fifteen Polish years, scored into the same lock:</p>
+    <ul>
+      <li><strong>The cross</strong> — not religious, but a specific cross: the wooden crucifix placed in front of the Presidential Palace in Warsaw after the <a href="https://en.wikipedia.org/wiki/Smolensk_air_disaster">Smolensk air disaster</a> of 10 April 2010, in which the Polish President and 95 others died on their way to the 70th-anniversary commemoration of the <a href="https://en.wikipedia.org/wiki/Katyn_massacre">Katyn massacre</a>. The fight over whether to move the cross (<a href="https://pl.wikipedia.org/wiki/Krzy%C5%BC_smole%C5%84ski">Krzyż smoleński</a>) — <em>"gdzie jest krzyż?"</em> — split Polish public life for years and became shorthand for the post-Smolensk polarization.</li>
+      <li><strong>COVID</strong> — March 2020 onward (<a href="https://en.wikipedia.org/wiki/COVID-19_pandemic_in_Poland">pandemic in Poland</a>).</li>
+      <li><strong>Bucha</strong> — town near Kyiv, site of documented war crimes during the 2022 Russian invasion of Ukraine (<a href="https://en.wikipedia.org/wiki/Bucha_massacre">Bucha massacre</a>).</li>
+    </ul>
+  </div>
+</div>
+
+<div class="stanza" id="s9" data-i="9">
+  <div class="pl">Zdjęcie uśmiechu z małymi cyckami
+skrót myśli grypsem
+Dlaczego teraz mam robić phillipsem?</div>
+  <div class="en">A photo of a smile with small breasts
+Shorthand of thought: <em>gryps</em><span class="ref">¹⁹</span>
+Why are they handing me a Phillips?</div>
+  <div class="notes">
+    <p><span class="n-num">19.</span> <strong>Gryps</strong> — encoded prison-letter slang; broader code of the Polish underclass (<a href="https://pl.wikipedia.org/wiki/Gryps">gryps</a>). The rhyme <em>gryps / Phillips</em> mirrors the Polish original <em>grypsem / phillipsem</em>.</p>
+  </div>
+</div>
+
+<div class="stanza" id="s10" data-i="10">
+  <div class="pl">Szukając czasem w rękawie asów
+My pokolenie ciekawych czasów</div>
+  <div class="en">Sometimes
+Aces up my sleeve
+My generation of interesting times<span class="ref">²⁰</span></div>
+  <div class="notes">
+    <p><span class="n-num">20.</span> <strong>Interesting times</strong> — apocryphal Chinese curse (<a href="https://en.wikipedia.org/wiki/May_you_live_in_interesting_times">may you live in interesting times</a>). The closing line nods to <strong>Moje pokolenie</strong> by <a href="https://en.wikipedia.org/wiki/Paktofonika">Paktofonika</a> (2000), the hip-hop anthem of the author's cohort. <em>Rhyme in the original: asów / czasów.</em></p>
+  </div>
+</div>
+
+<footer>
+  Translated by <span class="sig">Claude</span> (Anthropic, Opus 4.7), 2026-05-20, for kapoost's humanMCP.
+  <br><span class="small">Spoken-word version: faithful in image and rhythm, not literal in syntax. References preserved; private jokes flagged. Line breaks follow the author's own <code>;</code> notation.</span>
+  <div class="kb-hints">
+    <span>[j/k]</span> next/prev stanza
+    <span>[1-9,0]</span> jump to stanza
+    <span>[d]</span> theme
+    <span>[b]</span> back to original
+    <span>[?]</span> help
+  </div>
+</footer>
+
+</div>
+
+<div class="help-overlay" id="help-overlay">
+  <div class="help-box">
+    <h3>keyboard shortcuts</h3>
+    <div class="help-row"><span class="help-key">j / ↓</span><span>next stanza</span></div>
+    <div class="help-row"><span class="help-key">k / ↑</span><span>previous stanza</span></div>
+    <div class="help-row"><span class="help-key">1 – 9, 0</span><span>jump to stanza 1–10</span></div>
+    <div class="help-row"><span class="help-key">g</span><span>top</span></div>
+    <div class="help-row"><span class="help-key">G</span><span>bottom</span></div>
+    <div class="help-row"><span class="help-key">d</span><span>toggle light / dark</span></div>
+    <div class="help-row"><span class="help-key">b / Backspace</span><span>back to original poem</span></div>
+    <div class="help-row"><span class="help-key">Esc / ?</span><span>close help</span></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  // Theme — system pref + localStorage override, toggle button + 'd' key
+  var saved = localStorage.getItem('translation-theme');
+  if(saved) document.documentElement.setAttribute('data-theme', saved);
+  function toggleTheme(){
+    var cur = document.documentElement.getAttribute('data-theme');
+    var next = cur === 'light' ? 'dark'
+             : cur === 'dark'  ? 'light'
+             : (window.matchMedia('(prefers-color-scheme:light)').matches ? 'dark' : 'light');
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('translation-theme', next);
+  }
+  document.getElementById('theme-toggle').addEventListener('click', toggleTheme);
+
+  // Help overlay
+  var help = document.getElementById('help-overlay');
+  document.getElementById('help-trigger').addEventListener('click', function(){ help.classList.toggle('visible'); });
+  help.addEventListener('click', function(e){ if(e.target === help) help.classList.remove('visible'); });
+
+  // Navigation
+  var stanzas = Array.from(document.querySelectorAll('.stanza'));
+  var cur = -1;
+  function highlight(i){
+    if(cur >= 0 && stanzas[cur]) stanzas[cur].classList.remove('active');
+    cur = Math.max(0, Math.min(i, stanzas.length-1));
+    if(stanzas[cur]){
+      stanzas[cur].classList.add('active');
+      stanzas[cur].scrollIntoView({block:'start', behavior:'smooth'});
+    }
+  }
+
+  document.addEventListener('keydown', function(e){
+    if(e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    // Allow modifier keys to still work normally
+    if(e.metaKey || e.ctrlKey || e.altKey) return;
+
+    if(e.key === 'Escape'){ help.classList.remove('visible'); return; }
+    if(e.key === '?'){ e.preventDefault(); help.classList.toggle('visible'); return; }
+    if(e.key === 'd'){ e.preventDefault(); toggleTheme(); return; }
+    if(e.key === 'b' || e.key === 'Backspace'){
+      e.preventDefault();
+      window.location = 'https://kapoost-humanmcp.fly.dev/p/z-pami-tnika-m-odego-1776419775';
+      return;
+    }
+    if(e.key === 'j' || e.key === 'ArrowDown'){ e.preventDefault(); highlight(cur + 1); return; }
+    if(e.key === 'k' || e.key === 'ArrowUp'){ e.preventDefault(); highlight(cur < 0 ? 0 : cur - 1); return; }
+    if(e.key === 'g'){ e.preventDefault(); window.scrollTo({top:0, behavior:'smooth'}); cur = -1; return; }
+    if(e.key === 'G'){ e.preventDefault(); window.scrollTo({top:document.body.scrollHeight, behavior:'smooth'}); cur = stanzas.length-1; return; }
+    if(/^[0-9]$/.test(e.key)){
+      e.preventDefault();
+      var idx = e.key === '0' ? 9 : parseInt(e.key, 10) - 1;
+      if(idx >= 0 && idx < stanzas.length) highlight(idx);
+      return;
+    }
+  });
+})();
+</script>
+</body></html>

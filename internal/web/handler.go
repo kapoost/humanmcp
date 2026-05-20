@@ -359,11 +359,19 @@ func (h *Handler) buildBlobImageMap() map[string]string {
 }
 
 func (h *Handler) handlePiece(w http.ResponseWriter, r *http.Request) {
-	slug := strings.TrimPrefix(r.URL.Path, "/p/")
-	if slug == "" {
+	path := strings.TrimPrefix(r.URL.Path, "/p/")
+	if path == "" {
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
+
+	// Translation route: /p/<slug>/translation/<lang>
+	if parts := strings.SplitN(path, "/translation/", 2); len(parts) == 2 {
+		h.serveTranslation(w, r, parts[0], parts[1])
+		return
+	}
+
+	slug := path
 	if err := h.store.Load(); err != nil {
 		log.Printf("store load error: %v", err)
 	}
@@ -406,7 +414,52 @@ func (h *Handler) handlePiece(w http.ResponseWriter, r *http.Request) {
 		"IsOwner":      isOwner,
 		"UnlockDate":   unlockDate,
 		"BlobImageMap": h.buildBlobImageMap(),
+		"Translations": h.availableTranslations(slug),
 	})
+}
+
+// availableTranslations returns language codes ("en", "es", …) for which a
+// pre-rendered translation page exists in content/translations/.
+func (h *Handler) availableTranslations(slug string) []string {
+	dir := filepath.Join(h.cfg.ContentDir, "translations")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	prefix := slug + "."
+	var langs []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, ".html") {
+			continue
+		}
+		lang := strings.TrimSuffix(strings.TrimPrefix(name, prefix), ".html")
+		if lang == "" || strings.Contains(lang, "/") || strings.Contains(lang, ".") {
+			continue
+		}
+		langs = append(langs, lang)
+	}
+	return langs
+}
+
+// serveTranslation streams a pre-rendered translation HTML file.
+// Path validation prevents directory traversal.
+func (h *Handler) serveTranslation(w http.ResponseWriter, r *http.Request, slug, lang string) {
+	if strings.ContainsAny(slug, "/.") || strings.ContainsAny(lang, "/.") || lang == "" || len(lang) > 5 {
+		http.NotFound(w, r)
+		return
+	}
+	file := filepath.Join(h.cfg.ContentDir, "translations", slug+"."+lang+".html")
+	if _, err := os.Stat(file); err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	http.ServeFile(w, r, file)
 }
 
 func (h *Handler) handleUnlock(w http.ResponseWriter, r *http.Request) {

@@ -40,7 +40,7 @@
 {{with .Piece}}
 <div class="piece-header">
   <div class="piece-type">{{.Type}} &middot; {{formatDate .Published}}</div>
-  <h1 class="piece-h1">{{.Title}}</h1>
+  <h1 class="piece-h1">{{.Title}}{{if $.Translations}}{{range $.Translations}}<a href="/p/{{$.Piece.Slug}}/translation/{{.}}" class="trans-btn" style="margin-left:.5rem;font-size:.65rem;letter-spacing:.08em;color:var(--accent3);border:1px solid var(--accent3);padding:1px 7px;border-radius:10px;vertical-align:middle;text-decoration:none;text-transform:uppercase;">{{.}} ↓</a>{{end}}{{end}}</h1>
   {{if .Tags}}<div class="tags">{{range .Tags}}<span class="tag">#{{.}}</span>{{end}}</div>{{end}}
 </div>
 {{if $.Unlocked}}<div class="unlock-success">&#10003; Correct answer &mdash; content unlocked</div>{{end}}
