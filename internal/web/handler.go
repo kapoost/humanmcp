@@ -1219,6 +1219,14 @@ func (h *Handler) buildEnrichedStats(stats *content.Stats, pieceCount, listingCo
 	}
 }
 
+// inboxItem is what mc.html's {{range .Inbox}} iterates over.
+// Either M (a Message) or Q (a Question) is set, dispatched via Kind.
+type inboxItem struct {
+	Kind string            // "msg" | "q-pending" | "q-awaiting" | "q-picked"
+	M    *content.Message  // when Kind=="msg"
+	Q    *content.Question // when Kind starts with "q-"
+}
+
 func (h *Handler) handleMissionControl(w http.ResponseWriter, r *http.Request) {
 	if !h.auth.IsOwner(r) {
 		http.Redirect(w, r, "/login", http.StatusFound)
@@ -1236,7 +1244,46 @@ func (h *Handler) handleMissionControl(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	activePoem, _ := h.cfg.PickActivePoem(now)
 
+	// Build unified Inbox: messages + pending questions + awaiting-pickup +
+	// recently-picked. mc.html dispatches on .Kind.
+	var inbox []inboxItem
+	msgCount := 0
+	pendingCount := 0
+	awaitingCount := 0
+	pickedCount := 0
+	for i := range msgs {
+		m := msgs[i]
+		inbox = append(inbox, inboxItem{Kind: "msg", M: &m})
+		msgCount++
+	}
+	for i := range questions {
+		q := questions[i]
+		switch {
+		case q.IsAwaiting():
+			inbox = append(inbox, inboxItem{Kind: "q-pending", Q: &q})
+			pendingCount++
+		case q.IsPicked():
+			inbox = append(inbox, inboxItem{Kind: "q-awaiting", Q: &q})
+			awaitingCount++
+		default:
+			inbox = append(inbox, inboxItem{Kind: "q-picked", Q: &q})
+			pickedCount++
+		}
+	}
+
 	view := h.buildEnrichedStats(stats, len(pieces), len(listings))
+	view.Inbox = make([]interface{}, len(inbox))
+	for i, it := range inbox {
+		view.Inbox[i] = it
+	}
+	view.InboxCount = len(inbox)
+	view.InboxCounts = map[string]int{
+		"msg":      msgCount,
+		"pending":  pendingCount,
+		"awaiting": awaitingCount,
+		"picked":   pickedCount,
+	}
+
 	sessionExp := time.Date(now.Year(), now.Month(), now.Day(), now.Hour()+1, 0, 0, 0, now.Location())
 
 	h.render(w, "mc.html", map[string]interface{}{
@@ -1247,6 +1294,8 @@ func (h *Handler) handleMissionControl(w http.ResponseWriter, r *http.Request) {
 		"Messages":    msgs,
 		"Listings":    listings,
 		"Questions":   questions,
+		"Inbox":       view.Inbox,
+		"InboxCounts": view.InboxCounts,
 		"SessionCode": activePoem,
 		"SessionExp":  sessionExp,
 		"VaultOnline": true,
