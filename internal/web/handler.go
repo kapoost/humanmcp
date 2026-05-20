@@ -376,6 +376,11 @@ func (h *Handler) handlePiece(w http.ResponseWriter, r *http.Request) {
 		h.serveTranslation(w, r, parts[0], parts[1])
 		return
 	}
+	// Edge case: /p/translation/<lang> with no slug — redirect to home
+	if strings.HasPrefix(path, "translation/") {
+		http.Redirect(w, r, "/", http.StatusFound)
+		return
+	}
 
 	slug := path
 
