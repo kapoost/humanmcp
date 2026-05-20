@@ -39,9 +39,11 @@ type Event struct {
 	Slug    string     `json:"slug,omitempty"`
 	UA      string     `json:"ua,omitempty"`
 	From    string     `json:"from,omitempty"`
-	Ref     string     `json:"ref,omitempty"`    // HTTP referrer
-	Country string     `json:"country,omitempty"` // from Fly-Client-IP geo header
-	VisitorHash string `json:"vh,omitempty"`     // hashed(ip+date) — never raw IP
+	Ref     string     `json:"ref,omitempty"`
+	Country string     `json:"country,omitempty"`
+	VisitorHash string `json:"vh,omitempty"`
+	Query   string     `json:"query,omitempty"`
+	Kind    string     `json:"kind,omitempty"`
 }
 
 type HourBucket struct {
