@@ -1,6 +1,6 @@
 #!/bin/sh
 # Sync default content to volume — only copy files that don't exist or are empty
-for dir in poems personas skills; do
+for dir in poems personas skills translations; do
   if [ -d "/app/default-content/$dir" ]; then
     mkdir -p "/data/content/$dir"
     for f in /app/default-content/$dir/*; do
