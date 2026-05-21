@@ -215,19 +215,38 @@ func (h *Handler) loadSkills() []Skill {
 
 func (h *Handler) validateSession(code string) bool {
 	code = strings.TrimSpace(strings.ToLower(code))
-	// Check session secret (machine auth)
+	// Check session secret (machine auth) — strict equality
 	if h.cfg.SessionSecret != "" && code == strings.ToLower(h.cfg.SessionSecret) {
 		return true
 	}
-	// Check rotating poet password (human auth)
+	// Check rotating poet password (human auth) — diacritic-tolerant so
+	// typos like "ě" vs "ę" in POET_POOL still match what a Polish
+	// keyboard would naturally produce, and so agents that strip
+	// diacritics still get in.
+	normalized := normalizePoem(code)
 	current, previous := h.cfg.PickActivePoem(time.Now())
-	if current != "" && code == strings.ToLower(current) {
+	if current != "" && normalized == normalizePoem(strings.ToLower(current)) {
 		return true
 	}
-	if previous != "" && code == strings.ToLower(previous) {
+	if previous != "" && normalized == normalizePoem(strings.ToLower(previous)) {
 		return true
 	}
 	return false
+}
+
+// normalizePoem strips Polish (and stray Czech) diacritics from a session
+// code and collapses whitespace. ę → e, ł → l, ą → a, ć → c, ś → s,
+// ń → n, ó → o, ź/ż → z. Plus tolerated typos: ě → e, č → c, š → s, ř → r.
+func normalizePoem(s string) string {
+	r := strings.NewReplacer(
+		"ę", "e", "ł", "l", "ą", "a", "ć", "c", "ś", "s",
+		"ń", "n", "ó", "o", "ź", "z", "ż", "z",
+		"ě", "e", "č", "c", "š", "s", "ř", "r", "ž", "z",
+	)
+	out := r.Replace(s)
+	// collapse all whitespace runs to single space
+	fields := strings.Fields(out)
+	return strings.Join(fields, " ")
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
