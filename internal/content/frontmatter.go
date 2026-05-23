@@ -34,6 +34,8 @@ func parseFrontmatter(lines []string, p *Piece) {
 			}
 		case "signature":
 			p.Signature = unquote(v)
+		case "ots_proof":
+			p.OTSProof = unquote(v)
 		case "license":
 			p.License = unquote(v)
 			fmt.Sscanf(strings.TrimSpace(v), "%d", &p.PriceSats)
@@ -96,6 +98,7 @@ func marshalFrontmatter(p *Piece) string {
 	if !p.UnlockAfter.IsZero() { wf("unlock_after", p.UnlockAfter.Format("2006-01-02 15:04")) }
 	if len(p.Tags) > 0 { sb.WriteString("tags: [" + strings.Join(p.Tags, ", ") + "]\n") }
 	if p.Signature != "" { wf("signature", p.Signature) }
+	if p.OTSProof != "" { wf("ots_proof", p.OTSProof) }
 	if p.License != "" { wf("license", p.License) }
 	if p.PriceSats > 0 { sb.WriteString(fmt.Sprintf("price_sats: %d\n", p.PriceSats)) }
 	if !p.Published.IsZero() { sb.WriteString("published: " + p.Published.Format("2006-01-02") + "\n") }

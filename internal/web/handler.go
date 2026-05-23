@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -119,15 +120,9 @@ func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler
 				if x == nil {
 					return ""
 				}
-				if x.Signature != "" {
-					return x.Signature
-				}
-				return x.Slug
+				return hex.EncodeToString(content.PiecePayload(x))
 			case content.Piece:
-				if x.Signature != "" {
-					return x.Signature
-				}
-				return x.Slug
+				return hex.EncodeToString(content.PiecePayload(&x))
 			}
 			return fmt.Sprintf("%v", v)
 		},
