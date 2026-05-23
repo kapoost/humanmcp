@@ -1685,6 +1685,7 @@ func (h *Handler) handleMissionControl(w http.ResponseWriter, r *http.Request) {
 		"SessionCode": activePoem,
 		"SessionExp":  sessionExp,
 		"VaultOnline": true,
+		"Uptime":      view.Uptime,
 	})
 }
 
