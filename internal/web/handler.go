@@ -200,6 +200,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	// Delete (owner only, POST)
 	mux.Handle("/delete/", h.auth.RequireOwner(http.HandlerFunc(h.handleDelete)))
 	mux.Handle("/timestamp/", h.auth.RequireOwner(http.HandlerFunc(h.handleTimestamp)))
+	mux.Handle("/timestamp-all", h.auth.RequireOwner(http.HandlerFunc(h.handleTimestampAll)))
 
 
 	// Skills API (owner only)
@@ -961,6 +962,100 @@ func (h *Handler) handleTimestamp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/p/"+slug, http.StatusSeeOther)
+}
+
+// handleTimestampAll stamps every signed piece that doesn't yet have an OTSProof.
+// Sequential to be friendly to calendar servers. Returns a JSON summary.
+func (h *Handler) handleTimestampAll(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := h.store.Load(); err != nil {
+		jsonError(w, err.Error(), 500)
+		return
+	}
+	pieces := h.store.List(true)
+
+	type itemResult struct {
+		Slug   string `json:"slug"`
+		Status string `json:"status"`
+		Error  string `json:"error,omitempty"`
+	}
+	results := []itemResult{}
+	stamped, skipped, failed := 0, 0, 0
+
+	for _, lp := range pieces {
+		if lp.Signature == "" {
+			results = append(results, itemResult{Slug: lp.Slug, Status: "skipped-unsigned"})
+			skipped++
+			continue
+		}
+		if lp.OTSProof != "" {
+			results = append(results, itemResult{Slug: lp.Slug, Status: "skipped-already-stamped"})
+			skipped++
+			continue
+		}
+
+		p, err := h.store.GetForEdit(lp.Slug)
+		if err != nil {
+			results = append(results, itemResult{Slug: lp.Slug, Status: "error", Error: err.Error()})
+			failed++
+			continue
+		}
+
+		digest := content.PiecePayload(p)
+		ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+
+		type calResult struct {
+			body []byte
+			err  error
+		}
+		ch := make(chan calResult, len(defaultCalendars))
+		for _, cal := range defaultCalendars {
+			go func(cal string) {
+				b, err := stampDigest(ctx, cal, digest)
+				ch <- calResult{b, err}
+			}(cal)
+		}
+		var bodies [][]byte
+		for range defaultCalendars {
+			r := <-ch
+			if r.err == nil && len(r.body) > 0 {
+				bodies = append(bodies, r.body)
+			}
+		}
+		cancel()
+
+		if len(bodies) == 0 {
+			results = append(results, itemResult{Slug: lp.Slug, Status: "error", Error: "all calendars failed"})
+			failed++
+			continue
+		}
+
+		ots := buildOTSFile(digest, bodies)
+		p.OTSProof = base64.StdEncoding.EncodeToString(ots)
+		if h.signingKey != nil {
+			if sig, err := content.SignPiece(p, h.signingKey); err == nil {
+				p.Signature = sig
+			}
+		}
+		if err := h.store.Save(p); err != nil {
+			results = append(results, itemResult{Slug: lp.Slug, Status: "error", Error: err.Error()})
+			failed++
+			continue
+		}
+		results = append(results, itemResult{Slug: lp.Slug, Status: "stamped"})
+		stamped++
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"stamped": stamped,
+		"skipped": skipped,
+		"failed":  failed,
+		"items":   results,
+	})
 }
 
 // slugify generates a URL-safe slug from a string
