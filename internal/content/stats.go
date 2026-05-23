@@ -256,9 +256,22 @@ func (ss *StatStore) Compute() (*Stats, error) {
 
 	s.UniqueVisitors = len(uniqueVH)
 
-	// Last 30 events, newest first
-	for i := len(all) - 1; i >= 0 && len(s.RecentEvents) < 30; i-- {
+	// All events from the last 24h (newest first), with a 500-event safety cap
+	// for high-traffic days. Falls back to last 30 if no event is recent.
+	cutoff := time.Now().Add(-24 * time.Hour)
+	const recentCap = 500
+	for i := len(all) - 1; i >= 0 && len(s.RecentEvents) < recentCap; i-- {
+		if all[i].At.Before(cutoff) {
+			break
+		}
 		s.RecentEvents = append(s.RecentEvents, all[i])
+	}
+	if len(s.RecentEvents) < 30 {
+		for i := len(all) - 1; i >= 0 && len(s.RecentEvents) < 30; i-- {
+			if all[i].At.Before(cutoff) {
+				s.RecentEvents = append(s.RecentEvents, all[i])
+			}
+		}
 	}
 
 	// Reverse each AttemptsBySlug list (newest first) and cap at 20 per slug

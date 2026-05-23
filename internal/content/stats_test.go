@@ -161,7 +161,10 @@ func TestStatStoreRecentEvents(t *testing.T) {
 		ss.Record(Event{Type: EventRead, Caller: CallerHuman, Slug: "p"})
 	}
 	stats, _ := ss.Compute()
-	if len(stats.RecentEvents) != 30 { t.Errorf("recent events: got %d, want 30", len(stats.RecentEvents)) }
+	// All 35 events are within the last 24h → all should appear in RecentEvents.
+	if len(stats.RecentEvents) != 35 {
+		t.Errorf("recent events: got %d, want 35 (all within 24h window)", len(stats.RecentEvents))
+	}
 }
 
 func TestVisitorHash(t *testing.T) {

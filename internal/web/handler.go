@@ -30,6 +30,7 @@ type Handler struct {
 	questionStore *content.QuestionStore
 	signingKey   *content.KeyPair
 	tmpl         *template.Template
+	startedAt    time.Time
 }
 
 func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler {
@@ -42,6 +43,7 @@ func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler
 		blobStore:     content.NewBlobStore(cfg.ContentDir),
 		listingStore:  content.NewListingStore(cfg.ContentDir),
 		questionStore: content.NewQuestionStore(cfg.ContentDir),
+		startedAt:     time.Now(),
 	}
 	if cfg.SigningPrivateKey != "" {
 		if kp, err := content.KeyPairFromBase64(cfg.SigningPrivateKey); err == nil {
@@ -1491,6 +1493,20 @@ func (h *Handler) handleArtworks(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// formatUptime renders a duration as "3d 4h" / "5h 12m" / "47s".
+func formatUptime(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm %ds", int(d.Minutes()), int(d.Seconds())%60)
+	}
+	if d < 24*time.Hour {
+		return fmt.Sprintf("%dh %dm", int(d.Hours()), int(d.Minutes())%60)
+	}
+	return fmt.Sprintf("%dd %dh", int(d.Hours()/24), int(d.Hours())%24)
+}
+
 // periodStats is daily/weekly aggregate used by mc.html and dashboard.html.
 type periodStats struct {
 	Reads, Visitors, Agents, Humans, Searches, Messages, Licenses int
@@ -1553,7 +1569,7 @@ func (h *Handler) buildEnrichedStats(stats *content.Stats, pieceCount, listingCo
 		PersonaCount:  h.countPersonas(),
 		TotalListings: listingCount,
 		VaultOnline:   true,
-		Uptime:        "—",
+		Uptime:        formatUptime(time.Since(h.startedAt)),
 	}
 	if w, err := h.statStore.ComputeWindows(time.Now()); err == nil && w != nil {
 		toPS := func(ws content.WindowStats) periodStats {
