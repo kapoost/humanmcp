@@ -5,7 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{{.Author}} — humanMCP</title>
 <link rel="alternate" type="application/rss+xml" title="{{.Author}} RSS" href="/rss.xml">
-<style>{{template "css" .}}</style>
+<style>{{template "css" .}}
+.featured-poem{margin:1.5rem 0 2.5rem;padding:1.25rem 0 1.5rem;border-bottom:1px solid var(--border);}
+.featured-poem .fp-title{font-family:var(--mono);font-size:1.05rem;font-weight:400;margin-bottom:.6rem;}
+.featured-poem .fp-title a{color:var(--fg);text-decoration:none;}
+.featured-poem .fp-title a:hover{color:var(--accent);}
+.featured-poem .fp-body{font-family:var(--mono);font-size:.88rem;line-height:1.85;white-space:pre-wrap;color:var(--fg);display:-webkit-box;-webkit-line-clamp:8;-webkit-box-orient:vertical;overflow:hidden;}
+.featured-poem .fp-more{font-size:.72rem;color:var(--muted);text-decoration:none;display:inline-block;margin-top:.5rem;letter-spacing:.05em;}
+.featured-poem .fp-more:hover{color:var(--accent);}
+</style>
 </head>
 <body>
 <div class="container">
@@ -46,18 +54,26 @@
 {{if .Poems}}
 <div class="section" id="wiersze">
 <div class="section-head" data-i18n="sec_wiersze">--- #wiersze ─────────────────────────────────────────</div>
-<div id="poem-list">
-{{range .Poems}}
-<div class="irc-line navigable" data-href="/p/{{.Slug}}">
-  <span class="irc-date">{{shortDate .Published}}</span>
-  <span class="irc-title"><a href="/p/{{.Slug}}">{{.Title}}</a></span>
-  {{if .Signature}}<span class="irc-signed">✓</span>{{end}}
-  {{if .Translations}}{{$slug := .Slug}}{{range .Translations}}<a class="trans-badge" href="/p/{{$slug}}/translation/{{.}}" title="read with {{.}} translation">{{.}}</a>{{end}}{{end}}
-  {{if ne (lower (print .Access)) "public"}}<span class="irc-locked">{{.Access}}</span>{{end}}
-  {{if $.IsOwner}}<a href="/edit/{{.Slug}}" class="edit-btn">edit</a>{{end}}
+{{$latest := index .Poems 0}}
+{{if and $latest.Body (eq (lower (print $latest.Access)) "public")}}
+<div class="featured-poem">
+  <div class="fp-title"><a href="/p/{{$latest.Slug}}">{{$latest.Title}}</a></div>
+  <div class="fp-body">{{$latest.Body}}</div>
+  <a href="/p/{{$latest.Slug}}" class="fp-more" data-i18n="fp_more">→ czytaj cały wiersz</a>
 </div>
-{{if .Tags}}<div class="irc-tags-line">{{range .Tags}}<span class="irc-tag">#{{.}}</span> {{end}}</div>{{end}}
 {{end}}
+<div id="poem-list">
+{{range $i, $p := .Poems}}{{if gt $i 0}}
+<div class="irc-line navigable" data-href="/p/{{$p.Slug}}">
+  <span class="irc-date">{{shortDate $p.Published}}</span>
+  <span class="irc-title"><a href="/p/{{$p.Slug}}">{{$p.Title}}</a></span>
+  {{if $p.Signature}}<span class="irc-signed">✓</span>{{end}}
+  {{if $p.Translations}}{{$slug := $p.Slug}}{{range $p.Translations}}<a class="trans-badge" href="/p/{{$slug}}/translation/{{.}}" title="read with {{.}} translation">{{.}}</a>{{end}}{{end}}
+  {{if ne (lower (print $p.Access)) "public"}}<span class="irc-locked">{{$p.Access}}</span>{{end}}
+  {{if $.IsOwner}}<a href="/edit/{{$p.Slug}}" class="edit-btn">edit</a>{{end}}
+</div>
+{{if $p.Tags}}<div class="irc-tags-line">{{range $p.Tags}}<span class="irc-tag">#{{.}}</span> {{end}}</div>{{end}}
+{{end}}{{end}}
 </div>
 </div>
 {{end}}
@@ -139,6 +155,7 @@
       ob_create: 'utwórz', ob_post: '+ wpis', ob_image: '+ obraz', ob_artwork: '+ dzieło', ob_listing: '+ ogłoszenie',
       ob_browse: 'przeglądaj', ob_gallery: 'galeria', ob_artworks: 'dzieła', ob_listings: 'ogłoszenia', ob_messages: 'wiadomości', ob_questions: 'pytania',
       footer_written: 'Wiersze pisane przez człowieka',
+      fp_more: '→ czytaj cały wiersz',
       search_placeholder: 'szukaj...',
       help_title: 'skróty klawiszowe',
       help_next: 'następny', help_prev: 'poprzedni', help_open: 'otwórz', help_search: 'szukaj',
@@ -158,6 +175,7 @@
       ob_create: 'create', ob_post: '+ post', ob_image: '+ image', ob_artwork: '+ artwork', ob_listing: '+ listing',
       ob_browse: 'browse', ob_gallery: 'gallery', ob_artworks: 'artworks', ob_listings: 'listings', ob_messages: 'messages', ob_questions: 'questions',
       footer_written: 'Poems written by human',
+      fp_more: '→ read the full poem',
       search_placeholder: 'search...',
       help_title: 'keyboard shortcuts',
       help_next: 'next item', help_prev: 'previous item', help_open: 'open selected', help_search: 'search',
