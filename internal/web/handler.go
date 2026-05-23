@@ -1511,7 +1511,7 @@ type enrichedStats struct {
 	Yesterday          periodStats
 	Last7Days          periodStats
 	Last30Days         periodStats
-	DailyCounts        []periodStats
+	DailyCounts        []int
 	ListingReadsBySlug map[string]int
 	InboxCount         int
 	InboxCounts        map[string]int
@@ -1546,16 +1546,32 @@ func (h *Handler) buildEnrichedStats(stats *content.Stats, pieceCount, listingCo
 		}
 		stats.AttemptsBySlug = filtered
 	}
-	return enrichedStats{
+	es := enrichedStats{
 		Stats:         stats,
 		PieceCount:    pieceCount,
 		SkillCount:    len(h.loadSkills()),
 		PersonaCount:  h.countPersonas(),
 		TotalListings: listingCount,
-		Today:         periodStats{Reads: stats.TotalReads, Visitors: stats.UniqueVisitors, Agents: stats.AgentCalls, Humans: stats.HumanVisits, Messages: stats.TotalMessages},
 		VaultOnline:   true,
 		Uptime:        "—",
 	}
+	if w, err := h.statStore.ComputeWindows(time.Now()); err == nil && w != nil {
+		toPS := func(ws content.WindowStats) periodStats {
+			return periodStats{
+				Reads:    ws.Reads,
+				Visitors: ws.Visitors,
+				Agents:   ws.Agents,
+				Humans:   ws.Humans,
+				Messages: ws.Messages,
+			}
+		}
+		es.Today = toPS(w.Today)
+		es.Yesterday = toPS(w.Yesterday)
+		es.Last7Days = toPS(w.Last7Days)
+		es.Last30Days = toPS(w.Last30Days)
+		es.DailyCounts = w.DailyReads[:]
+	}
+	return es
 }
 
 // liveSlugs returns the set of slugs currently backed by a piece or listing.

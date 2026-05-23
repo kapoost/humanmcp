@@ -276,6 +276,121 @@ func (ss *StatStore) Compute() (*Stats, error) {
 	return s, nil
 }
 
+// WindowStats holds counters for a single time window.
+type WindowStats struct {
+	Reads    int
+	Visitors int
+	Agents   int
+	Humans   int
+	Messages int
+}
+
+// Windows is a set of rolling time buckets computed from the event log.
+// 7d and 30d windows include today (overlapping), so 30d ≥ 7d ≥ today.
+// Yesterday is a single-day bucket and does NOT overlap with Today.
+type Windows struct {
+	Today      WindowStats
+	Yesterday  WindowStats
+	Last7Days  WindowStats
+	Last30Days WindowStats
+	// DailyReads[0]=13 days ago, DailyReads[13]=today (for sparkline)
+	DailyReads [14]int
+}
+
+// ComputeWindows aggregates events into rolling time windows relative to `now`.
+// Bypasses the cache used by Compute() — windows depend on wall clock.
+func (ss *StatStore) ComputeWindows(now time.Time) (*Windows, error) {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+
+	w := &Windows{}
+	data, err := os.ReadFile(ss.path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return w, nil
+		}
+		return nil, err
+	}
+
+	loc := now.Location()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
+	yesterdayStart := todayStart.AddDate(0, 0, -1)
+	sevenStart := todayStart.AddDate(0, 0, -6)
+	thirtyStart := todayStart.AddDate(0, 0, -29)
+	fourteenStart := todayStart.AddDate(0, 0, -13)
+
+	vToday := map[string]bool{}
+	vYday := map[string]bool{}
+	v7 := map[string]bool{}
+	v30 := map[string]bool{}
+
+	bump := func(ws *WindowStats, e Event) {
+		if e.Type == EventRead {
+			ws.Reads++
+		}
+		switch e.Caller {
+		case CallerAgent:
+			ws.Agents++
+		case CallerHuman:
+			ws.Humans++
+		}
+		if e.Type == EventMessage {
+			ws.Messages++
+		}
+	}
+
+	for _, line := range splitLines(string(data)) {
+		var e Event
+		if json.Unmarshal([]byte(line), &e) != nil {
+			continue
+		}
+		ts := e.At.In(loc)
+
+		inToday := !ts.Before(todayStart)
+		inYday := !ts.Before(yesterdayStart) && ts.Before(todayStart)
+		in7 := !ts.Before(sevenStart)
+		in30 := !ts.Before(thirtyStart)
+
+		if inToday {
+			bump(&w.Today, e)
+			if e.VisitorHash != "" {
+				vToday[e.VisitorHash] = true
+			}
+		}
+		if inYday {
+			bump(&w.Yesterday, e)
+			if e.VisitorHash != "" {
+				vYday[e.VisitorHash] = true
+			}
+		}
+		if in7 {
+			bump(&w.Last7Days, e)
+			if e.VisitorHash != "" {
+				v7[e.VisitorHash] = true
+			}
+		}
+		if in30 {
+			bump(&w.Last30Days, e)
+			if e.VisitorHash != "" {
+				v30[e.VisitorHash] = true
+			}
+		}
+
+		if e.Type == EventRead && !ts.Before(fourteenStart) {
+			dayOffset := int(ts.Sub(fourteenStart) / (24 * time.Hour))
+			if dayOffset >= 0 && dayOffset < 14 {
+				w.DailyReads[dayOffset]++
+			}
+		}
+	}
+
+	w.Today.Visitors = len(vToday)
+	w.Yesterday.Visitors = len(vYday)
+	w.Last7Days.Visitors = len(v7)
+	w.Last30Days.Visitors = len(v30)
+	return w, nil
+}
+
 // TopN returns the top N entries from a map by value
 func TopN(m map[string]int, n int) []struct{ Key string; Val int } {
 	type kv struct{ Key string; Val int }
