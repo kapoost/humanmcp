@@ -92,6 +92,12 @@ func VerifyPiece(p *Piece, pubKeyHex string) (bool, string) {
 
 // piecePayload builds the canonical bytes to sign: sha256(slug|title|body)
 func piecePayload(p *Piece) []byte {
+	return PiecePayload(p)
+}
+
+// PiecePayload returns the canonical 32-byte SHA-256 digest of a piece.
+// Same bytes that Ed25519 signs — also used as the digest for OpenTimestamps.
+func PiecePayload(p *Piece) []byte {
 	canonical := p.Slug + "|" + p.Title + "|" + p.Body
 	hash := sha256.Sum256([]byte(canonical))
 	return hash[:]

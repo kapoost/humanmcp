@@ -1,6 +1,8 @@
 package web
 
 import (
+	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -136,13 +138,7 @@ func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler
 			return s[:8] + "…" + s[len(s)-4:]
 		},
 		"otsStatus": func(s string) string {
-			if s == "" {
-				return "none"
-			}
-			if strings.Contains(s, "BITCOIN") || strings.Contains(s, "anchored") {
-				return "anchored"
-			}
-			return "pending"
+			return otsStatusOf(s)
 		},
 		"isHEIC": func(ref string) bool {
 			lower := strings.ToLower(ref)
@@ -208,6 +204,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 	// Delete (owner only, POST)
 	mux.Handle("/delete/", h.auth.RequireOwner(http.HandlerFunc(h.handleDelete)))
+	mux.Handle("/timestamp/", h.auth.RequireOwner(http.HandlerFunc(h.handleTimestamp)))
 
 
 	// Skills API (owner only)
@@ -868,6 +865,107 @@ func (h *Handler) handleDelete(w http.ResponseWriter, r *http.Request) {
 	h.store.Load()
 	h.store.Delete(slug)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// handleTimestamp stamps a piece into OpenTimestamps calendars (POST /timestamp/<slug>).
+// Fresh piece (no OTSProof): submits the canonical sha256 to all default calendars
+// and stores a base64-encoded .ots file in OTSProof.
+// Already-pending piece: walks the proof, asks each calendar /timestamp/<commitment>
+// for the Bitcoin attestation, and splices the upgraded path in.
+func (h *Handler) handleTimestamp(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	slug := strings.TrimPrefix(r.URL.Path, "/timestamp/")
+	if slug == "" {
+		http.Error(w, "missing slug", 400)
+		return
+	}
+	h.store.Load()
+	p, err := h.store.GetForEdit(slug)
+	if err != nil {
+		http.Error(w, "not found", 404)
+		return
+	}
+
+	digest := content.PiecePayload(p)
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+
+	if p.OTSProof == "" {
+		// Fresh stamp — query every calendar in parallel, keep what answers.
+		type result struct {
+			body []byte
+			err  error
+		}
+		results := make(chan result, len(defaultCalendars))
+		for _, cal := range defaultCalendars {
+			go func(cal string) {
+				b, err := stampDigest(ctx, cal, digest)
+				results <- result{b, err}
+			}(cal)
+		}
+		var bodies [][]byte
+		for range defaultCalendars {
+			r := <-results
+			if r.err == nil && len(r.body) > 0 {
+				bodies = append(bodies, r.body)
+			}
+		}
+		if len(bodies) == 0 {
+			http.Error(w, "all calendars failed — try again later", 502)
+			return
+		}
+		ots := buildOTSFile(digest, bodies)
+		p.OTSProof = base64.StdEncoding.EncodeToString(ots)
+		if h.signingKey != nil {
+			if sig, err := content.SignPiece(p, h.signingKey); err == nil {
+				p.Signature = sig
+			}
+		}
+		if err := h.store.Save(p); err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		http.Redirect(w, r, "/p/"+slug, http.StatusSeeOther)
+		return
+	}
+
+	// Upgrade flow: parse existing proof, walk pending attestations, fetch bitcoin paths.
+	raw, err := base64.StdEncoding.DecodeString(p.OTSProof)
+	if err != nil {
+		http.Error(w, "stored proof not valid base64", 500)
+		return
+	}
+	parsedDigest, body, err := splitOTS(raw)
+	if err != nil {
+		http.Error(w, "stored proof malformed: "+err.Error(), 500)
+		return
+	}
+	upgraded, count, err := walkAndUpgrade(body, parsedDigest, func(cal string, commitment []byte) ([]byte, error) {
+		return fetchUpgrade(ctx, cal, commitment)
+	})
+	if err != nil {
+		http.Error(w, "upgrade walk failed: "+err.Error(), 500)
+		return
+	}
+	if count == 0 {
+		http.Redirect(w, r, "/p/"+slug+"?upgrade=not-ready", http.StatusSeeOther)
+		return
+	}
+	newProof := buildOTSFile(parsedDigest, [][]byte{upgraded})
+	p.OTSProof = base64.StdEncoding.EncodeToString(newProof)
+	if h.signingKey != nil {
+		if sig, err := content.SignPiece(p, h.signingKey); err == nil {
+			p.Signature = sig
+		}
+	}
+	if err := h.store.Save(p); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	http.Redirect(w, r, "/p/"+slug, http.StatusSeeOther)
 }
 
 // slugify generates a URL-safe slug from a string
