@@ -236,6 +236,51 @@ func TestFrontmatterRoundTrip(t *testing.T) {
 	if loaded.Body != original.Body { t.Errorf("body: %q != %q", loaded.Body, original.Body) }
 }
 
+// TestFrontmatterRoundTripOTSProof — the OTSProof field is a long base64
+// blob. Regression guard: marshalFrontmatter must emit it, parseFrontmatter
+// must read it back, and the value must survive Save→Load unchanged.
+func TestFrontmatterRoundTripOTSProof(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(dir)
+	s.Load()
+
+	// Realistic-shaped base64 — ~600 chars, includes '+', '/', '=' padding.
+	proof := "AE9wZW5UaW1lc3RhbXBzAABQcm9vZgC/ieLohOiSlAEI" +
+		"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+/" +
+		"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+/" +
+		"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+/=="
+
+	original := &Piece{
+		Slug:      "ots-roundtrip",
+		Title:     "OTS Roundtrip",
+		Type:      "poem",
+		Access:    AccessPublic,
+		Published: time.Date(2026, 5, 26, 12, 0, 0, 0, time.UTC),
+		Body:      "stamped piece body",
+		Signature: "fakesig==",
+		OTSProof:  proof,
+	}
+	if err := s.Save(original); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	// Fresh store — forces a full re-parse from disk
+	s2 := NewStore(dir)
+	if err := s2.Load(); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	loaded, err := s2.GetForEdit("ots-roundtrip")
+	if err != nil {
+		t.Fatalf("GetForEdit: %v", err)
+	}
+	if loaded.OTSProof != proof {
+		t.Errorf("OTSProof round-trip lost data:\nwant len=%d\ngot  len=%d", len(proof), len(loaded.OTSProof))
+	}
+	if loaded.Signature != original.Signature {
+		t.Errorf("Signature lost during OTSProof round-trip: %q != %q", loaded.Signature, original.Signature)
+	}
+}
+
 // --- helper ---
 func writeMD(t *testing.T, dir, name, content string) {
 	t.Helper()

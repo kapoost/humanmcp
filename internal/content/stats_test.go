@@ -260,3 +260,87 @@ func TestStatStoreCorruptLines(t *testing.T) {
 	// Should parse 1 valid event and skip corrupt line
 	if stats.TotalReads != 1 { t.Errorf("reads: got %d, want 1", stats.TotalReads) }
 }
+
+// TestComputeWindows verifies that ComputeWindows aggregates events into the
+// expected rolling windows: today/yesterday don't overlap, 7d and 30d include
+// today, visitors are unique-per-window.
+func TestComputeWindows(t *testing.T) {
+	ss := newTestStatStore(t)
+
+	loc := time.UTC
+	now := time.Date(2026, 5, 26, 12, 0, 0, 0, loc) // anchor for windows
+	todayStart := time.Date(2026, 5, 26, 0, 0, 0, 0, loc)
+
+	mkEvent := func(at time.Time, caller CallerType, vh string) Event {
+		return Event{Type: EventRead, Caller: caller, At: at, Slug: "p", VisitorHash: vh}
+	}
+
+	events := []Event{
+		// today (2 humans different vh, 1 agent)
+		mkEvent(todayStart.Add(2*time.Hour), CallerHuman, "vh-h1"),
+		mkEvent(todayStart.Add(3*time.Hour), CallerHuman, "vh-h1"), // dup vh — same unique
+		mkEvent(todayStart.Add(4*time.Hour), CallerHuman, "vh-h2"),
+		mkEvent(todayStart.Add(5*time.Hour), CallerAgent, "vh-a1"),
+		// yesterday (1 human)
+		mkEvent(todayStart.Add(-3*time.Hour), CallerHuman, "vh-h3"),
+		// 5 days ago (1 agent) — in 7d, not yesterday
+		mkEvent(todayStart.Add(-5*24*time.Hour), CallerAgent, "vh-a2"),
+		// 20 days ago (1 human) — in 30d, not 7d
+		mkEvent(todayStart.Add(-20*24*time.Hour), CallerHuman, "vh-h4"),
+		// 60 days ago (out of all windows)
+		mkEvent(todayStart.Add(-60*24*time.Hour), CallerHuman, "vh-h5"),
+	}
+
+	statsPath := filepath.Join(filepath.Dir(ss.path), "stats.ndjson")
+	var buf []byte
+	for _, e := range events {
+		b, _ := json.Marshal(e)
+		buf = append(buf, b...)
+		buf = append(buf, '\n')
+	}
+	if err := os.WriteFile(statsPath, buf, 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	w, err := ss.ComputeWindows(now)
+	if err != nil {
+		t.Fatalf("ComputeWindows: %v", err)
+	}
+
+	// Today
+	if w.Today.Reads != 4 {
+		t.Errorf("today reads = %d, want 4", w.Today.Reads)
+	}
+	if w.Today.Humans != 3 {
+		t.Errorf("today humans = %d, want 3", w.Today.Humans)
+	}
+	if w.Today.Agents != 1 {
+		t.Errorf("today agents = %d, want 1", w.Today.Agents)
+	}
+	if w.Today.Visitors != 3 { // vh-h1, vh-h2, vh-a1
+		t.Errorf("today visitors = %d, want 3 unique", w.Today.Visitors)
+	}
+	// Yesterday — single day, no overlap with today
+	if w.Yesterday.Reads != 1 {
+		t.Errorf("yesterday reads = %d, want 1", w.Yesterday.Reads)
+	}
+	if w.Yesterday.Humans != 1 {
+		t.Errorf("yesterday humans = %d, want 1", w.Yesterday.Humans)
+	}
+	// 7d: today (4) + yesterday (1) + 5d ago (1) = 6
+	if w.Last7Days.Reads != 6 {
+		t.Errorf("7d reads = %d, want 6", w.Last7Days.Reads)
+	}
+	// 30d: 7d (6) + 20d ago (1) = 7
+	if w.Last30Days.Reads != 7 {
+		t.Errorf("30d reads = %d, want 7", w.Last30Days.Reads)
+	}
+	// 60d ago must be excluded everywhere
+	if w.Last30Days.Reads > 7 {
+		t.Errorf("60d-old event leaked into 30d window")
+	}
+	// Sparkline DailyReads[13] = today, should be 4
+	if w.DailyReads[13] != 4 {
+		t.Errorf("DailyReads[13] (today) = %d, want 4", w.DailyReads[13])
+	}
+}
