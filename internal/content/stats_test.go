@@ -206,6 +206,12 @@ func TestCallerFromUA(t *testing.T) {
 		{"Go-http-client/1.1", CallerAgent},
 		{"", CallerUnknown},
 		{"SomeRandomClient/1.0", CallerUnknown},
+		// Googlebot smartphone: Mozilla-spoofed prefix with "Googlebot"
+		// only appearing past the 120-char mark in the (compatible; ...) tail.
+		{"Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/W.X.Y.Z Mobile Safari/537.36 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)", CallerAgent},
+		{"facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)", CallerAgent},
+		{"Mozilla/5.0 (compatible; Bingbot/2.0; +http://www.bing.com/bingbot.htm)", CallerAgent},
+		{"Mozilla/5.0 (compatible; AhrefsBot/7.0; +http://ahrefs.com/robot/)", CallerAgent},
 	}
 	for _, c := range cases {
 		got := CallerFromUA(c.ua)

@@ -459,8 +459,18 @@ func CallerFromUA(ua string) CallerType {
 	if ua == "" {
 		return CallerUnknown
 	}
-	lower := strings.ToLower(ua[:min(len(ua), 120)])
-	for _, kw := range []string{"claude", "gpt", "openai", "anthropic", "llm", "agent", "bot", "curl", "python", "go-http", "okhttp", "axios", "mcp", "langchain"} {
+	// Look at up to 400 chars — many crawlers (Googlebot, AppleBot, AhrefsBot)
+	// place their identifier in the "(compatible; ...)" suffix past 120 chars
+	// of a Mozilla-spoofed prefix.
+	lower := strings.ToLower(ua[:min(len(ua), 400)])
+	for _, kw := range []string{
+		"claude", "gpt", "openai", "anthropic", "llm", "agent", "bot", "curl",
+		"python", "go-http", "okhttp", "axios", "mcp", "langchain",
+		"googlebot", "bingbot", "applebot", "yandex", "baidu", "slurp",
+		"duckduckbot", "ahrefs", "semrush", "mj12bot", "facebookexternalhit",
+		"twitterbot", "linkedinbot", "whatsapp", "discordbot", "telegram",
+		"crawler", "spider", "scraper", "fetch", "http_client", "lighthouse",
+	} {
 		if strings.Contains(lower, kw) {
 			return CallerAgent
 		}
