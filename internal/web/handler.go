@@ -1773,6 +1773,7 @@ func (h *Handler) handleMissionControl(w http.ResponseWriter, r *http.Request) {
 		"SessionExp":  sessionExp,
 		"VaultOnline": true,
 		"Uptime":      view.Uptime,
+		"ToolCalls":   view.ToolCalls,
 	})
 }
 

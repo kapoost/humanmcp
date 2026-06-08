@@ -1,0 +1,88 @@
+id: web/mc_dashboard_renders_for_owner
+version: "1.0.0"
+title: "/mc renders for owner with windowed stats, uptime, and sparkline"
+category: web_owner_ui
+summary: "Locks the contract that Mission Control renders the four time windows (today/yesterday/7d/30d), shows a non-empty uptime, and emits a JS sparkline of integers rather than struct dumps."
+narrative: |
+  Mission Control is the operator's primary dashboard. Three regressions
+  hit it in the last three weeks and all three were silent — the page
+  still returned 200 but rendered wrong:
+
+  (1) 2026-05-23 — Today/Yesterday/Last7Days/Last30Days were never
+  populated by buildEnrichedStats; only Today was filled (with all-time
+  totals). The other three rows always showed zero.
+
+  (2) 2026-05-23 — DailyCounts was typed []periodStats but the template
+  used `var d=[{{range .DailyCounts}}{{.}},{{end}}]` — Go renders a
+  struct as `{0 0 0 0 0 0 0}` which produces invalid JavaScript. The
+  sparkline silently broke. Fix: retype to []int.
+
+  (3) 2026-05-23 — Uptime was computed correctly into the enrichedStats
+  view but the mc.html template reads `{{$.Uptime}}` at the top-level
+  data map, which did not include it. The uptime card showed as empty
+  text inside the div. Fix: pass Uptime alongside Stats at render time.
+
+  This storyboard pins all three contracts in one place. Adding new
+  fields to the dashboard should extend this scenario, not silently
+  rely on the human noticing missing data.
+
+kind: http
+
+assertions:
+  - name: "anonymous is redirected to login"
+    request:
+      method: GET
+      path: /mc
+    expect:
+      status: 302
+      location_contains: /login
+
+  - name: "owner sees the dashboard"
+    request:
+      method: GET
+      path: /mc
+      owner: true
+    expect:
+      status: 200
+      body_contains:
+        # Window table — all four rows present (lock the windowed stats fix)
+        - ">today<"
+        - ">yesterday<"
+        - ">7 days<"
+        - ">30 days<"
+        # Column headers — proves the table header rendered
+        - ">reads<"
+        - ">visitors<"
+        - ">agents<"
+        - ">humans<"
+        # Uptime card — both label and value slot rendered.
+        # formatUptime always emits at least "0s", so we lock that the
+        # value div is NOT empty by asserting the empty-div pattern is
+        # absent in body_does_not_contain below.
+        - "uptime"
+        # Sparkline JS opens with a numeric array, not a struct dump
+        - "var d=["
+      body_does_not_contain:
+        # The 2026-05-23 sparkline bug rendered Go structs into the JS
+        # array, e.g. `var d=[{0 0 0 0 0 0 0},{0 0 0 0 0 0 0},...]`.
+        # That's invalid JS; lock it out.
+        - "var d=[{"
+        # The 2026-05-23 Uptime bug left the value div empty above the
+        # "uptime" label. Anchor on the label so we don't false-positive
+        # on other (legitimately-zero-int) cards.
+        - 'font-weight:500"></div><div style="font-size:9px;color:var(--mc-muted);text-transform:uppercase;letter-spacing:.08em;margin-top:2px">uptime'
+        # Same pattern, mcp-tool-calls card — caught by this storyboard
+        # in initial development (ToolCalls field wasn't threaded through
+        # the render map).
+        - 'font-weight:500"></div><div style="font-size:9px;color:var(--mc-muted);text-transform:uppercase;letter-spacing:.08em;margin-top:2px">mcp tool calls'
+
+closes_failure_modes:
+  - "Today/Yesterday/7d/30d rows silently render as zero when ComputeWindows isn't wired"
+  - "Sparkline JS receives Go struct dumps instead of integers, breaking with a silent 200"
+  - "Uptime value missing from top-level render map → empty div, label-only card"
+  - "Mission Control accessible to anonymous (auth gate regression)"
+
+known_regressions_caught:
+  - "2026-05-23 — windowed stats wiring (commit e3fefcb)"
+  - "2026-05-23 — DailyCounts type fix []periodStats→[]int"
+  - "2026-05-23 — Uptime exposed at top-level render map (commit 9516d98)"
