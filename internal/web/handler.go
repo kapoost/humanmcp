@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kapoost/humanmcp-go/internal/auth"
@@ -21,18 +22,24 @@ import (
 )
 
 type Handler struct {
-	cfg          *config.Config
-	store        *content.Store
-	auth         *auth.Auth
-	msgStore     *content.MessageStore
-	statStore    *content.StatStore
+	cfg               *config.Config
+	store             *content.Store
+	auth              *auth.Auth
+	msgStore          *content.MessageStore
+	statStore         *content.StatStore
 	blobStore         *content.BlobStore
 	listingStore      *content.ListingStore
 	questionStore     *content.QuestionStore
 	subscriptionStore *content.SubscriptionStore
-	signingKey   *content.KeyPair
-	tmpl         *template.Template
-	startedAt    time.Time
+	signingKey        *content.KeyPair
+	tmpl              *template.Template
+	startedAt         time.Time
+
+	// IP-based sliding-window rate limiter for the anonymous /contact form.
+	// Generous limit so a real human refining their message isn't blocked,
+	// tight enough to stop bot-driven spam once we get visibility.
+	contactRateMu      sync.Mutex
+	contactRateLog     map[string][]time.Time
 }
 
 func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler {
@@ -46,7 +53,8 @@ func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler
 		listingStore:      content.NewListingStore(cfg.ContentDir),
 		questionStore:     content.NewQuestionStore(cfg.ContentDir),
 		subscriptionStore: content.NewSubscriptionStore(cfg.ContentDir),
-		startedAt:     time.Now(),
+		startedAt:         time.Now(),
+		contactRateLog:    make(map[string][]time.Time),
 	}
 	if cfg.SigningPrivateKey != "" {
 		if kp, err := content.KeyPairFromBase64(cfg.SigningPrivateKey); err == nil {
@@ -1253,6 +1261,19 @@ func (h *Handler) handleConnect(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleContact(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
+		// IP-based rate limit: 5 submissions per 10 minutes per IP.
+		ip := h.contactClientIP(r)
+		if !h.checkContactRateLimit(ip) {
+			w.Header().Set("Retry-After", "600")
+			h.render(w, "contact.html", map[string]interface{}{
+				"Author":    h.cfg.AuthorName,
+				"Error":     "Za dużo wiadomości z tego adresu w krótkim czasie. Spróbuj ponownie za ~10 minut.",
+				"From":      r.FormValue("from"),
+				"Text":      r.FormValue("text"),
+				"Regarding": r.FormValue("regarding"),
+			})
+			return
+		}
 		r.ParseForm()
 		from := r.FormValue("from")
 		text := r.FormValue("text")
@@ -1260,10 +1281,11 @@ func (h *Handler) handleContact(w http.ResponseWriter, r *http.Request) {
 		_, err := h.msgStore.Save(from, text, regarding)
 		if err != nil {
 			h.render(w, "contact.html", map[string]interface{}{
-				"Author": h.cfg.AuthorName,
-				"Error":  err.Error(),
-				"From":   from,
-				"Text":   text,
+				"Author":    h.cfg.AuthorName,
+				"Error":     err.Error(),
+				"From":      from,
+				"Text":      text,
+				"Regarding": regarding,
 			})
 			return
 		}
@@ -1291,6 +1313,47 @@ func (h *Handler) handleContact(w http.ResponseWriter, r *http.Request) {
 		"Pieces":    pieces,
 		"Regarding": regarding,
 	})
+}
+
+// contactClientIP returns the originating client IP for a /contact POST.
+// Fly puts the real client IP in Fly-Client-IP; X-Forwarded-For is the
+// fallback for other proxies; RemoteAddr is the last-resort source.
+func (h *Handler) contactClientIP(r *http.Request) string {
+	if ip := r.Header.Get("Fly-Client-IP"); ip != "" {
+		return ip
+	}
+	if ip := r.Header.Get("X-Forwarded-For"); ip != "" {
+		return strings.SplitN(ip, ",", 2)[0]
+	}
+	return r.RemoteAddr
+}
+
+// checkContactRateLimit allows up to 5 POSTs per 10 minutes per IP for
+// the anonymous /contact form. Generous to humans iterating on a message,
+// tight enough to stop a script. Sliding window — recomputed on every
+// call. Returns true if the request is allowed.
+func (h *Handler) checkContactRateLimit(ip string) bool {
+	const (
+		windowSeconds = 600
+		maxInWindow   = 5
+	)
+	h.contactRateMu.Lock()
+	defer h.contactRateMu.Unlock()
+	now := time.Now()
+	cutoff := now.Add(-time.Duration(windowSeconds) * time.Second)
+	var kept []time.Time
+	for _, t := range h.contactRateLog[ip] {
+		if t.After(cutoff) {
+			kept = append(kept, t)
+		}
+	}
+	if len(kept) >= maxInWindow {
+		h.contactRateLog[ip] = kept
+		return false
+	}
+	kept = append(kept, now)
+	h.contactRateLog[ip] = kept
+	return true
 }
 
 func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {

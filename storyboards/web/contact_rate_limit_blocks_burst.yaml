@@ -1,0 +1,97 @@
+id: web/contact_rate_limit_blocks_burst
+version: "1.0.0"
+title: "/contact rate-limits 6+ POSTs from the same IP within 10 minutes"
+category: web_public_safety
+summary: "Anonymous POST /contact is gated by a 5-per-10-minute sliding window per IP. The sixth burst submit gets back the form with a Polish 'too many' error and a Retry-After header — earlier messages persist normally."
+narrative: |
+  Anonymous /contact has zero auth and writes straight to msgStore.
+  Without throttling, the first script to find the form floods the
+  inbox. The fix is a 5-per-10-min sliding window per IP — generous
+  to a real human iterating on their message (typo, refining,
+  resending) but tight enough to make scripted spam unproductive.
+
+  Window source: contactClientIP reads Fly-Client-IP first, then
+  X-Forwarded-For, then RemoteAddr. The httptest server hits
+  127.0.0.1:<random> with no proxy header so every request shares a
+  RemoteAddr-derived bucket — perfect for asserting the limit.
+
+  This scenario submits 6 messages back-to-back. The first 5 land in
+  msgStore (visible on /messages); the 6th gets a 200 + the
+  Polish-language throttle message + a Retry-After header.
+
+kind: http
+
+assertions:
+  - name: "submission 1 of 5 accepted"
+    request:
+      method: POST
+      path: /contact
+      form: {from: "rs1", text: "msg 1"}
+    expect:
+      status: 200
+      body_contains: ["contact"]
+
+  - name: "submission 2 of 5 accepted"
+    request:
+      method: POST
+      path: /contact
+      form: {from: "rs2", text: "msg 2"}
+    expect:
+      status: 200
+
+  - name: "submission 3 of 5 accepted"
+    request:
+      method: POST
+      path: /contact
+      form: {from: "rs3", text: "msg 3"}
+    expect:
+      status: 200
+
+  - name: "submission 4 of 5 accepted"
+    request:
+      method: POST
+      path: /contact
+      form: {from: "rs4", text: "msg 4"}
+    expect:
+      status: 200
+
+  - name: "submission 5 of 5 accepted"
+    request:
+      method: POST
+      path: /contact
+      form: {from: "rs5", text: "msg 5"}
+    expect:
+      status: 200
+
+  - name: "submission 6 is rate-limited with friendly Polish copy"
+    request:
+      method: POST
+      path: /contact
+      form: {from: "rs6", text: "msg 6"}
+    expect:
+      status: 200
+      body_contains:
+        - "Za dużo wiadomości"
+        - "10 minut"
+
+  - name: "owner /messages shows exactly the 5 accepted messages"
+    request:
+      method: GET
+      path: /messages
+      owner: true
+    expect:
+      status: 200
+      body_contains:
+        - "msg 1"
+        - "msg 5"
+      body_does_not_contain:
+        - "msg 6"
+
+closes_failure_modes:
+  - "Anonymous endpoint gets script-spammed once discovered"
+  - "Rate limit blocks the first request instead of the (N+1)th"
+  - "Rate-limited submission silently persists anyway (bypass via fall-through)"
+  - "User has no idea why their 6th try failed — silent 500 instead of Polish copy"
+
+known_regressions_caught:
+  - "2026-06-08 — initial rate limit on /contact (sliding window 5/10min)"
