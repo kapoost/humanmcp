@@ -68,6 +68,27 @@ func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler
 			}
 			return t.Format("2 January 2006 15:04")
 		},
+		// signatureState returns one of "absent", "valid", "invalid". The
+		// template branches on this — "active — authorship signed" is only
+		// shown when the signature actually verifies against the owner's
+		// public key. Previously the template only checked non-empty,
+		// which let any garbage in the frontmatter masquerade as "signed".
+		"signatureState": func(p *content.Piece) string {
+			if p == nil || p.Signature == "" {
+				return "absent"
+			}
+			if cfg.SigningPublicKey == "" {
+				// No pubkey configured — we cannot verify, so we cannot
+				// honestly claim "signed". Treat as invalid so the UI
+				// is loud about the missing root of trust.
+				return "invalid"
+			}
+			ok, _ := content.VerifyPiece(p, cfg.SigningPublicKey)
+			if ok {
+				return "valid"
+			}
+			return "invalid"
+		},
 		"formatTime": func(t time.Time) string {
 			if t.IsZero() {
 				return ""

@@ -25,6 +25,12 @@
   <div class="connect-title">MCP endpoint</div>
   <div class="code-block" style="word-break:break-all;user-select:all;">https://{{.Domain}}/mcp</div>
 </div>
+<div class="connect-section" id="verify">
+  <div class="connect-title">Verify a piece</div>
+  <p style="font-size:.85rem;color:var(--muted);margin-bottom:.6rem;">Every public piece carries an Ed25519 signature over <code>sha256(slug|title|body)</code>. Verify from any MCP client:</p>
+  <div class="code-block" style="font-size:.78rem;user-select:all;">verify_content {slug: "the-slug"}</div>
+  <p style="font-size:.78rem;color:var(--muted);margin-top:.5rem;">Or via curl + JSON-RPC against the MCP endpoint above. The response includes the public key and a human-readable status — <code>verified</code> on a match, a specific failure reason otherwise.</p>
+</div>
 <div class="connect-section">
   <div class="pill">Claude Desktop</div>
   <div class="connect-title">claude_desktop_config.json</div>

@@ -86,7 +86,8 @@
   <div class="piece-info">
     {{/* ── Signature row ── */}}
     <div class="status-row">
-      {{if .Signature}}
+      {{$sigState := signatureState .}}
+      {{if eq $sigState "valid"}}
       <span class="status-icon st-active">&#10003;</span>
       <span class="status-key">ed25519</span>
       <span class="status-val">
@@ -96,6 +97,14 @@
       <span class="status-actions">
         <button class="info-btn" onclick="navigator.clipboard.writeText(this.dataset.v);this.textContent='copied';setTimeout(()=>this.textContent='copy',1500)" data-v="{{.Signature}}">copy</button>
       </span>
+      {{else if eq $sigState "invalid"}}
+      <span class="status-icon st-pending">&#10007;</span>
+      <span class="status-key">ed25519</span>
+      <span class="status-val st-pending">
+        invalid signature — content may have been modified
+        <small>{{truncate .Signature 48}}</small>
+      </span>
+      <span></span>
       {{else}}
       <span class="status-icon st-none">&#8722;</span>
       <span class="status-key">ed25519</span>
@@ -157,7 +166,7 @@
     {{/* ── Actions ── */}}
     <div class="info-actions">
       <a href="/contact?regarding={{.Slug}}" class="info-btn">&#9993; leave a message</a>
-      <a href="/connect" class="info-btn" style="color:var(--muted);">how to verify &#8599;</a>
+      <a href="/connect#verify" class="info-btn" style="color:var(--muted);">how to verify</a>
     </div>
   </div>
 {{end}}

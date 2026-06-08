@@ -43,6 +43,15 @@ func runHTTP(t *testing.T, sb Storyboard) {
 		PoetPool:   []string{"jeszcze polska nie zginęła"},
 		PoetSecret: "storyboard-poet-secret",
 	}
+	// Fresh ed25519 keypair per storyboard so signature-verification
+	// scenarios have a real root of trust. Setup pieces are auto-signed
+	// when `signed: true` appears in their YAML map.
+	testKey, kerr := content.GenerateKeyPair()
+	if kerr != nil {
+		t.Fatalf("generate keypair: %v", kerr)
+	}
+	cfg.SigningPrivateKey = testKey.PrivateKeyBase64()
+	cfg.SigningPublicKey = testKey.PublicKeyHex()
 	store := content.NewStore(contentDir)
 	_ = store.Load()
 	listingStore := content.NewListingStore(contentDir)
@@ -59,7 +68,7 @@ func runHTTP(t *testing.T, sb Storyboard) {
 		}
 	}
 	for _, p := range sb.Setup.Pieces {
-		if err := savePiece(store, p); err != nil {
+		if err := savePiece(store, p, testKey); err != nil {
 			t.Fatalf("setup piece %v: %v", p, err)
 		}
 	}
@@ -188,12 +197,13 @@ func saveListing(store *content.ListingStore, fields map[string]interface{}) err
 	return store.Save(l)
 }
 
-func savePiece(store *content.Store, fields map[string]interface{}) error {
+func savePiece(store *content.Store, fields map[string]interface{}, kp *content.KeyPair) error {
 	p := &content.Piece{
-		Slug:  toStr(fields["slug"]),
-		Title: toStr(fields["title"]),
-		Type:  toStr(fields["type"]),
-		Body:  toStr(fields["body"]),
+		Slug:      toStr(fields["slug"]),
+		Title:     toStr(fields["title"]),
+		Type:      toStr(fields["type"]),
+		Body:      toStr(fields["body"]),
+		Signature: toStr(fields["signature"]),
 	}
 	if p.Type == "" {
 		p.Type = "poem"
@@ -202,6 +212,17 @@ func savePiece(store *content.Store, fields map[string]interface{}) error {
 		p.Access = content.AccessLevel(access)
 	} else {
 		p.Access = content.AccessPublic
+	}
+	// `signed: true` in the YAML auto-signs with the runner's test key
+	// (so signatureState renders "valid"). Leaving Signature blank yields
+	// the absent state; setting an explicit `signature: "..."` value gives
+	// the invalid-signature state.
+	if signedFlag, _ := fields["signed"].(bool); signedFlag && kp != nil && p.Signature == "" {
+		sig, err := content.SignPiece(p, kp)
+		if err != nil {
+			return err
+		}
+		p.Signature = sig
 	}
 	return store.Save(p)
 }

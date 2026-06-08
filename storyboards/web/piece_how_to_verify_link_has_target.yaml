@@ -1,0 +1,63 @@
+id: web/piece_how_to_verify_link_has_target
+version: "1.0.0"
+title: "'how to verify' link from the piece info box reaches a real verification section"
+category: web_signing_ui
+summary: "Regression guard for the 2026-06-08 fix: the piece info box advertises 'how to verify' but used to send the user to /connect with an external arrow and no actual verify section. Now the link is internal and /connect#verify exists with a copy-paste example."
+narrative: |
+  The piece info box used to render:
+
+      <a href="/connect" class="info-btn" ...>how to verify ↗</a>
+
+  Two lies in one element:
+    (1) The ↗ glyph signals "external link" but the target is local.
+    (2) /connect had no section about verification — only a list of
+        MCP tools that someone with an agent could pattern-match.
+
+  Fix:
+    - Arrow dropped, link points at /connect#verify.
+    - /connect grows a "Verify a piece" section with a copy-paste
+      verify_content example and a note about the JSON-RPC fallback.
+
+  This storyboard locks both halves: the anchored URL resolves and
+  the section content includes the verify_content call sign.
+
+kind: http
+
+setup:
+  pieces:
+    - slug: any-piece
+      title: "any piece"
+      type: poem
+      body: "verify me"
+
+assertions:
+  - name: "piece page links at /connect#verify (no misleading external arrow)"
+    request:
+      method: GET
+      path: /p/any-piece
+    expect:
+      status: 200
+      body_contains:
+        - 'href="/connect#verify"'
+      body_does_not_contain:
+        # The old "how to verify ↗" string with the external arrow glyph.
+        - 'how to verify &#8599;'
+
+  - name: "/connect contains the anchored verify section with an example"
+    request:
+      method: GET
+      path: /connect
+    expect:
+      status: 200
+      body_contains:
+        - 'id="verify"'
+        - "Verify a piece"
+        - "verify_content"
+
+closes_failure_modes:
+  - "Piece page promises 'how to verify' but lands on a list of MCP tools"
+  - "External-link arrow next to an internal href"
+  - "/connect verify section drifts and the anchor stops resolving"
+
+known_regressions_caught:
+  - "2026-06-08 — info-box link audit"

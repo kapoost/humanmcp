@@ -1,0 +1,93 @@
+id: web/piece_signature_state_is_real
+version: "1.0.0"
+title: "ed25519 row reflects an actual verify result, not just 'has a signature string'"
+category: web_signing_ui
+summary: "Regression guard: the piece info box's ed25519 line must render 'active — authorship signed' only when content.VerifyPiece succeeds against the configured public key. Garbage signatures must render the invalid state. No signature must render unsigned."
+narrative: |
+  Before 2026-06-08 the template branched on {{if .Signature}} —
+  truthy = "active — authorship signed". That made the central claim
+  of the page ("your content is cryptographically signed") a lie if
+  someone planted garbage in the frontmatter, because no verification
+  ran at render time.
+
+  Fix: a new template func signatureState(piece) returns one of
+  "absent", "valid", "invalid". The template branches on those three
+  states explicitly. "valid" needs the configured SigningPublicKey to
+  succeed against VerifyPiece; without it, the state collapses to
+  "invalid" — we will not silently claim "signed" without a root of
+  trust.
+
+  This storyboard exercises all three:
+  - a piece signed with the test keypair → valid (green ✓)
+  - a piece with a Signature string but wrong bytes → invalid (✗)
+  - a piece with no Signature → unsigned (— gray)
+
+kind: http
+
+# The HTTP runner generates a fresh ed25519 keypair per test, wires it into
+# cfg.SigningPrivateKey + cfg.SigningPublicKey, and signs setup pieces that
+# carry `signed: true`. That gives us a real root of trust for assertions.
+setup:
+  pieces:
+    - slug: properly-signed
+      title: "Properly signed"
+      type: poem
+      body: "verse one\nverse two"
+      signed: true
+
+    - slug: tampered-signature
+      title: "Tampered signature"
+      type: poem
+      body: "the body the signature was minted against"
+      # Garbage but base64-shaped — the verifier decodes successfully but
+      # ed25519.Verify fails because the bytes don't match.
+      signature: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+
+    - slug: untouched-piece
+      title: "Plain piece"
+      type: poem
+      body: "no signature at all"
+
+assertions:
+  - name: "valid signature → 'active — authorship signed' rendered"
+    request:
+      method: GET
+      path: /p/properly-signed
+    expect:
+      status: 200
+      body_contains:
+        - "active — authorship signed"
+      body_does_not_contain:
+        - "invalid signature"
+        - "unsigned"
+
+  - name: "invalid signature → 'invalid signature' rendered, NOT 'active'"
+    request:
+      method: GET
+      path: /p/tampered-signature
+    expect:
+      status: 200
+      body_contains:
+        - "invalid signature"
+      body_does_not_contain:
+        - "active — authorship signed"
+
+  - name: "no signature → 'unsigned' rendered, NOT 'active'"
+    request:
+      method: GET
+      path: /p/untouched-piece
+    expect:
+      status: 200
+      body_contains:
+        - "unsigned"
+      body_does_not_contain:
+        - "active — authorship signed"
+        - "invalid signature"
+
+closes_failure_modes:
+  - "Garbage signature renders as 'active — authorship signed'"
+  - "Template claims 'signed' when there is no public key to verify against"
+  - "Unsigned piece presents as signed because a stale string sits in the field"
+
+known_regressions_caught:
+  - "2026-06-08 — audit revealed the info-box was lying about ed25519 status"
