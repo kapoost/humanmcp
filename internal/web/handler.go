@@ -1413,6 +1413,22 @@ func (h *Handler) handleListings(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	if strings.HasPrefix(path, "/listings/edit/") {
+		if !h.auth.IsOwner(r) {
+			http.Redirect(w, r, "/login", http.StatusFound)
+			return
+		}
+		h.handleListingEdit(w, r, strings.TrimPrefix(path, "/listings/edit/"))
+		return
+	}
+	if strings.HasPrefix(path, "/listings/delete/") {
+		if !h.auth.IsOwner(r) {
+			http.Redirect(w, r, "/login", http.StatusFound)
+			return
+		}
+		h.handleListingDelete(w, r, strings.TrimPrefix(path, "/listings/delete/"))
+		return
+	}
 	slug := strings.TrimPrefix(path, "/listings/")
 	if slug == "" {
 		http.NotFound(w, r)
@@ -1428,6 +1444,77 @@ func (h *Handler) handleListings(w http.ResponseWriter, r *http.Request) {
 		"IsOwner": h.auth.IsOwner(r),
 		"Listing": listing,
 	})
+}
+
+func (h *Handler) handleListingEdit(w http.ResponseWriter, r *http.Request, slug string) {
+	if slug == "" {
+		http.NotFound(w, r)
+		return
+	}
+	listing, err := h.listingStore.Get(slug)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if r.Method != http.MethodPost {
+		h.render(w, "listing-new.html", map[string]interface{}{
+			"Author":  h.cfg.AuthorName,
+			"IsOwner": true,
+			"Listing": listing,
+		})
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	listing.Type = r.FormValue("type")
+	listing.Title = strings.TrimSpace(r.FormValue("title"))
+	listing.Body = r.FormValue("body")
+	listing.Tags = splitTags(r.FormValue("tags"))
+	listing.Price = r.FormValue("price")
+	listing.PriceSats = r.FormValue("price_sats")
+	if s := r.FormValue("status"); s != "" {
+		listing.Status = s
+	}
+	if a := r.FormValue("access"); a != "" {
+		listing.Access = a
+	}
+	if l := r.FormValue("lang"); l != "" {
+		listing.Lang = l
+	}
+	if ea := r.FormValue("expires_at"); ea != "" {
+		for _, layout := range []string{"2006-01-02T15:04", time.RFC3339, "2006-01-02 15:04", "2006-01-02"} {
+			if t, err := time.Parse(layout, strings.TrimSpace(ea)); err == nil {
+				listing.ExpiresAt = t
+				break
+			}
+		}
+	}
+	if r.FormValue("remove_image") == "1" {
+		listing.ImageRef = ""
+	}
+	if err := h.listingStore.Save(*listing); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	http.Redirect(w, r, "/listings/"+listing.Slug, http.StatusSeeOther)
+}
+
+func (h *Handler) handleListingDelete(w http.ResponseWriter, r *http.Request, slug string) {
+	if r.Method != http.MethodPost {
+		http.Redirect(w, r, "/listings", http.StatusSeeOther)
+		return
+	}
+	if slug == "" {
+		http.NotFound(w, r)
+		return
+	}
+	if err := h.listingStore.Delete(slug); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	http.Redirect(w, r, "/listings", http.StatusSeeOther)
 }
 
 func (h *Handler) handleListingCreate(w http.ResponseWriter, r *http.Request) {
