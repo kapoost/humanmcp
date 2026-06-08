@@ -19,6 +19,8 @@ textarea{width:100%;padding:.5rem;border:1px solid var(--border);border-radius:4
 {{else}}
 {{if .Error}}<p style="color:#c0392b;margin-bottom:1rem;font-size:.85rem;">{{.Error}}</p>{{end}}
 <form method="POST" action="/contact" style="display:grid;gap:.75rem;">
+  {{if .Regarding}}<input type="hidden" name="regarding" value="{{.Regarding}}">
+  <div style="font-size:.75rem;color:var(--muted);">regarding: <code style="background:var(--tag-bg);padding:1px 6px;border-radius:3px;">{{.Regarding}}</code></div>{{end}}
   <div><label style="font-size:.82rem;color:var(--muted);display:block;margin-bottom:.3rem;">Name or handle <span style="opacity:.5">(optional)</span></label>
   <input type="text" name="from" maxlength="32" value="{{.From}}" placeholder="anonymous" style="width:100%;padding:.5rem;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);"></div>
   <div><label style="font-size:.82rem;color:var(--muted);display:block;margin-bottom:.3rem;">Message <span style="color:#c0392b">*</span></label>

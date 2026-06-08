@@ -1,0 +1,75 @@
+id: web/contact_form_persists_message
+version: "1.0.0"
+title: "Anonymous /contact POST lands in msgStore and shows on /messages"
+category: web_public
+summary: "Locks the primary human→author channel end-to-end: anyone submits the contact form; the message persists; the owner sees it on /messages."
+narrative: |
+  This is the single most important human-facing channel. The form on
+  /contact is referenced by 7+ buttons across piece.html, listing.html,
+  the global header, and the footer. If POST silently fails, every
+  one of those buttons becomes a dead end and the author never hears
+  from a reader.
+
+  The contract under test:
+
+  (1) GET /contact renders a form (publicly accessible — no auth gate).
+  (2) Anonymous POST with from/text/regarding persists via msgStore.
+  (3) Owner GET /messages includes the new message — verifies the read
+      side is wired to the same store as the write side.
+  (4) Anonymous GET /messages is gated (owner-only inbox).
+
+kind: http
+
+assertions:
+  - name: "GET /contact renders the form for anonymous"
+    request:
+      method: GET
+      path: /contact
+    expect:
+      status: 200
+      body_contains:
+        - 'action="/contact"'
+        - 'name="from"'
+        - 'name="text"'
+
+  - name: "anonymous POST persists the message"
+    request:
+      method: POST
+      path: /contact
+      form:
+        from: "reader@example.com"
+        text: "Twoje wiersze zabolały dobrze"
+        regarding: ""
+    expect:
+      status: 200
+      body_contains:
+        # The handler re-renders contact.html with Sent=true on success
+        # — assert on something the success state would surface.
+        - "contact"
+
+  - name: "owner GET /messages includes the new message"
+    request:
+      method: GET
+      path: /messages
+      owner: true
+    expect:
+      status: 200
+      body_contains:
+        - "reader@example.com"
+        - "Twoje wiersze zabolały dobrze"
+
+  - name: "anonymous /messages is gated"
+    request:
+      method: GET
+      path: /messages
+    expect:
+      status: 302
+      location_contains: /login
+
+closes_failure_modes:
+  - "Contact form submits but message never reaches msgStore"
+  - "msgStore write side decoupled from /messages read side (different paths/stores)"
+  - "Inbox accidentally publicly readable"
+
+known_regressions_caught:
+  - "2026-06-08 — initial audit revealed no test covered the most-linked human channel"

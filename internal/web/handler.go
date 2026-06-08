@@ -1243,9 +1243,14 @@ func (h *Handler) handleContact(w http.ResponseWriter, r *http.Request) {
 		log.Printf("store load: %v", err)
 	}
 	pieces := h.store.List(false)
+	// Pieces and listings deep-link to /contact?regarding=<slug> so the
+	// submitted message lands tagged with the relevant content. The form
+	// hidden field below picks this up.
+	regarding := r.URL.Query().Get("regarding")
 	h.render(w, "contact.html", map[string]interface{}{
-		"Author": h.cfg.AuthorName,
-		"Pieces": pieces,
+		"Author":    h.cfg.AuthorName,
+		"Pieces":    pieces,
+		"Regarding": regarding,
 	})
 }
 

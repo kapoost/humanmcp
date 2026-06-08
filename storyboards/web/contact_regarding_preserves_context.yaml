@@ -1,0 +1,94 @@
+id: web/contact_regarding_preserves_context
+version: "1.0.0"
+title: "/contact?regarding=<slug> survives the form round-trip and lands tagged on the message"
+category: web_public
+summary: "Regression guard for the 2026-06-08 fix: handleContact ignored the regarding query param and contact.html had no hidden field for it. Every 'Leave a message' / 'Respond' / 'Propose a trade' / 'request' button across pieces and listings deep-linked to context that vanished on submit."
+narrative: |
+  piece.html and listing.html scatter 7+ buttons of the shape
+  /contact?regarding=<slug> or /contact?regarding=listing:<slug>.
+  Before 2026-06-08 those buttons were decorative: the GET handler
+  threw the query param away, the form rendered no hidden field, and
+  the POST landed in msgStore with regarding="". The author saw an
+  anonymous message with no idea what content prompted it.
+
+  The fix has two halves:
+    (1) handleContact GET reads r.URL.Query().Get("regarding") and
+        passes it to the template.
+    (2) contact.html renders a hidden <input name="regarding"
+        value="{{.Regarding}}"> AND a visible "regarding: <slug>" hint
+        so the sender knows what their message will be tagged with.
+
+  This storyboard locks both halves of the loop end-to-end: a GET with
+  ?regarding= pre-populates the form; a POST with regarding= persists
+  on the Message; the owner's /messages view surfaces the tag.
+
+kind: http
+
+assertions:
+  - name: "GET with piece regarding pre-populates the hidden field and hint"
+    request:
+      method: GET
+      path: /contact?regarding=deka-log
+    expect:
+      status: 200
+      body_contains:
+        - 'name="regarding"'
+        - 'value="deka-log"'
+        - 'regarding:'
+        - 'deka-log'
+
+  - name: "GET with listing regarding preserves the listing: prefix"
+    request:
+      method: GET
+      path: /contact?regarding=listing:s2000-parts
+      headers:
+        # %3A in the URL for the colon is unnecessary — Go decodes the
+        # query string for us. Pass the raw colon and assert it lands.
+        Accept: text/html
+    expect:
+      status: 200
+      body_contains:
+        - 'value="listing:s2000-parts"'
+
+  - name: "POST with regarding persists; owner sees re: tag on the message"
+    request:
+      method: POST
+      path: /contact
+      form:
+        from: "anonymous"
+        text: "Pytanie o licencję"
+        regarding: "deka-log"
+    expect:
+      status: 200
+      body_contains:
+        - "contact"
+
+  - name: "owner /messages shows the regarding tag on the persisted message"
+    request:
+      method: GET
+      path: /messages
+      owner: true
+    expect:
+      status: 200
+      body_contains:
+        - "Pytanie o licencję"
+        - "re: deka-log"
+
+  - name: "bare GET /contact still renders (no regarding query)"
+    request:
+      method: GET
+      path: /contact
+    expect:
+      status: 200
+      body_contains:
+        - 'action="/contact"'
+      body_does_not_contain:
+        - 'name="regarding"'
+
+closes_failure_modes:
+  - "Deep-linked buttons to /contact?regarding=<slug> lose context on submit"
+  - "Hidden field falls out of the template during a refactor"
+  - "Sender doesn't see what their message will be tagged with — silent context"
+
+known_regressions_caught:
+  - "2026-06-08 — initial audit revealed handleContact ignored ?regarding= and the form had no hidden field"
