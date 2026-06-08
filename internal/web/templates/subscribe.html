@@ -12,7 +12,7 @@
 <h2 style="font-size:1.2rem;">Subscribe to Listings</h2>
 <p style="color:var(--muted);font-size:.85rem;margin-bottom:1.5rem;">Get notified when new listings are published that match your filters.</p>
 
-<form method="POST" action="/subscriptions/confirm" style="max-width:500px;">
+<form method="POST" action="/subscribe/confirm" style="max-width:500px;">
   <div style="margin-bottom:1rem;">
     <label style="font-size:.82rem;font-weight:500;display:block;margin-bottom:.3rem;">Channel</label>
     <select name="channel" id="channel-select" style="width:100%;padding:.5rem;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);" onchange="document.getElementById('webhook-field').style.display=this.value==='webhook'?'block':'none'">

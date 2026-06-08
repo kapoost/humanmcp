@@ -53,9 +53,6 @@
   <div style="font-size:.8rem;color:var(--muted);margin-bottom:.75rem;">
     Powiedz agentowi: <em style="color:var(--fg);">bootstrap_session, hasło: {{.SessionCode}}</em>
   </div>
-  <form method="POST" action="/api/session/rotate" style="display:inline;">
-    <button type="submit" class="btn btn-sm" style="font-size:.75rem;">↻ rotuj teraz</button>
-  </form>
 </div>
 {{end}}
 {{with .Stats}}

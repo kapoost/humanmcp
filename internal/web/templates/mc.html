@@ -219,7 +219,6 @@ a:hover{text-decoration:underline}
   <div class="mc-session-code">&bdquo;{{.SessionCode}}&rdquo;</div>
   <div class="mc-session-meta">expires {{formatDate .SessionExp}} &middot; rotation hourly</div>
   <div class="mc-session-hint">Tell agent: <em>bootstrap_session, code: {{.SessionCode}}</em></div>
-  <form method="POST" action="/api/session/rotate" style="display:inline"><button type="submit" class="mc-btn">↻ rotate now</button></form>
 </div>
 {{end}}
 {{end}}

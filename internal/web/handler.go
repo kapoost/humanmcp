@@ -192,6 +192,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	// SEO / crawl
 	mux.HandleFunc("/robots.txt", h.handleRobots)
 	mux.HandleFunc("/sitemap.xml", h.handleSitemap)
+	mux.HandleFunc("/rss.xml", h.handleRSS)
 
 	// New post page (owner only)
 	mux.Handle("/new", h.auth.RequireOwner(http.HandlerFunc(h.handleNew)))
@@ -230,6 +231,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/personas", h.handlePersonasPage)
 	mux.HandleFunc("/skills", h.handleSkillsPage)
 	mux.Handle("/questions", h.auth.RequireOwner(http.HandlerFunc(h.handleQuestions)))
+	// Both bare path (form-based POST from templates) and trailing-slash
+	// (legacy / URL-based id) work — handler reads id from either.
+	mux.Handle("/questions/answer", h.auth.RequireOwner(http.HandlerFunc(h.handleAnswerQuestion)))
 	mux.Handle("/questions/answer/", h.auth.RequireOwner(http.HandlerFunc(h.handleAnswerQuestion)))
 	mux.HandleFunc("/for-agents", h.handleForAgents)
 	mux.HandleFunc("/subscribe", h.handleSubscribeForm)
@@ -1159,6 +1163,45 @@ func (h *Handler) handleSitemap(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "</urlset>\n")
 }
 
+// handleRSS serves an RSS 2.0 feed of public pieces in reverse-chronological
+// order. Used by feed readers and by the <link rel="alternate"> hint on the
+// home page. Body of each piece is included raw — RSS readers handle
+// plain-text fine; clients that want HTML can fetch /p/<slug>.
+func (h *Handler) handleRSS(w http.ResponseWriter, r *http.Request) {
+	h.store.Load()
+	pieces := h.store.List(true)
+
+	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
+	fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>`+"\n")
+	fmt.Fprintf(w, `<rss version="2.0"><channel>`+"\n")
+	fmt.Fprintf(w, "  <title>%s</title>\n", xmlEscape(h.cfg.AuthorName))
+	fmt.Fprintf(w, "  <link>https://%s/</link>\n", h.cfg.Domain)
+	fmt.Fprintf(w, "  <description>%s</description>\n", xmlEscape(h.cfg.AuthorBio))
+	fmt.Fprintf(w, "  <language>pl</language>\n")
+	for _, p := range pieces {
+		if p.Access != content.AccessPublic {
+			continue
+		}
+		fmt.Fprintf(w, "  <item>\n")
+		fmt.Fprintf(w, "    <title>%s</title>\n", xmlEscape(p.Title))
+		fmt.Fprintf(w, "    <link>https://%s/p/%s</link>\n", h.cfg.Domain, p.Slug)
+		fmt.Fprintf(w, "    <guid isPermaLink=\"true\">https://%s/p/%s</guid>\n", h.cfg.Domain, p.Slug)
+		fmt.Fprintf(w, "    <pubDate>%s</pubDate>\n", p.Published.UTC().Format(time.RFC1123Z))
+		if p.Description != "" {
+			fmt.Fprintf(w, "    <description>%s</description>\n", xmlEscape(p.Description))
+		} else if p.Body != "" {
+			fmt.Fprintf(w, "    <description>%s</description>\n", xmlEscape(p.Body))
+		}
+		fmt.Fprintf(w, "  </item>\n")
+	}
+	fmt.Fprintf(w, `</channel></rss>`+"\n")
+}
+
+func xmlEscape(s string) string {
+	r := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", "\"", "&quot;", "'", "&apos;")
+	return r.Replace(s)
+}
+
 func (h *Handler) handleConnect(w http.ResponseWriter, r *http.Request) {
 	h.render(w, "connect.html", map[string]interface{}{
 		"Author":    h.cfg.AuthorName,
@@ -1857,13 +1900,18 @@ func (h *Handler) handleAnswerQuestion(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", 405)
 		return
 	}
-	id := strings.TrimPrefix(r.URL.Path, "/questions/answer/")
-	if id == "" {
-		http.Error(w, "id required", 400)
-		return
-	}
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, err.Error(), 400)
+		return
+	}
+	// Templates send id via hidden form field; legacy routes embed it in
+	// the URL path. Accept either, prefer form (more explicit).
+	id := strings.TrimSpace(r.FormValue("question_id"))
+	if id == "" {
+		id = strings.TrimPrefix(r.URL.Path, "/questions/answer/")
+	}
+	if id == "" {
+		http.Error(w, "id required", 400)
 		return
 	}
 	answer := strings.TrimSpace(r.FormValue("answer"))

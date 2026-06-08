@@ -41,14 +41,7 @@ func TestNoOrphanTemplateRoutes(t *testing.T) {
 	// this map back to empty. Adding a NEW entry without fixing the root
 	// cause is the exact anti-pattern this test exists to prevent.
 	allowedOrphans := map[string]string{
-		// 2026-06-08: discovered when this test was first installed. To be
-		// fixed in the immediate follow-up commit. Listed here so the test
-		// goes green on landing; entries removed alongside each fix.
-		"/api/session/rotate":   "TODO 2026-06-08: dashboard.html + mc.html '↻ rotate now' button has no handler",
-		"/rss.xml":              "TODO 2026-06-08: footer + index.html <link rel=alternate> point at unimplemented feed",
-		"/subscriptions/confirm": "TODO 2026-06-08: subscribe.html form posts to /subscriptions/* but handler is /subscribe/*",
-		"/subscriptions/new":    "TODO 2026-06-08: listings.html '+ subscribe' link uses wrong path",
-		"/questions/answer":     "TODO 2026-06-08: forms POST to /questions/answer but handler registered as /questions/answer/ (trailing slash) — 301 redirect drops POST body in many clients",
+		// none — all 5 initial orphans were resolved on 2026-06-08.
 	}
 
 	var orphans []string
