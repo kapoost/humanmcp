@@ -2173,23 +2173,32 @@ func (h *Handler) handleQuestions(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login", http.StatusFound)
 		return
 	}
+	// Three states the template names directly:
+	//   - Pending   — not yet answered (needs owner's reply)
+	//   - Awaiting  — answered but agent has not fetched the answer yet
+	//   - Picked    — answered AND fetched (delivered, archival)
+	//
+	// Before 2026-06-09 this loop had the variable names swapped against the
+	// template keys: q.IsAwaiting()(=unanswered) was assigned to the "Awaiting"
+	// slot, q.IsPicked()(=answered+unfetched) to the "Picked" slot. UI rendered
+	// unanswered questions as "delivered" and answered ones as "needs answer".
 	all := h.questionStore.List()
-	var pending, picked, awaiting []content.Question
+	var pending, awaiting, picked []content.Question
 	for _, q := range all {
 		switch {
 		case q.IsAwaiting():
-			awaiting = append(awaiting, q)
-		case q.IsPicked():
-			picked = append(picked, q)
-		default:
 			pending = append(pending, q)
+		case q.IsPicked():
+			awaiting = append(awaiting, q)
+		default:
+			picked = append(picked, q)
 		}
 	}
 	h.render(w, "questions.html", map[string]interface{}{
 		"Author":   h.cfg.AuthorName,
+		"Pending":  pending,
 		"Awaiting": awaiting,
 		"Picked":   picked,
-		"Pending":  pending,
 	})
 }
 

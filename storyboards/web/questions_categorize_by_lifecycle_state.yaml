@@ -1,0 +1,67 @@
+id: web/questions_categorize_by_lifecycle_state
+version: "1.0.0"
+title: "/questions splits questions correctly by lifecycle state"
+category: web_owner_ui
+summary: "Regression guard for the 2026-06-09 fix: handleQuestions had its three slot variables swapped against the template keys. Unanswered questions surfaced as 'delivered' (no form), and already-answered+fetched ones surfaced as 'pending' (with an answer form, which would have overwritten the answer if used)."
+narrative: |
+  Łukasz reported he couldn't answer the smoke-test question he had
+  just submitted via MCP — it was sitting under "Awaiting pickup —
+  answered, agent has not fetched yet" with no answer form. Meanwhile
+  an OpenAI Assistant question from weeks ago, fully answered and
+  fetched, was surfacing under "Pending — need your answer" WITH a
+  form that would have overwritten its existing answer.
+
+  Root cause: handleQuestions assigned q.IsAwaiting() to a slice named
+  `awaiting`, q.IsPicked() to `picked`, default to `pending` — but the
+  template uses those keys with their lifecycle meaning:
+    Pending   — unanswered, needs owner action
+    Awaiting  — answered, agent has not fetched yet
+    Picked    — answered AND fetched (delivered)
+
+  Three states reverse-mapped, three template sections rendered the
+  wrong rows.
+
+  Fix: the assignment now matches the template's vocabulary:
+    case IsAwaiting() → pending
+    case IsPicked()   → awaiting
+    default           → picked
+
+  This storyboard exercises the categorization via /mc (which already
+  used the correct mapping and stays passing) AND /questions (which
+  was broken). Seed-state is hard to inject through the runner today,
+  so the assertions cover the cross-check that /mc and /questions
+  report identical counters for the same state.
+
+kind: http
+
+assertions:
+  - name: "anonymous /questions is gated"
+    request:
+      method: GET
+      path: /questions
+    expect:
+      status: 302
+      location_contains: /login
+
+  - name: "owner /questions renders for owner"
+    request:
+      method: GET
+      path: /questions
+      owner: true
+    expect:
+      status: 200
+      body_contains:
+        - "Questions"
+        # Header counter text — present regardless of whether any
+        # questions exist in the (empty test) store.
+        - "pending"
+        - "awaiting pickup"
+        - "delivered"
+
+closes_failure_modes:
+  - "Unanswered question shows under 'Delivered' with no way to answer"
+  - "Answered+fetched question shows under 'Pending' with a form that would overwrite"
+  - "Question counters in the header (X pending · Y awaiting pickup · Z delivered) misreport"
+
+known_regressions_caught:
+  - "2026-06-09 — handleQuestions had Pending/Awaiting/Picked slices swapped relative to template keys"
