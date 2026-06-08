@@ -80,6 +80,7 @@ type Handler struct {
 	statStore     *content.StatStore
 	blobStore     *content.BlobStore
 	questionStore *content.QuestionStore
+	memoryStore   *content.MemoryStore
 	sessions      map[string]time.Time // session ID → expiry time
 
 	mu          sync.Mutex
@@ -95,6 +96,7 @@ func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler
 		statStore:     content.NewStatStore(cfg.ContentDir),
 		blobStore:     content.NewBlobStore(cfg.ContentDir),
 		questionStore: content.NewQuestionStore(cfg.ContentDir),
+		memoryStore:   content.NewMemoryStore(cfg.ContentDir),
 		sessions:      make(map[string]time.Time),
 		rateLimiter:   make(map[string][]time.Time),
 	}
@@ -337,6 +339,23 @@ kapoost writes in the dark. Comments are the only light.`,
 }
 
 func (h *Handler) handleToolsList(w http.ResponseWriter, req *Request) {
+	writeResult(w, req.ID, ToolsListResult{Tools: h.buildTools()})
+}
+
+// ToolNames returns the names of every MCP tool this server exposes. Used
+// by the no_phantom_tools storyboard to verify that every tool mentioned
+// in agent-facing docs (/for-agents page, docs/index.html, etc.) is
+// actually implemented.
+func (h *Handler) ToolNames() []string {
+	tools := h.buildTools()
+	out := make([]string, 0, len(tools))
+	for _, t := range tools {
+		out = append(out, t.Name)
+	}
+	return out
+}
+
+func (h *Handler) buildTools() []Tool {
 	tools := []Tool{
 		{
 			Name:        "get_author_profile",
@@ -541,6 +560,41 @@ func (h *Handler) handleToolsList(w http.ResponseWriter, req *Request) {
 				},
 			},
 		},
+		{
+			Name:        "about_humanmcp",
+			Description: "Self-description of this humanMCP server. Returns author, role, MCP endpoint, public web pages, and a short orientation. Safe to call without bootstrap_session — meant for first-contact discovery.",
+			InputSchema: map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+		},
+		{
+			Name:        "remember",
+			Description: "Store a memory under a session code so a future agent (same code) can recall it. Plain text body, up to 8KB. Use for: observations across conversations, learnings about the user's preferences, ongoing-task context. Requires an active bootstrap_session.",
+			InputSchema: map[string]interface{}{
+				"type":     "object",
+				"required": []string{"text", "code"},
+				"properties": map[string]interface{}{
+					"text": map[string]interface{}{"type": "string", "description": "What to remember. Plain text, max 8000 chars."},
+					"code": map[string]interface{}{"type": "string", "description": "Session code that owns this memory (lets a future agent retrieve it via recall)."},
+					"from": map[string]interface{}{"type": "string", "description": "Optional: agent identity."},
+					"tags": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "Optional: tags for filtering on recall."},
+				},
+			},
+		},
+		{
+			Name:        "recall",
+			Description: "Retrieve memories stored under a session code. Returns newest first. Optional 'query' performs a case-insensitive substring match over body + tags. Use at the start of a new session to pick up where you left off. Requires an active bootstrap_session.",
+			InputSchema: map[string]interface{}{
+				"type":     "object",
+				"required": []string{"code"},
+				"properties": map[string]interface{}{
+					"code":  map[string]interface{}{"type": "string", "description": "Session code that owns the memories to retrieve."},
+					"query": map[string]interface{}{"type": "string", "description": "Optional substring filter (case-insensitive)."},
+					"limit": map[string]interface{}{"type": "integer", "description": "Optional max records (default 50)."},
+				},
+			},
+		},
 	}
 
 	// Team & session tools
@@ -634,8 +688,7 @@ func (h *Handler) handleToolsList(w http.ResponseWriter, req *Request) {
 			},
 		},
 	)
-
-	writeResult(w, req.ID, ToolsListResult{Tools: tools})
+	return tools
 }
 
 func (h *Handler) handleToolsCall(w http.ResponseWriter, r *http.Request, req *Request) {
@@ -678,6 +731,12 @@ func (h *Handler) handleToolsCall(w http.ResponseWriter, r *http.Request, req *R
 		h.toolAskHuman(w, r, req, params.Arguments)
 	case "fetch_answer":
 		h.toolFetchAnswer(w, r, req, params.Arguments)
+	case "about_humanmcp":
+		h.toolAboutHumanmcp(w, req)
+	case "remember":
+		h.toolRemember(w, r, req, params.Arguments)
+	case "recall":
+		h.toolRecall(w, r, req, params.Arguments)
 	case "bootstrap_session":
 		h.toolBootstrapSession(w, r, req, params.Arguments)
 	case "list_personas":
@@ -1127,6 +1186,101 @@ func (h *Handler) toolFetchAnswer(w http.ResponseWriter, r *http.Request, req *R
 	reply := fmt.Sprintf("Answer from kapoost:\n\n%s\n\n— answered at %s",
 		q.Answer, q.AnsweredAt.Format("2 January 2006, 15:04 UTC"))
 	writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: reply}}})
+}
+
+// toolRemember persists a memory under a session code. Session-gated to
+// keep storage contained to known callers.
+func (h *Handler) toolRemember(w http.ResponseWriter, r *http.Request, req *Request, args json.RawMessage) {
+	if !h.isSessionActive(r) {
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
+			Text: "remember requires an active session. Call bootstrap_session first."}}})
+		return
+	}
+	var a struct {
+		Text string   `json:"text"`
+		Code string   `json:"code"`
+		From string   `json:"from"`
+		Tags []string `json:"tags"`
+	}
+	json.Unmarshal(args, &a)
+	m, err := h.memoryStore.Save(a.Code, a.From, a.Text, a.Tags)
+	if err != nil {
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
+			Text: "Could not store memory: " + err.Error()}}})
+		return
+	}
+	reply := fmt.Sprintf("Memory stored.\n\nID: %s\nAt: %s\n\nUse recall(code=%q) in a future session to retrieve.",
+		m.ID, m.CreatedAt.Format("2 January 2006, 15:04 UTC"), a.Code)
+	writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: reply}}})
+}
+
+// toolRecall returns stored memories for the given code, optionally
+// substring-filtered. Session-gated for symmetry with remember.
+func (h *Handler) toolRecall(w http.ResponseWriter, r *http.Request, req *Request, args json.RawMessage) {
+	if !h.isSessionActive(r) {
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
+			Text: "recall requires an active session. Call bootstrap_session first."}}})
+		return
+	}
+	var a struct {
+		Code  string `json:"code"`
+		Query string `json:"query"`
+		Limit int    `json:"limit"`
+	}
+	json.Unmarshal(args, &a)
+	mems, err := h.memoryStore.Recall(a.Code, a.Query, a.Limit)
+	if err != nil {
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
+			Text: "Could not recall: " + err.Error()}}})
+		return
+	}
+	if len(mems) == 0 {
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
+			Text: "No memories under that code (or no match for the query)."}}})
+		return
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d memorie(s):\n\n", len(mems))
+	for _, m := range mems {
+		fmt.Fprintf(&b, "— %s (%s)\n", m.ID, m.CreatedAt.Format("2 January 2006, 15:04 UTC"))
+		if m.From != "" {
+			fmt.Fprintf(&b, "  from: %s\n", m.From)
+		}
+		if len(m.Tags) > 0 {
+			fmt.Fprintf(&b, "  tags: %s\n", strings.Join(m.Tags, ", "))
+		}
+		fmt.Fprintf(&b, "  %s\n\n", m.Body)
+	}
+	writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: b.String()}}})
+}
+
+// toolAboutHumanmcp returns a deterministic self-description of this server.
+// Available without bootstrap_session — this is the discovery handshake an
+// agent reads before it knows whether it cares about the rest of the API.
+func (h *Handler) toolAboutHumanmcp(w http.ResponseWriter, req *Request) {
+	var b strings.Builder
+	fmt.Fprintf(&b, "humanMCP — personal MCP server for %s\n\n", h.cfg.AuthorName)
+	if h.cfg.AuthorBio != "" {
+		fmt.Fprintf(&b, "%s\n\n", h.cfg.AuthorBio)
+	}
+	fmt.Fprintf(&b, "MCP endpoint: https://%s/mcp\n", h.cfg.Domain)
+	fmt.Fprintf(&b, "Web home:     https://%s/\n", h.cfg.Domain)
+	fmt.Fprintf(&b, "For agents:   https://%s/for-agents\n", h.cfg.Domain)
+	fmt.Fprintf(&b, "Connect:      https://%s/connect\n", h.cfg.Domain)
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "How to start:")
+	fmt.Fprintln(&b, "  1. Call get_author_profile to learn who you are talking to")
+	fmt.Fprintln(&b, "  2. Call list_skills to see available context categories")
+	fmt.Fprintln(&b, "  3. Ask the user for the session code (a Polish poetry fragment)")
+	fmt.Fprintln(&b, "  4. Call bootstrap_session(code) for full team + skills")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "Tool families:")
+	fmt.Fprintln(&b, "  - content:   list_content, read_content, get_certificate, verify_content")
+	fmt.Fprintln(&b, "  - access:    request_access, submit_answer, request_license")
+	fmt.Fprintln(&b, "  - feedback:  leave_comment, leave_message")
+	fmt.Fprintln(&b, "  - dialogue:  ask_human, fetch_answer (session-gated)")
+	fmt.Fprintln(&b, "  - team:      list_personas, get_persona, list_skills, get_skill (post-session)")
+	writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: b.String()}}})
 }
 
 func (h *Handler) toolListBlobs(w http.ResponseWriter, req *Request, args json.RawMessage) {

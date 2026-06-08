@@ -1,0 +1,68 @@
+id: web/wellknown_agent_card_serves_a2a
+version: "1.0.0"
+title: "/.well-known/agent.json returns the A2A discovery card"
+category: web_agent_discovery
+summary: "Regression guard for the 2026-06-08 implementation. The /for-agents page advertised /.well-known/agent.json as the Agent Card endpoint but no handler existed."
+narrative: |
+  Skill `a2a-resources-roadmap` lists Agent Card at /.well-known/
+  agent.json as the first step toward A2A integration. The /for-agents
+  HTML page already pointed agents at this URL — but no handler was
+  registered before 2026-06-08, so curl was greeted with 404.
+
+  This storyboard pins the contract:
+    - The endpoint returns 200 with JSON.
+    - The card advertises the MCP endpoint, capabilities (dialogue,
+      memory, content, feedback, licensing, team), and a contact URL.
+    - The JSON parses; the version field is set.
+
+  Capability names are stable identifiers that future A2A clients can
+  query against. Tool names live in the MCP /mcp endpoint, not here —
+  the card describes capability *families*, not individual functions.
+
+kind: http
+
+assertions:
+  - name: "GET returns 200 JSON"
+    request:
+      method: GET
+      path: /.well-known/agent.json
+    expect:
+      status: 200
+      body_contains:
+        - '"name"'
+        - '"capabilities"'
+        - '"endpoints"'
+        - '"mcp"'
+        - '"version"'
+
+  - name: "Card advertises dialogue + memory capabilities"
+    request:
+      method: GET
+      path: /.well-known/agent.json
+    expect:
+      status: 200
+      body_contains:
+        - '"dialogue"'
+        - '"memory"'
+        - '"content"'
+        - '"feedback"'
+        - '"licensing"'
+        - '"team"'
+
+  - name: "Card links contact URL"
+    request:
+      method: GET
+      path: /.well-known/agent.json
+    expect:
+      status: 200
+      body_contains:
+        - '"contact"'
+        - '/contact'
+
+closes_failure_modes:
+  - "Agents follow /for-agents → /.well-known/agent.json and get 404"
+  - "A2A clients can't discover dialogue/memory capability families"
+  - "Discovery JSON breaks (invalid encoding) — silent for the page, fatal for agents"
+
+known_regressions_caught:
+  - "2026-06-08 — Agent Card endpoint had no handler despite being advertised on /for-agents and in the a2a-resources-roadmap skill"

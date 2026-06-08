@@ -12,6 +12,8 @@
 <h2 style="font-size:1.2rem;">Subscribe to Listings</h2>
 <p style="color:var(--muted);font-size:.85rem;margin-bottom:1.5rem;">Get notified when new listings are published that match your filters.</p>
 
+{{if .Error}}<div style="background:#3a0000;border:1px solid #c0392b;border-radius:4px;padding:.6rem .8rem;margin-bottom:1rem;font-size:.85rem;color:#ff8a80;">{{.Error}}</div>{{end}}
+
 <form method="POST" action="/subscribe/confirm" style="max-width:500px;">
   <div style="margin-bottom:1rem;">
     <label style="font-size:.82rem;font-weight:500;display:block;margin-bottom:.3rem;">Channel</label>

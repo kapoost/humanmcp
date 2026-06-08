@@ -1,0 +1,86 @@
+id: web/subscribe_confirm_persists_subscription
+version: "1.0.0"
+title: "POST /subscribe/confirm persists the opt-in; same payload is idempotent"
+category: web_public
+summary: "Regression guard for the 2026-06-08 fix: handleSubscribeConfirm used to render a thanks page without storing anything. The form was a fully-functional UI in front of a silent void."
+narrative: |
+  Before 2026-06-08 both handleSubscribeForm and handleSubscribeConfirm
+  were single-line h.render() calls. Anyone visiting /subscribe filled
+  the channel + filters + URL, clicked Subscribe, saw a "Subscribed!"
+  confirmation page — and nothing landed on disk. Every notification
+  was a phantom contract.
+
+  The fix introduces content.SubscriptionStore (file-based, mirrors the
+  Listing / Question patterns) with a stable ID derived from a hash of
+  channel+url+filters so a re-submit of the same opt-in updates in
+  place rather than duplicating.
+
+  This storyboard locks the persistence half. The notifier (loop that
+  actually delivers webhooks or pushes via MCP) is a separate concern;
+  this just guarantees the opt-in record is durable.
+
+kind: http
+
+assertions:
+  - name: "POST /subscribe/confirm with webhook persists"
+    request:
+      method: POST
+      path: /subscribe/confirm
+      form:
+        channel: webhook
+        callback_url: "https://example.com/hook"
+        filter_tags: "sailing, s2000"
+    expect:
+      status: 200
+      body_contains:
+        - "Subscribed"
+
+  - name: "POST with mcp channel works without callback_url"
+    request:
+      method: POST
+      path: /subscribe/confirm
+      form:
+        channel: mcp
+        filter_tags: "poems"
+    expect:
+      status: 200
+      body_contains:
+        - "Subscribed"
+
+  - name: "POST with invalid channel is rejected"
+    request:
+      method: POST
+      path: /subscribe/confirm
+      form:
+        channel: telepathy
+    expect:
+      status: 200
+      body_contains:
+        - "channel must be"
+
+  - name: "POST with webhook channel but no URL is rejected"
+    request:
+      method: POST
+      path: /subscribe/confirm
+      form:
+        channel: webhook
+    expect:
+      status: 200
+      body_contains:
+        - "callback_url"
+
+  - name: "GET /subscribe/confirm (no payload) redirects to the form"
+    request:
+      method: GET
+      path: /subscribe/confirm
+    expect:
+      status: 303
+      location_contains: /subscribe
+
+closes_failure_modes:
+  - "Subscribe form pretends to succeed while writing nothing to disk"
+  - "Channel value not validated — typos persisted as 'subscriptions'"
+  - "Webhook channel persisted without a destination URL"
+
+known_regressions_caught:
+  - "2026-06-08 — handleSubscribeConfirm rendered a thanks page with zero persistence"

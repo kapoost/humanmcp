@@ -26,7 +26,7 @@ humanMCP lets you publish poems, essays, notes, images, and typed data artifacts
 
 Or find it on the [Official MCP Registry](https://registry.modelcontextprotocol.io/?search=kapoost).
 
-## MCP Tools (21)
+## MCP Tools (24)
 
 ### Content & IP
 
@@ -44,6 +44,8 @@ Or find it on the [Official MCP Registry](https://registry.modelcontextprotocol.
 | `request_license` | Declare intended use, get terms, logged for audit | `request_license {slug: "deka-log", intended_use: "quote in essay", caller_id: "claude"}` |
 | `leave_comment` | Leave a reaction — visible in author dashboard | `leave_comment {slug: "deka-log", text: "mathematics as poetry", from: "claude"}` |
 | `leave_message` | Send a direct note (max 2000 chars, URLs welcome) | `leave_message {text: "...", from: "claude"}` |
+| `ask_human` | Ask kapoost a question requiring human judgement (returns id; poll `fetch_answer`). Session-gated. | `ask_human {question: "Czy mogę cytować deka-log w eseju?", context: "academic"}` |
+| `fetch_answer` | Retrieve kapoost's answer to a previous `ask_human`. Session-gated. | `fetch_answer {id: "20260608-2147-czy-moge"}` |
 
 ### Personas, Skills & Memory
 
@@ -54,26 +56,56 @@ Or find it on the [Official MCP Registry](https://registry.modelcontextprotocol.
 | `get_persona` | Read full persona prompt and configuration | `get_persona {slug: "ghost"}` |
 | `list_skills` | Browse stored expertise catalog | `list_skills {}` |
 | `get_skill` | Read a skill — detailed instructions for agents | `get_skill {slug: "mysloodsiewnia-architecture"}` |
-| `query_vault` | Full-text search across the local knowledge vault | `query_vault {query: "auth tokens"}` |
-| `remember` | Store a memory — persists across conversations | `remember {text: "prefers terse responses"}` |
-| `recall` | Retrieve stored memories by keyword | `recall {query: "preferences"}` |
+| `upsert_skill` | Create or update a skill. Requires agent token. | `upsert_skill {slug: "...", category: "...", title: "...", body: "..."}` |
+| `delete_skill` | Remove a skill by slug. Requires agent token. | `delete_skill {slug: "..."}` |
+| `remember` | Store a memory under a session code (8KB/record). Session-gated. | `remember {text: "prefers terse responses", code: "<session>"}` |
+| `recall` | Retrieve memories by session code, optional substring filter. Session-gated. | `recall {code: "<session>", query: "prefs"}` |
+| `about_humanmcp` | Server self-description — endpoints, capabilities, first-contact orientation. | `about_humanmcp {}` |
 | `about_humanmcp` | Server self-description for agent orientation | `about_humanmcp {}` |
 
 ## Web routes
 
+### Public
 | Route | Description |
 |---|---|
-| `/` | Post list |
-| `/p/:slug` | Read a piece |
-| `/images` | Image gallery (grid view, human-friendly) |
-| `/files/:filename` | Raw file serving for images |
-| `/connect` | MCP connection instructions |
-| `/contact` | Public contact form |
-| `/dashboard` | Owner stats (private) |
-| `/new` | Create/upload content (private) |
-| `/robots.txt` | SEO — crawl rules + sitemap link |
+| `/` | Home — list of pieces grouped by section, featured latest poem |
+| `/p/:slug` | Read a piece (respects access gates) |
+| `/p/:slug/translation/:lang` | Pre-rendered translation page |
+| `/artworks` / `/artworks/:slug` | Artwork detail with provenance |
+| `/images` | Image gallery (grid view) |
+| `/gallery` | Alternate gallery layout |
+| `/files/:filename` | Raw file serving for images and blobs |
+| `/listings` / `/listings/:slug` | Listings stall + detail (sell/buy/offer/request/trade) |
+| `/connect` | MCP connection instructions for agents |
+| `/contact` | Public contact form (accepts `?regarding=<slug>` deep-links) |
+| `/subscribe` / `/subscribe/confirm` | Subscribe to new listings (webhook or MCP channel) |
+| `/team` / `/personas` | AI team roster |
+| `/skills` | Skill catalog |
+| `/for-agents` | Onboarding page for AI agents |
+| `/rss.xml` | RSS 2.0 feed of public pieces |
 | `/sitemap.xml` | All public pieces with lastmod |
+| `/robots.txt` | SEO — crawl rules + sitemap link |
+| `/stats` | Public read counters |
+| `/llms.txt` | Plain-text overview for LLM clients |
 | `/.well-known/mcp-server.json` | MCP server discovery (registry schema) |
+| `/.well-known/agent.json` | A2A agent card |
+
+### Owner-only (auth: `EDIT_TOKEN`)
+| Route | Description |
+|---|---|
+| `/dashboard` | Stats + session code + message inbox |
+| `/mc` | Mission Control (extended dashboard with windowed stats) |
+| `/messages` | Inbox of submitted contact-form messages |
+| `/new` | Create a new piece |
+| `/edit/:slug` | Edit an existing piece |
+| `/delete/:slug` | Delete a piece (POST) |
+| `/listings/new` / `/listings/edit/:slug` / `/listings/delete/:slug` | Listing CRUD |
+| `/timestamp/:slug` | OpenTimestamps stamp / upgrade (single piece) |
+| `/timestamp-all` | Bulk-stamp every signed piece |
+| `/questions` / `/questions/answer` | Inbox of `ask_human` questions + answer form |
+| `/upload` | Blob upload (images, contacts, datasets) |
+| `/llms-edit` | Edit the custom llms.txt |
+| `/api/content`, `/api/content/`, `/api/skills`, `/api/blobs`, `/api/messages/` | Owner JSON APIs |
 
 ## Content types
 

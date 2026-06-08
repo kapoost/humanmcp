@@ -26,9 +26,10 @@ type Handler struct {
 	auth         *auth.Auth
 	msgStore     *content.MessageStore
 	statStore    *content.StatStore
-	blobStore    *content.BlobStore
-	listingStore *content.ListingStore
-	questionStore *content.QuestionStore
+	blobStore         *content.BlobStore
+	listingStore      *content.ListingStore
+	questionStore     *content.QuestionStore
+	subscriptionStore *content.SubscriptionStore
 	signingKey   *content.KeyPair
 	tmpl         *template.Template
 	startedAt    time.Time
@@ -42,8 +43,9 @@ func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler
 		msgStore:      content.NewMessageStore(cfg.ContentDir),
 		statStore:     content.NewStatStore(cfg.ContentDir),
 		blobStore:     content.NewBlobStore(cfg.ContentDir),
-		listingStore:  content.NewListingStore(cfg.ContentDir),
-		questionStore: content.NewQuestionStore(cfg.ContentDir),
+		listingStore:      content.NewListingStore(cfg.ContentDir),
+		questionStore:     content.NewQuestionStore(cfg.ContentDir),
+		subscriptionStore: content.NewSubscriptionStore(cfg.ContentDir),
 		startedAt:     time.Now(),
 	}
 	if cfg.SigningPrivateKey != "" {
@@ -170,6 +172,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 	// Well-known MCP discovery
 	mux.HandleFunc("/.well-known/mcp-server.json", h.handleWellKnown)
+	mux.HandleFunc("/.well-known/agent.json", h.handleAgentCard)
 
 	// Dashboard (owner only)
 	mux.Handle("/dashboard", h.auth.RequireOwner(http.HandlerFunc(h.handleDashboard)))
@@ -632,22 +635,24 @@ func (h *Handler) handleDashboard(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now()
 	activePoem, _ := h.cfg.PickActivePoem(now)
-	minutesLeft := 60 - now.Minute()
+	// SessionExp = top of the next hour. Matches PickActivePoem's
+	// hourKey divisor (3600 seconds) — copy on the page must agree.
+	sessionExp := now.Truncate(time.Hour).Add(time.Hour)
 
 	view := h.buildEnrichedStats(stats, len(pieces), len(listings))
 
 	h.render(w, "dashboard.html", map[string]interface{}{
-		"Author":        h.cfg.AuthorName,
-		"IsOwner":       true,
-		"Stats":         view,
-		"Pieces":        pieces,
-		"Messages":      msgs,
-		"Listings":      listings,
-		"PieceCount":    len(pieces),
-		"ActivePoem":    activePoem,
-		"PoemExpiresIn": minutesLeft,
-		"SkillCount":    view.SkillCount,
-		"PersonaCount":  view.PersonaCount,
+		"Author":       h.cfg.AuthorName,
+		"IsOwner":      true,
+		"Stats":        view,
+		"Pieces":       pieces,
+		"Messages":     msgs,
+		"Listings":     listings,
+		"PieceCount":   len(pieces),
+		"SessionCode":  activePoem,
+		"SessionExp":   sessionExp,
+		"SkillCount":   view.SkillCount,
+		"PersonaCount": view.PersonaCount,
 	})
 }
 
@@ -1162,6 +1167,40 @@ func (h *Handler) handleSitemap(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	fmt.Fprintf(w, "</urlset>\n")
+}
+
+// handleAgentCard serves the A2A (Agent-to-Agent) discovery document.
+// Spec reference: github.com/google/A2A. Capabilities advertise the
+// dialogue + memory features that distinguish humanMCP from a generic
+// MCP server; the MCP endpoint itself stays the source of truth for
+// the tool list.
+func (h *Handler) handleAgentCard(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	card := map[string]interface{}{
+		"$schema":     "https://a2aproject.github.io/A2A/schemas/agent-card.json",
+		"name":        h.cfg.AuthorName,
+		"description": h.cfg.AuthorBio,
+		"version":     "0.1.0",
+		"url":         "https://" + h.cfg.Domain,
+		"endpoints": map[string]interface{}{
+			"mcp":     "https://" + h.cfg.Domain + "/mcp",
+			"discovery": "https://" + h.cfg.Domain + "/.well-known/mcp-server.json",
+		},
+		"capabilities": []map[string]interface{}{
+			{"name": "content", "description": "Public pieces (poems, essays) with Ed25519 signatures and optional OpenTimestamps anchoring."},
+			{"name": "dialogue", "description": "ask_human / fetch_answer — submit a question, retrieve human-authored answer asynchronously."},
+			{"name": "memory", "description": "remember / recall — persist agent observations across sessions, scoped to a session code."},
+			{"name": "feedback", "description": "leave_comment / leave_message — surface reactions and messages to the author dashboard."},
+			{"name": "licensing", "description": "request_license — declare intended use, receive terms, audit-logged."},
+			{"name": "team", "description": "list_personas / get_persona / list_skills / get_skill — expert personas and instruction skills (post-session)."},
+		},
+		"contact": map[string]interface{}{
+			"web":  "https://" + h.cfg.Domain + "/contact",
+			"form": "https://" + h.cfg.Domain + "/connect",
+		},
+	}
+	json.NewEncoder(w).Encode(card)
 }
 
 // handleRSS serves an RSS 2.0 feed of public pieces in reverse-chronological
@@ -1992,9 +2031,40 @@ func (h *Handler) handleSubscribeForm(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleSubscribeConfirm(w http.ResponseWriter, r *http.Request) {
+	// POST = persist a new subscription. GET = the legacy "thanks" page;
+	// without a record id it has nothing meaningful to confirm, so we
+	// redirect back to the form.
+	if r.Method != http.MethodPost {
+		http.Redirect(w, r, "/subscribe", http.StatusSeeOther)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	sub := content.Subscription{
+		Channel:     strings.TrimSpace(r.FormValue("channel")),
+		CallbackURL: strings.TrimSpace(r.FormValue("callback_url")),
+		FilterTypes: r.Form["filter_types"],
+		FilterTags:  splitTags(r.FormValue("filter_tags")),
+	}
+	saved, err := h.subscriptionStore.Save(sub)
+	if err != nil {
+		h.render(w, "subscribe.html", map[string]interface{}{
+			"Author": h.cfg.AuthorName,
+			"Error":  err.Error(),
+		})
+		return
+	}
+	h.statStore.Record(content.Event{
+		Type:   content.EventMessage,
+		Caller: content.CallerHuman,
+		UA:     r.Header.Get("User-Agent"),
+	})
 	h.render(w, "subscribe-confirm.html", map[string]interface{}{
-		"Author": h.cfg.AuthorName,
-		"Domain": h.cfg.Domain,
+		"Author":       h.cfg.AuthorName,
+		"Domain":       h.cfg.Domain,
+		"Subscription": saved,
 	})
 }
 

@@ -36,6 +36,12 @@ func runHTTP(t *testing.T, sb Storyboard) {
 		ContentDir: contentDir,
 		AuthorName: "Storyboard",
 		EditToken:  testEditToken,
+		// Provide deterministic PoetPool + PoetSecret so PickActivePoem
+		// returns a non-empty session code in tests. Without this, the
+		// owner dashboards skip the "session" section entirely and
+		// storyboards targeting that surface render nothing.
+		PoetPool:   []string{"jeszcze polska nie zginęła"},
+		PoetSecret: "storyboard-poet-secret",
 	}
 	store := content.NewStore(contentDir)
 	_ = store.Load()
