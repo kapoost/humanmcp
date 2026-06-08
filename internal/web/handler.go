@@ -376,6 +376,36 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// pieceFromBlob looks up an image blob by slug and returns a synthetic
+// Piece that piece.html can render via its existing image branch. Only
+// public image-type blobs qualify — non-public blobs stay invisible to
+// anonymous traffic. Returns (nil, false) when no matching blob exists.
+func (h *Handler) pieceFromBlob(slug string) (*content.Piece, bool) {
+	b, err := h.blobStore.Get(slug)
+	if err != nil || b == nil {
+		return nil, false
+	}
+	if string(b.BlobType) != "image" || b.FileRef == "" {
+		return nil, false
+	}
+	if b.Access != content.AccessPublic && !h.auth.IsOwner(nil) {
+		// Defensive — handler will re-check on a real request, but a
+		// blob without public access shouldn't even appear here.
+		return nil, false
+	}
+	return &content.Piece{
+		Slug:      b.Slug,
+		Title:     b.Title,
+		Type:      "image",
+		Access:    content.AccessLevel(b.Access),
+		Body:      b.TextData, // optional caption
+		Signature: b.Signature,
+		Published: b.Published,
+		Tags:      b.Tags,
+		FileRef:   b.FileRef,
+	}, true
+}
+
 // buildBlobImageMap returns slug -> URL for all image-type blobs.
 // Used by templates that need {{index $.BlobImageMap .Slug}}.
 func (h *Handler) buildBlobImageMap() map[string]string {
@@ -432,8 +462,17 @@ func (h *Handler) handlePiece(w http.ResponseWriter, r *http.Request) {
 	isOwner := h.auth.IsOwner(r)
 	p, err := h.store.Get(slug, isOwner)
 	if err != nil {
-		http.NotFound(w, r)
-		return
+		// Fallback: the slug might address an image blob, not a piece.
+		// /images and the gallery section on / link image blobs via /p/<slug>
+		// — without this fallback those links 404. Build a synthetic Piece
+		// from the blob so piece.html's existing image branch can render
+		// it with full meta (signature, license, ots).
+		if syn, ok := h.pieceFromBlob(slug); ok {
+			p = syn
+		} else {
+			http.NotFound(w, r)
+			return
+		}
 	}
 
 	if p.Access == content.AccessPublic && !isOwner {
