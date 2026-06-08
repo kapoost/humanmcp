@@ -1,0 +1,82 @@
+id: web/piece_slug_normalizes_and_legacy_redirects
+version: "1.0.0"
+title: "/p/<slug> redirects on whitespace-decoded slugs and known legacy renames"
+category: web_routing
+summary: "Two regression guards in one storyboard: (1) URL-decoded space in a slug (e.g. /p/private%20parts) 301-redirects to the hyphenated canonical; (2) explicitly mapped legacy slugs (e.g. an old timestamp suffix on dziewczyny-nie-warto) 301-redirect to the current piece."
+narrative: |
+  The 2026-06-08 stats-vs-files audit surfaced two specific failure
+  modes for /p/<slug>:
+
+  (a) /p/private%20parts — browser decoded the URL into "private parts"
+      with a literal space. handlePiece treated the space as part of
+      the slug, looked for content/private parts.md, missed, and 404'd.
+      The piece on disk is private-parts.md.
+
+  (b) /p/dziewczyny-nie-warto-1777362558 — stale URL using a previous
+      timestamp suffix. The piece was re-saved with a different unix
+      timestamp suffix (-1777359810) but external links still hit the
+      old one.
+
+  Two fixes, both 301 (Moved Permanently) so bookmarks and search
+  indexes update on next refresh:
+
+  1. normalizeSlug runs before lookup and collapses whitespace+runs of
+     hyphens, lowercases, and trims. If the result differs from the
+     incoming slug, redirect to /p/<normalized>. Translation suffix
+     (/translation/en) and query string are preserved.
+
+  2. legacyPieceRedirects is a small map of stale-slug → current-slug.
+     One entry today; add more as audits surface them.
+
+kind: http
+
+assertions:
+  - name: "slug with literal space redirects to hyphenated form"
+    request:
+      method: GET
+      path: "/p/private parts"
+    expect:
+      status: 301
+      location_contains: "/p/private-parts"
+
+  - name: "slug with mixed case redirects to lowercase form"
+    request:
+      method: GET
+      path: /p/PRIVATE-PARTS
+    expect:
+      status: 301
+      location_contains: "/p/private-parts"
+
+  - name: "legacy timestamp slug redirects to current"
+    request:
+      method: GET
+      path: /p/dziewczyny-nie-warto-1777362558
+    expect:
+      status: 301
+      location_contains: /p/dziewczyny-nie-warto-1777359810
+
+  - name: "already-canonical slug is not redirected (no infinite loop)"
+    request:
+      method: GET
+      path: /p/clean-canonical-slug-that-doesnt-exist
+    expect:
+      # No matching piece, no matching blob, no matching persona —
+      # the original 404 still emits.
+      status: 404
+
+  - name: "double-hyphens collapse to single"
+    request:
+      method: GET
+      path: /p/foo--bar
+    expect:
+      status: 301
+      location_contains: /p/foo-bar
+
+closes_failure_modes:
+  - "URL-decoded space in slug silently 404s"
+  - "Stale bookmark/search-index URL after a slug rename serves 404 forever"
+  - "Slug normalizer accidentally redirects a clean slug → infinite loop"
+  - "Redirect drops translation suffix (/translation/en) or query string"
+
+known_regressions_caught:
+  - "2026-06-08 — /p/private parts and /p/dziewczyny-nie-warto-1777362558 both 404'd despite the content existing"

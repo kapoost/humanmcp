@@ -427,10 +427,86 @@ func (h *Handler) buildBlobImageMap() map[string]string {
 	return m
 }
 
+// legacyPieceRedirects maps obsolete /p/<slug> URLs to the current
+// canonical slug. Used when a piece was renamed (timestamp suffix change,
+// frontmatter slug edit, etc.) but stale links / search-engine indexes
+// keep hitting the old URL.
+//
+// Entries documented inline. Add a new entry when the audit on /mc or
+// stats reveals a missing piece slug.
+var legacyPieceRedirects = map[string]string{
+	// 2026-06-08 audit: stats has reads for an older timestamp suffix of
+	// "dziewczyny nie warto" — actual piece on disk uses -1777359810.
+	"dziewczyny-nie-warto-1777362558": "dziewczyny-nie-warto-1777359810",
+}
+
+// normalizeSlug collapses URL-decoded whitespace into single hyphens and
+// lowercases the result. /p/private%20parts → "private parts" → "private-parts".
+func normalizeSlug(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return s
+	}
+	// Replace runs of whitespace with a single hyphen, then collapse runs
+	// of hyphens. Lowercase last so the canonical slug matches the on-disk
+	// filename convention.
+	out := make([]rune, 0, len(s))
+	prevHyphen := false
+	for _, r := range s {
+		switch {
+		case r == ' ' || r == '\t' || r == '\n' || r == '\r':
+			if !prevHyphen {
+				out = append(out, '-')
+				prevHyphen = true
+			}
+		case r == '-':
+			if !prevHyphen {
+				out = append(out, '-')
+				prevHyphen = true
+			}
+		default:
+			out = append(out, r)
+			prevHyphen = false
+		}
+	}
+	return strings.ToLower(strings.Trim(string(out), "-"))
+}
+
 func (h *Handler) handlePiece(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/p/")
 	if path == "" {
 		http.Redirect(w, r, "/", http.StatusFound)
+		return
+	}
+
+	// Slug normalization — handle URL-decoded spaces and case drift.
+	// Run BEFORE translation routing so e.g. /p/Private%20Parts/translation/en
+	// redirects to /p/private-parts/translation/en.
+	if norm := normalizeSlug(strings.SplitN(path, "/translation/", 2)[0]); norm != "" {
+		bare := strings.SplitN(path, "/translation/", 2)[0]
+		if norm != bare {
+			target := "/p/" + norm
+			if i := strings.Index(path, "/translation/"); i >= 0 {
+				target += path[i:]
+			}
+			if q := r.URL.RawQuery; q != "" {
+				target += "?" + q
+			}
+			http.Redirect(w, r, target, http.StatusMovedPermanently)
+			return
+		}
+	}
+
+	// Legacy slug rename → 301 to current.
+	if canonical, ok := legacyPieceRedirects[strings.SplitN(path, "/translation/", 2)[0]]; ok {
+		target := "/p/" + canonical
+		if i := strings.Index(path, "/translation/"); i >= 0 {
+			target += path[i:]
+		}
+		if q := r.URL.RawQuery; q != "" {
+			target += "?" + q
+		}
+		http.Redirect(w, r, target, http.StatusMovedPermanently)
 		return
 	}
 
