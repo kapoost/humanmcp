@@ -135,6 +135,67 @@ func parseTimestamp(s string) time.Time {
 	return time.Time{}
 }
 
+// Create persists a new question from an agent. ID is generated from the
+// asked-at timestamp plus a short slug of the question text so it's both
+// time-sortable and human-recognisable in /questions and /mc.
+func (s *QuestionStore) Create(from, context, question string) (Question, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().UTC()
+	q := Question{
+		ID:       generateQuestionID(now, question),
+		AskedAt:  now,
+		From:     strings.TrimSpace(from),
+		Context:  strings.TrimSpace(context),
+		Question: strings.TrimSpace(question),
+	}
+	if q.Question == "" {
+		return Question{}, fmt.Errorf("question text required")
+	}
+	if err := s.save(q); err != nil {
+		return Question{}, err
+	}
+	return q, nil
+}
+
+// generateQuestionID produces a sortable, mostly-unique id like
+// "20260608-2147-czy-mozesz-pomoc". Same-minute collisions get a -2/-3
+// suffix only if a file already exists.
+func generateQuestionID(t time.Time, question string) string {
+	stamp := t.Format("20060102-1504")
+	slug := slugifyForID(question)
+	if slug == "" {
+		return stamp
+	}
+	return stamp + "-" + slug
+}
+
+func slugifyForID(s string) string {
+	s = strings.ToLower(s)
+	var b strings.Builder
+	prev := false
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			prev = false
+		case r >= 'A' && r <= 'Z':
+			b.WriteRune(r + 32)
+			prev = false
+		default:
+			if !prev {
+				b.WriteRune('-')
+				prev = true
+			}
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	if len(out) > 40 {
+		out = strings.TrimRight(out[:40], "-")
+	}
+	return out
+}
+
 func (s *QuestionStore) Answer(id, answer string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

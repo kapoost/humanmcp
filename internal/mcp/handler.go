@@ -73,13 +73,14 @@ type Skill struct {
 }
 
 type Handler struct {
-	cfg       *config.Config
-	store     *content.Store
-	auth      *auth.Auth
-	msgStore  *content.MessageStore
-	statStore *content.StatStore
-	blobStore *content.BlobStore
-	sessions  map[string]time.Time // session ID → expiry time
+	cfg           *config.Config
+	store         *content.Store
+	auth          *auth.Auth
+	msgStore      *content.MessageStore
+	statStore     *content.StatStore
+	blobStore     *content.BlobStore
+	questionStore *content.QuestionStore
+	sessions      map[string]time.Time // session ID → expiry time
 
 	mu          sync.Mutex
 	rateLimiter map[string][]time.Time // IP → attempt timestamps (sliding window)
@@ -87,14 +88,15 @@ type Handler struct {
 
 func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler {
 	h := &Handler{
-		cfg:         cfg,
-		store:       store,
-		auth:        a,
-		msgStore:    content.NewMessageStore(cfg.ContentDir),
-		statStore:   content.NewStatStore(cfg.ContentDir),
-		blobStore:   content.NewBlobStore(cfg.ContentDir),
-		sessions:    make(map[string]time.Time),
-		rateLimiter: make(map[string][]time.Time),
+		cfg:           cfg,
+		store:         store,
+		auth:          a,
+		msgStore:      content.NewMessageStore(cfg.ContentDir),
+		statStore:     content.NewStatStore(cfg.ContentDir),
+		blobStore:     content.NewBlobStore(cfg.ContentDir),
+		questionStore: content.NewQuestionStore(cfg.ContentDir),
+		sessions:      make(map[string]time.Time),
+		rateLimiter:   make(map[string][]time.Time),
 	}
 	// Cleanup goroutines
 	go h.cleanupLoop()
@@ -515,6 +517,30 @@ func (h *Handler) handleToolsList(w http.ResponseWriter, req *Request) {
 				},
 			},
 		},
+		{
+			Name:        "ask_human",
+			Description: "Ask kapoost a question that requires human judgement. Returns an ID — poll fetch_answer(id) later to retrieve the response. Use sparingly: only when the answer materially affects your task and is not derivable from the content. Examples: 'czy moge cytowac ten wiersz w komercyjnej publikacji?' / 'co inspirowalo metafore w Y?'. Max 1000 chars in question, max 500 in context. Requires an active bootstrap_session.",
+			InputSchema: map[string]interface{}{
+				"type":     "object",
+				"required": []string{"question"},
+				"properties": map[string]interface{}{
+					"question": map[string]interface{}{"type": "string", "description": "The question for kapoost. Plain text, max 1000 chars."},
+					"context":  map[string]interface{}{"type": "string", "description": "Optional: short reason why you're asking (e.g. piece slug, task)."},
+					"from":     map[string]interface{}{"type": "string", "description": "Optional: agent identity (e.g. claude-code, gpt-4o). Max 64 chars."},
+				},
+			},
+		},
+		{
+			Name:        "fetch_answer",
+			Description: "Retrieve the answer to a previously-submitted ask_human question. Returns the answer text if kapoost has answered, or 'still awaiting' if not. Marks the question as fetched on first successful retrieval. Requires an active bootstrap_session.",
+			InputSchema: map[string]interface{}{
+				"type":     "object",
+				"required": []string{"id"},
+				"properties": map[string]interface{}{
+					"id": map[string]interface{}{"type": "string", "description": "Question ID returned by ask_human."},
+				},
+			},
+		},
 	}
 
 	// Team & session tools
@@ -648,6 +674,10 @@ func (h *Handler) handleToolsCall(w http.ResponseWriter, r *http.Request, req *R
 		h.toolLeaveComment(w, req, params.Arguments)
 	case "leave_message":
 		h.toolLeaveMessage(w, req, params.Arguments)
+	case "ask_human":
+		h.toolAskHuman(w, r, req, params.Arguments)
+	case "fetch_answer":
+		h.toolFetchAnswer(w, r, req, params.Arguments)
 	case "bootstrap_session":
 		h.toolBootstrapSession(w, r, req, params.Arguments)
 	case "list_personas":
@@ -1018,6 +1048,84 @@ func (h *Handler) toolLeaveMessage(w http.ResponseWriter, req *Request, args jso
 
 	reply := fmt.Sprintf("Message received. Thanks for writing.\n\nSent at: %s\nID: %s",
 		m.At.Format("2 January 2006, 15:04 UTC"), m.ID)
+	writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: reply}}})
+}
+
+// toolAskHuman creates a Question in the questionStore that kapoost will see
+// on /questions. Returns the id so the caller can poll fetch_answer later.
+// Gated by bootstrap_session to prevent drive-by question floods.
+func (h *Handler) toolAskHuman(w http.ResponseWriter, r *http.Request, req *Request, args json.RawMessage) {
+	if !h.isSessionActive(r) {
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
+			Text: "ask_human requires an active session. Call bootstrap_session first."}}})
+		return
+	}
+	var a struct {
+		Question string `json:"question"`
+		Context  string `json:"context"`
+		From     string `json:"from"`
+	}
+	json.Unmarshal(args, &a)
+	if len(a.Question) > 1000 {
+		a.Question = a.Question[:1000]
+	}
+	if len(a.Context) > 500 {
+		a.Context = a.Context[:500]
+	}
+	if len(a.From) > 64 {
+		a.From = a.From[:64]
+	}
+	q, err := h.questionStore.Create(a.From, a.Context, a.Question)
+	if err != nil {
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
+			Text: "Could not create question: " + err.Error()}}})
+		return
+	}
+	h.statStore.Record(content.Event{
+		Type:   content.EventMessage,
+		Caller: content.CallerAgent,
+		From:   a.From,
+	})
+	reply := fmt.Sprintf("Question submitted. kapoost will see it on /questions.\n\nID: %s\nAsked at: %s\n\nPoll fetch_answer(id=%q) to retrieve the response.",
+		q.ID, q.AskedAt.Format("2 January 2006, 15:04 UTC"), q.ID)
+	writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: reply}}})
+}
+
+// toolFetchAnswer returns the answer to a previously-asked question, or a
+// hint that it's still awaiting. Marks the question as fetched the first
+// time an answer is returned so kapoost can see "agent picked this up" on
+// /questions and /mc.
+func (h *Handler) toolFetchAnswer(w http.ResponseWriter, r *http.Request, req *Request, args json.RawMessage) {
+	if !h.isSessionActive(r) {
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
+			Text: "fetch_answer requires an active session. Call bootstrap_session first."}}})
+		return
+	}
+	var a struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(args, &a)
+	if a.ID == "" {
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: "id required"}}})
+		return
+	}
+	q, err := h.questionStore.Get(a.ID)
+	if err != nil {
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
+			Text: "No question with that ID. Check the id from ask_human's response."}}})
+		return
+	}
+	if !q.IsAnswered() {
+		reply := fmt.Sprintf("Still awaiting kapoost's answer.\n\nID: %s\nAsked: %s\nQuestion: %s",
+			q.ID, q.AskedAt.Format("2 January 2006, 15:04 UTC"), q.Question)
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: reply}}})
+		return
+	}
+	if !q.IsFetched() {
+		_ = h.questionStore.MarkFetched(q.ID, "agent")
+	}
+	reply := fmt.Sprintf("Answer from kapoost:\n\n%s\n\n— answered at %s",
+		q.Answer, q.AnsweredAt.Format("2 January 2006, 15:04 UTC"))
 	writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: reply}}})
 }
 
