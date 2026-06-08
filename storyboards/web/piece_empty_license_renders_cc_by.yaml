@@ -1,0 +1,56 @@
+id: web/piece_empty_license_renders_cc_by
+version: "1.0.0"
+title: "Piece with no explicit license renders 'CC BY' on the page"
+category: web_licensing
+summary: "Locks the 2026-06-08 default: when a piece carries no `license:` field, the template renders 'CC BY — free use with attribution' instead of the older 'free — read & share with credit' slang that had no formal legal meaning."
+narrative: |
+  Pre-fix the license row fell through to:
+
+      free — read & share with credit
+
+  Comfortable copy, no actual license. An agent reading get_certificate
+  saw an empty License field and could plausibly interpret as "no
+  restrictions". The author had no formal handle to require attribution.
+
+  Fix:
+    - content.BuildCopyright maps empty License → LicenseCCBY before
+      the certificate is built.
+    - toolRequestLicense (MCP) maps empty → LicenseCCBY before printing
+      terms.
+    - piece.html template fallback now reads 'CC BY — free use with
+      attribution'.
+
+  This storyboard locks the template branch. The Go test
+  TestEveryLicenseImpliesAttribution and TestRequestLicense (downstream)
+  cover the certificate + MCP sides.
+
+kind: http
+
+setup:
+  pieces:
+    - slug: no-license-field
+      title: "No license"
+      type: poem
+      body: "should default to CC BY"
+
+assertions:
+  - name: "empty-license piece renders 'CC BY' copy"
+    request:
+      method: GET
+      path: /p/no-license-field
+    expect:
+      status: 200
+      body_contains:
+        - "CC BY — free use with attribution"
+      body_does_not_contain:
+        # The old fallback slang has no legal meaning and must not return.
+        - "free — read &amp; share with credit"
+        - "free — read & share with credit"
+
+closes_failure_modes:
+  - "Piece without an explicit license renders a non-license string ('free')"
+  - "Author has no formal handle to require attribution on un-tagged pieces"
+  - "Agent reading certificate sees empty license field and assumes 'no restrictions'"
+
+known_regressions_caught:
+  - "2026-06-08 — license audit (decision B in the narada)"

@@ -1442,7 +1442,9 @@ func (h *Handler) toolRequestLicense(w http.ResponseWriter, req *Request, args j
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("LICENSE TERMS: %q\n\n", p.Title))
 	license := content.LicenseType(p.License)
-	if license == "" { license = content.LicenseFree }
+	if license == "" {
+		license = content.LicenseCCBY
+	}
 	sb.WriteString(fmt.Sprintf("License:       %s\n", license))
 	if p.PriceSats > 0 {
 		sb.WriteString(fmt.Sprintf("Price:         %d sats\n", p.PriceSats))

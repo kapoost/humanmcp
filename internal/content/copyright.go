@@ -16,11 +16,39 @@ type LicenseType string
 const (
 	LicenseFree       LicenseType = "free"        // read, share, attribute — no commercial use
 	LicenseCCBY       LicenseType = "cc-by"        // Creative Commons Attribution 4.0
+	LicenseCCBYSA     LicenseType = "cc-by-sa"     // CC BY ShareAlike
 	LicenseCCBYNC     LicenseType = "cc-by-nc"     // CC BY Non-Commercial
+	LicenseCCBYND     LicenseType = "cc-by-nd"     // CC BY No-Derivatives
+	LicenseCC0        LicenseType = "cc0"          // Public Domain — NO attribution required
 	LicenseCommercial LicenseType = "commercial"   // pay N sats for commercial use
 	LicenseExclusive  LicenseType = "exclusive"    // contact to negotiate transfer
 	LicenseAllRights  LicenseType = "all-rights"   // full IP sale available
 )
+
+// LicenseRequiresAttribution is the load-bearing question: if someone uses
+// this work, do they have to credit kapoost?
+//
+// All licenses humanmcp currently issues require attribution EXCEPT the
+// CC0 public-domain dedication. The empty string defaults to "with
+// attribution" (safer for the author) — every piece must still resolve
+// to a license that names the author when used.
+//
+// This function exists so the licensing storyboard can assert the
+// invariant rather than re-derive it from copy strings.
+func LicenseRequiresAttribution(l LicenseType) bool {
+	switch l {
+	case LicenseCC0:
+		// CC0 is an explicit dedication to the public domain — the
+		// author waives every right INCLUDING attribution. If a piece
+		// carries this, we honour that. The storyboard locks the one
+		// negative case so a future code change can't silently flip it.
+		return false
+	}
+	// Free, CC BY family, Commercial, Exclusive, All Rights Reserved, and
+	// the empty default all imply that the author must be named when the
+	// work is used.
+	return true
+}
 
 // OriginalityIndex is a composite score of content uniqueness.
 // It does NOT claim to detect AI — it measures human-style originality signals.
@@ -197,15 +225,22 @@ func ContentHash(body string) string {
 	return hex.EncodeToString(h[:])
 }
 
-// BuildCopyright creates a Copyright record for a piece
+// BuildCopyright creates a Copyright record for a piece. An empty
+// License field is interpreted as CC BY — a real CC license that
+// formally requires attribution, instead of leaving the certificate
+// field blank.
 func BuildCopyright(p *Piece, authorName, publicKeyHex string) *Copyright {
+	lic := LicenseType(p.License)
+	if lic == "" {
+		lic = LicenseCCBY
+	}
 	return &Copyright{
 		Author:      authorName,
 		Title:       p.Title,
 		Created:     p.Published,
 		ContentHash: ContentHash(p.Body),
 		Signature:   p.Signature,
-		License:     LicenseType(p.License),
+		License:     lic,
 		PriceSats:   p.PriceSats,
 		Originality: ComputeOriginality(p.Body),
 		PublicKey:   publicKeyHex,

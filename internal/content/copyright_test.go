@@ -225,3 +225,43 @@ func TestFormatCertificateLicenseTerms(t *testing.T) {
 		}
 	}
 }
+
+
+// TestEveryLicenseImpliesAttribution locks the contract that every license
+// humanmcp issues — except the explicit CC0 public-domain dedication —
+// requires the author to be credited.
+//
+// Born from the 2026-06-08 audit: pieces carrying `license: free` looked
+// like a casual giveaway but had no formal attribution requirement at all.
+// The fix (D in the narada): codify it in LicenseRequiresAttribution and
+// lock the negative case (CC0) so it stays the lone exception.
+func TestEveryLicenseImpliesAttribution(t *testing.T) {
+	mustRequire := []LicenseType{
+		LicenseFree,
+		LicenseCCBY,
+		LicenseCCBYSA,
+		LicenseCCBYNC,
+		LicenseCCBYND,
+		LicenseCommercial,
+		LicenseExclusive,
+		LicenseAllRights,
+		"", // empty defaults to attribution required (safer for author)
+	}
+	for _, l := range mustRequire {
+		if !LicenseRequiresAttribution(l) {
+			t.Errorf("license %q must require attribution, did not", l)
+		}
+	}
+
+	// CC0 is the explicit waiver — the lone case that must return false.
+	if LicenseRequiresAttribution(LicenseCC0) {
+		t.Error("LicenseCC0 must NOT require attribution (it's a public-domain dedication)")
+	}
+
+	// Defensive: any new constant added to the LicenseType space should
+	// trigger an explicit decision here. If you're seeing this comment in
+	// a diff because you added a new license, add a case to the loop
+	// above and confirm whether it requires attribution. Do NOT let an
+	// unknown license default-quietly to either side of the question.
+}
+
