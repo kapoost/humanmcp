@@ -47,7 +47,18 @@ type HTTPRequest struct {
 	Owner   bool              `yaml:"owner"`
 	Body    string            `yaml:"body"`
 	Form    map[string]string `yaml:"form"`
+	Files   []FileUpload      `yaml:"files"`
 	Headers map[string]string `yaml:"headers"`
+}
+
+// FileUpload describes a multipart file attachment for an HTTP request.
+// When Files is non-empty the runner builds a multipart/form-data body
+// merging Form fields and these attachments.
+type FileUpload struct {
+	Field       string `yaml:"field"`
+	Filename    string `yaml:"filename"`
+	ContentB64  string `yaml:"content_b64"`
+	ContentType string `yaml:"content_type"`
 }
 
 type HTTPExpect struct {

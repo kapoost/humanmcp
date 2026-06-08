@@ -1,0 +1,61 @@
+id: web/listings_archive_hides_from_default_view
+version: "1.0.0"
+title: "Archived listings drop out of the default /listings view"
+category: web_owner_ui
+summary: "Regression guard for the 2026-06-08 archive feature: /listings hides status=archived by default; /listings?archived=1 shows them; the toggle link advertises the archived count."
+narrative: |
+  The listings page is the operator's stall. Status options sell/buy/
+  offer/request/trade fade as transactions close out, leaving the wall
+  cluttered. Closing them entirely loses the historical context. The
+  middle ground: status=archived → hidden from the default view but
+  still present, signed, addressable, and toggleable.
+
+  This storyboard pins the visibility contract. Status=archived listings
+  must not appear in the default render; ?archived=1 brings them back;
+  the count badge on the toggle reflects the actual archive size.
+
+kind: http
+setup:
+  listings:
+    - slug: active-listing
+      title: "Active listing"
+      body: "still hunting buyers"
+      type: sell
+      status: open
+    - slug: parked-archived
+      title: "Old archived listing"
+      body: "moved on"
+      type: sell
+      status: archived
+
+assertions:
+  - name: "default view hides archived"
+    request:
+      method: GET
+      path: /listings
+    expect:
+      status: 200
+      body_contains:
+        - "Active listing"
+        - "show archived (1)"
+      body_does_not_contain:
+        - "Old archived listing"
+
+  - name: "?archived=1 shows them"
+    request:
+      method: GET
+      path: /listings?archived=1
+    expect:
+      status: 200
+      body_contains:
+        - "Active listing"
+        - "Old archived listing"
+        - "hide archived"
+
+closes_failure_modes:
+  - "Archived listings clutter the public stall"
+  - "Operator has no easy way to retrieve archived items without DB access"
+  - "Toggle link advertises the wrong (zero) count when there ARE archived items"
+
+known_regressions_caught:
+  - "2026-06-08 — initial implementation"

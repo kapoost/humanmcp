@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -1434,11 +1435,25 @@ func jsonError(w http.ResponseWriter, msg string, code int) {
 func (h *Handler) handleListings(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 	if path == "/listings" || path == "/listings/" {
-		listings := h.listingStore.List()
+		all := h.listingStore.List()
+		showArchived := r.URL.Query().Get("archived") == "1"
+		filtered := all[:0:0]
+		archivedCount := 0
+		for _, l := range all {
+			if l.Status == "archived" {
+				archivedCount++
+				if !showArchived {
+					continue
+				}
+			}
+			filtered = append(filtered, l)
+		}
 		h.render(w, "listings.html", map[string]interface{}{
-			"Author":   h.cfg.AuthorName,
-			"IsOwner":  h.auth.IsOwner(r),
-			"Listings": listings,
+			"Author":        h.cfg.AuthorName,
+			"IsOwner":       h.auth.IsOwner(r),
+			"Listings":      filtered,
+			"ShowArchived":  showArchived,
+			"ArchivedCount": archivedCount,
 		})
 		return
 	}
@@ -1507,7 +1522,8 @@ func (h *Handler) handleListingEdit(w http.ResponseWriter, r *http.Request, slug
 		})
 		return
 	}
-	if err := r.ParseForm(); err != nil {
+	// Form is multipart/form-data because of the file input.
+	if err := r.ParseMultipartForm(32 << 20); err != nil && err != http.ErrNotMultipart {
 		http.Error(w, err.Error(), 400)
 		return
 	}
@@ -1537,6 +1553,9 @@ func (h *Handler) handleListingEdit(w http.ResponseWriter, r *http.Request, slug
 	if r.FormValue("remove_image") == "1" {
 		listing.ImageRef = ""
 	}
+	if ref, err := h.extractAndStoreImage(r, listing.Slug); err == nil && ref != "" {
+		listing.ImageRef = ref
+	}
 	if err := h.listingStore.Save(*listing); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -1561,7 +1580,9 @@ func (h *Handler) handleListingDelete(w http.ResponseWriter, r *http.Request, sl
 }
 
 func (h *Handler) handleListingCreate(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
+	// Form is multipart/form-data because of the file input; FormValue
+	// lazily parses both shapes, but FormFile needs explicit parsing.
+	if err := r.ParseMultipartForm(32 << 20); err != nil && err != http.ErrNotMultipart {
 		http.Error(w, err.Error(), 400)
 		return
 	}
@@ -1583,11 +1604,37 @@ func (h *Handler) handleListingCreate(w http.ResponseWriter, r *http.Request) {
 		Published: time.Now().UTC(),
 		Lang:      r.FormValue("lang"),
 	}
+	if ref, err := h.extractAndStoreImage(r, listing.Slug); err == nil && ref != "" {
+		listing.ImageRef = ref
+	}
 	if err := h.listingStore.Save(listing); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 	http.Redirect(w, r, "/listings/"+listing.Slug, http.StatusFound)
+}
+
+// extractAndStoreImage reads the "image" multipart file (if any) and
+// persists it to the blob store under the listing's slug. Returns the
+// ImageRef string (relative path like "files/abc.jpg") or an empty
+// string when no file was submitted.
+func (h *Handler) extractAndStoreImage(r *http.Request, slug string) (string, error) {
+	file, header, err := r.FormFile("image")
+	if err != nil {
+		if err == http.ErrMissingFile {
+			return "", nil
+		}
+		return "", err
+	}
+	defer file.Close()
+	if header == nil || header.Size == 0 {
+		return "", nil
+	}
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return "", err
+	}
+	return h.blobStore.StoreFile(slug, header.Filename, data)
 }
 
 func (h *Handler) handleArtworks(w http.ResponseWriter, r *http.Request) {

@@ -1,0 +1,70 @@
+id: web/listings_edit_persists_image_upload
+version: "1.0.0"
+title: "Editing a listing with a new image saves it and renders it back"
+category: web_owner_ui
+summary: "Regression guard for the 2026-06-08 fix: handleListingEdit was using ParseForm which ignored multipart files. Uploaded images silently disappeared."
+narrative: |
+  Before the 2026-06-08 fix both handleListingCreate and handleListingEdit
+  called r.ParseForm() and pulled scalar fields via r.FormValue. Neither
+  ever called r.FormFile, so the <input type="file" name="image"> in
+  listing-new.html was a UI promise the backend didn't keep — uploads
+  silently dropped, no error, no image on the listing.
+
+  The fix: switch both handlers to r.ParseMultipartForm and route the
+  uploaded file through blobStore.StoreFile so ImageRef is set
+  consistently with how pieces handle images.
+
+  This storyboard exercises the edit path end-to-end with a tiny
+  hand-rolled PNG payload (1x1 transparent), then asserts that the
+  listing's detail page renders an <img> tag pointing at the saved file.
+
+kind: http
+setup:
+  listings:
+    - slug: needs-image
+      title: "Needs an image"
+      body: "form will attach one"
+      type: sell
+      status: open
+
+assertions:
+  - name: "owner POST with multipart image is accepted and redirects"
+    request:
+      method: POST
+      path: /listings/edit/needs-image
+      owner: true
+      form:
+        type: sell
+        title: "Needs an image"
+        body: "form will attach one"
+        status: open
+        access: public
+      files:
+        - field: image
+          filename: pixel.png
+          content_type: image/png
+          # 1×1 transparent PNG — smallest valid payload that a Go
+          # blobStore + http.ServeFile chain will handle without
+          # opinions about mime sniffing.
+          content_b64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgAAIAAAUAAeImBZsAAAAASUVORK5CYII="
+    expect:
+      status: 303
+      location_contains: /listings/needs-image
+
+  - name: "subsequent listing detail page renders the image"
+    request:
+      method: GET
+      path: /listings/needs-image
+    expect:
+      status: 200
+      body_contains:
+        - "Needs an image"
+        - 'src="/files/needs-image'
+
+closes_failure_modes:
+  - "Listing form's image field is a UI promise the backend ignores"
+  - "Uploaded image silently dropped — listing has no ImageRef and no error"
+  - "Multipart form replaces scalar fields with empty strings (ParseForm vs ParseMultipartForm)"
+
+known_regressions_caught:
+  - "2026-06-08 — handleListingCreate + handleListingEdit silently dropped image uploads"

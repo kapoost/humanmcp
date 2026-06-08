@@ -1,7 +1,10 @@
 package storyboard
 
 import (
+	"bytes"
+	"encoding/base64"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -75,13 +78,37 @@ func runHTTPAssertion(t *testing.T, srv *httptest.Server, a HTTPAssertion) {
 		},
 	}
 	var body io.Reader
-	if len(a.Request.Form) > 0 {
+	contentType := ""
+	switch {
+	case len(a.Request.Files) > 0:
+		// multipart/form-data: bundle Form fields + Files into one envelope
+		var buf bytes.Buffer
+		mw := multipart.NewWriter(&buf)
+		for k, v := range a.Request.Form {
+			_ = mw.WriteField(k, v)
+		}
+		for _, f := range a.Request.Files {
+			data, derr := base64.StdEncoding.DecodeString(f.ContentB64)
+			if derr != nil {
+				t.Fatalf("decode file %s: %v", f.Filename, derr)
+			}
+			part, perr := mw.CreateFormFile(f.Field, f.Filename)
+			if perr != nil {
+				t.Fatalf("create form file: %v", perr)
+			}
+			part.Write(data)
+		}
+		mw.Close()
+		body = &buf
+		contentType = mw.FormDataContentType()
+	case len(a.Request.Form) > 0:
 		vals := url.Values{}
 		for k, v := range a.Request.Form {
 			vals.Set(k, v)
 		}
 		body = strings.NewReader(vals.Encode())
-	} else if a.Request.Body != "" {
+		contentType = "application/x-www-form-urlencoded"
+	case a.Request.Body != "":
 		body = strings.NewReader(a.Request.Body)
 	}
 
@@ -93,8 +120,8 @@ func runHTTPAssertion(t *testing.T, srv *httptest.Server, a HTTPAssertion) {
 	if err != nil {
 		t.Fatalf("build request: %v", err)
 	}
-	if len(a.Request.Form) > 0 {
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 	}
 	for k, v := range a.Request.Headers {
 		req.Header.Set(k, v)
