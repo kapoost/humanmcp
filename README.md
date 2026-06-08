@@ -44,8 +44,8 @@ Or find it on the [Official MCP Registry](https://registry.modelcontextprotocol.
 | `request_license` | Declare intended use, get terms, logged for audit | `request_license {slug: "deka-log", intended_use: "quote in essay", caller_id: "claude"}` |
 | `leave_comment` | Leave a reaction — visible in author dashboard | `leave_comment {slug: "deka-log", text: "mathematics as poetry", from: "claude"}` |
 | `leave_message` | Send a direct note (max 2000 chars, URLs welcome) | `leave_message {text: "...", from: "claude"}` |
-| `ask_human` | Ask kapoost a question requiring human judgement (returns id; poll `fetch_answer`). Session-gated. | `ask_human {question: "Czy mogę cytować deka-log w eseju?", context: "academic"}` |
-| `fetch_answer` | Retrieve kapoost's answer to a previous `ask_human`. Session-gated. | `fetch_answer {id: "20260608-2147-czy-moge"}` |
+| `ask_human` | Ask kapoost a question requiring human judgement (returns id; poll `fetch_answer`). Open to any caller, rate-limited 5/hour/IP. | `ask_human {question: "Czy mogę cytować deka-log w eseju?", context: "academic"}` |
+| `fetch_answer` | Retrieve kapoost's answer to a previous `ask_human`. Open to any caller, rate-limited 30 polls/hour/IP. | `fetch_answer {id: "20260608-2147-czy-moge"}` |
 
 ### Personas, Skills & Memory
 

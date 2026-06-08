@@ -83,8 +83,10 @@ type Handler struct {
 	memoryStore   *content.MemoryStore
 	sessions      map[string]time.Time // session ID → expiry time
 
-	mu          sync.Mutex
-	rateLimiter map[string][]time.Time // IP → attempt timestamps (sliding window)
+	mu              sync.Mutex
+	rateLimiter     map[string][]time.Time // IP → bootstrap_session attempts (5/min)
+	askHumanLog     map[string][]time.Time // IP → ask_human calls (5/hr)
+	fetchAnswerLog  map[string][]time.Time // IP → fetch_answer polls (30/hr)
 }
 
 func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler {
@@ -97,8 +99,10 @@ func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler
 		blobStore:     content.NewBlobStore(cfg.ContentDir),
 		questionStore: content.NewQuestionStore(cfg.ContentDir),
 		memoryStore:   content.NewMemoryStore(cfg.ContentDir),
-		sessions:      make(map[string]time.Time),
-		rateLimiter:   make(map[string][]time.Time),
+		sessions:       make(map[string]time.Time),
+		rateLimiter:    make(map[string][]time.Time),
+		askHumanLog:    make(map[string][]time.Time),
+		fetchAnswerLog: make(map[string][]time.Time),
 	}
 	// Cleanup goroutines
 	go h.cleanupLoop()
@@ -538,7 +542,7 @@ func (h *Handler) buildTools() []Tool {
 		},
 		{
 			Name:        "ask_human",
-			Description: "Ask kapoost a question that requires human judgement. Returns an ID — poll fetch_answer(id) later to retrieve the response. Use sparingly: only when the answer materially affects your task and is not derivable from the content. Examples: 'czy moge cytowac ten wiersz w komercyjnej publikacji?' / 'co inspirowalo metafore w Y?'. Max 1000 chars in question, max 500 in context. Requires an active bootstrap_session.",
+			Description: "Ask kapoost a question that requires human judgement. Returns an ID — poll fetch_answer(id) later to retrieve the response. Use sparingly: only when the answer materially affects your task and is not derivable from the content. Examples: 'czy moge cytowac ten wiersz w komercyjnej publikacji?' / 'co inspirowalo metafore w Y?'. Max 1000 chars in question, max 500 in context. Open to any caller — rate-limited to 5 per hour per IP to keep the queue useful.",
 			InputSchema: map[string]interface{}{
 				"type":     "object",
 				"required": []string{"question"},
@@ -551,7 +555,7 @@ func (h *Handler) buildTools() []Tool {
 		},
 		{
 			Name:        "fetch_answer",
-			Description: "Retrieve the answer to a previously-submitted ask_human question. Returns the answer text if kapoost has answered, or 'still awaiting' if not. Marks the question as fetched on first successful retrieval. Requires an active bootstrap_session.",
+			Description: "Retrieve the answer to a previously-submitted ask_human question. Returns the answer text if kapoost has answered, or 'still awaiting' if not. Marks the question as fetched on first successful retrieval. Open to any caller — rate-limited to 30 polls per hour per IP.",
 			InputSchema: map[string]interface{}{
 				"type":     "object",
 				"required": []string{"id"},
@@ -1114,9 +1118,14 @@ func (h *Handler) toolLeaveMessage(w http.ResponseWriter, req *Request, args jso
 // on /questions. Returns the id so the caller can poll fetch_answer later.
 // Gated by bootstrap_session to prevent drive-by question floods.
 func (h *Handler) toolAskHuman(w http.ResponseWriter, r *http.Request, req *Request, args json.RawMessage) {
-	if !h.isSessionActive(r) {
+	// Open to any caller — but rate-limited so a misbehaving agent can't
+	// flood the question store. 5 per hour per IP is generous for legit
+	// use (an agent asking once per task) and tight against scripts.
+	ip := h.clientIP(r)
+	if !h.checkAskHumanRateLimit(ip) {
+		log.Printf("[AUDIT] ask_human RATE_LIMITED ip=%s", ip)
 		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
-			Text: "ask_human requires an active session. Call bootstrap_session first."}}})
+			Text: "Too many questions from this caller — limit is 5 per hour. Try again later."}}})
 		return
 	}
 	var a struct {
@@ -1155,9 +1164,13 @@ func (h *Handler) toolAskHuman(w http.ResponseWriter, r *http.Request, req *Requ
 // time an answer is returned so kapoost can see "agent picked this up" on
 // /questions and /mc.
 func (h *Handler) toolFetchAnswer(w http.ResponseWriter, r *http.Request, req *Request, args json.RawMessage) {
-	if !h.isSessionActive(r) {
+	// Open to any caller — but poll-rate-limited (30/hour/IP) so an agent
+	// can poll reasonably often without abusing the endpoint.
+	ip := h.clientIP(r)
+	if !h.checkFetchAnswerRateLimit(ip) {
+		log.Printf("[AUDIT] fetch_answer RATE_LIMITED ip=%s", ip)
 		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
-			Text: "fetch_answer requires an active session. Call bootstrap_session first."}}})
+			Text: "Too many polls from this caller — limit is 30 per hour. Try again later."}}})
 		return
 	}
 	var a struct {
@@ -1570,6 +1583,42 @@ func (h *Handler) checkRateLimit(ip string) bool {
 	recent = append(recent, now)
 	h.rateLimiter[ip] = recent
 	return true // allowed
+}
+
+// checkAskHumanRateLimit allows up to 5 ask_human calls per hour per IP.
+// Sliding window: every call re-evaluates the last hour and prunes stale
+// entries before the decision.
+func (h *Handler) checkAskHumanRateLimit(ip string) bool {
+	return h.checkBucketRate(ip, h.askHumanLog, time.Hour, 5)
+}
+
+// checkFetchAnswerRateLimit allows 30 fetch_answer polls per hour per IP —
+// enough headroom for an agent that politely polls every couple minutes.
+func (h *Handler) checkFetchAnswerRateLimit(ip string) bool {
+	return h.checkBucketRate(ip, h.fetchAnswerLog, time.Hour, 30)
+}
+
+// checkBucketRate generalises the sliding-window pattern used by the older
+// per-minute rate limiter. The bucket is mutated in place; caller holds no
+// lock (we acquire h.mu here).
+func (h *Handler) checkBucketRate(ip string, bucket map[string][]time.Time, window time.Duration, maxInWindow int) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	now := time.Now()
+	cutoff := now.Add(-window)
+	var kept []time.Time
+	for _, t := range bucket[ip] {
+		if t.After(cutoff) {
+			kept = append(kept, t)
+		}
+	}
+	if len(kept) >= maxInWindow {
+		bucket[ip] = kept
+		return false
+	}
+	kept = append(kept, now)
+	bucket[ip] = kept
+	return true
 }
 
 func (h *Handler) toolBootstrapSession(w http.ResponseWriter, r *http.Request, req *Request, args json.RawMessage) {
