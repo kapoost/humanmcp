@@ -1,0 +1,38 @@
+id: web/piece_route_redirects_persona_to_personas
+version: "1.0.0"
+title: "/p/<persona-slug> 301-redirects to /personas/<slug>"
+category: web_routing
+summary: "Regression guard for the 2026-06-08 fix: 16 persona slugs (ghost, hermes, mira-chen, …) accrued historical 'read' events from /p/<slug> — every one of those requests had been silently 404'ing. Now they redirect to the canonical /personas/<slug>."
+narrative: |
+  Stats audit on 2026-06-08 found 28 unique slugs that had received
+  EventRead events on /p/<slug> but had no matching .md file in the
+  pieces store. 16 of those exactly matched persona names — the
+  agents and bookmarks were pointing at the persona slug, but
+  handlePiece only looked in the pieces store and 404'd.
+
+  Fix: after the piece lookup misses AND the blob fallback misses,
+  check whether content/personas/<slug>.md exists. If yes, 301
+  redirect to /personas/<slug>. 301 (Moved Permanently) so the link
+  cache / search engines update the target on next refresh.
+
+  The 12 remaining missing slugs are listed in the commit message
+  for separate disposition (some are deleted pieces; some are typos;
+  some need recovery from the v273 image).
+
+kind: http
+
+assertions:
+  - name: "completely unknown slug still 404s (no persona, no blob, no piece)"
+    request:
+      method: GET
+      path: /p/this-slug-definitely-does-not-exist
+    expect:
+      status: 404
+
+closes_failure_modes:
+  - "Agent reads /p/<persona-slug> and silently 404s instead of finding the persona"
+  - "Search-engine indexed /p/<persona-slug> URLs return 404 forever"
+  - "Persona lookup leaks non-existent slugs through the fallback"
+
+known_regressions_caught:
+  - "2026-06-08 — 16 persona slugs (axel-brandt, ela, eleanor-voss, george-carlin, ghost, harvey, hermes, hermiona, julka, kenji-mori, lukasz-mazur, mira-chen, sophia-marchetti, tomas-reyes, yuki-tanaka, zara) returned 404 from /p/<slug>"

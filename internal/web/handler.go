@@ -376,6 +376,11 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 // pieceFromBlob looks up an image blob by slug and returns a synthetic
 // Piece that piece.html can render via its existing image branch. Only
 // public image-type blobs qualify — non-public blobs stay invisible to
@@ -462,13 +467,20 @@ func (h *Handler) handlePiece(w http.ResponseWriter, r *http.Request) {
 	isOwner := h.auth.IsOwner(r)
 	p, err := h.store.Get(slug, isOwner)
 	if err != nil {
-		// Fallback: the slug might address an image blob, not a piece.
+		// Fallback 1: the slug might address an image blob, not a piece.
 		// /images and the gallery section on / link image blobs via /p/<slug>
 		// — without this fallback those links 404. Build a synthetic Piece
 		// from the blob so piece.html's existing image branch can render
 		// it with full meta (signature, license, ots).
 		if syn, ok := h.pieceFromBlob(slug); ok {
 			p = syn
+		} else if personaPath := filepath.Join(h.cfg.ContentDir, "personas", slug+".md"); fileExists(personaPath) {
+			// Fallback 2: the slug names a persona. 16 of these accrued
+			// historical 'read' events in stats — agents and bookmarks
+			// that addressed /p/<persona> never reached anything. Redirect
+			// to the canonical /personas/<slug> page instead of 404'ing.
+			http.Redirect(w, r, "/personas/"+slug, http.StatusMovedPermanently)
+			return
 		} else {
 			http.NotFound(w, r)
 			return
