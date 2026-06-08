@@ -1,0 +1,63 @@
+id: web/listings_delete_removes_listing
+version: "1.0.0"
+title: "Owner deleting a listing removes it and redirects to /listings"
+category: web_owner_ui
+summary: "Companion to listings_edit_returns_form: POST /listings/delete/<slug> must delete the listing and redirect; GET on the same path redirects defensively without deleting."
+narrative: |
+  Templates render a confirm-style delete form (POST) next to each
+  listing for owners. Before 2026-06-08 the handler didn't route
+  /listings/delete/<slug> at all — submitting the form returned 404 and
+  the listing stayed. This scenario locks the contract: POST as owner
+  deletes the listing and redirects to /listings; anonymous POST goes to
+  /login; GET on the delete path redirects defensively (we never delete
+  via GET — that would be CSRF-friendly).
+
+kind: http
+setup:
+  listings:
+    - slug: doomed-listing
+      title: "To be deleted"
+      body: "ephemeral"
+      type: sell
+
+assertions:
+  - name: "GET on delete path redirects (no destructive GET)"
+    request:
+      method: GET
+      path: /listings/delete/doomed-listing
+      owner: true
+    expect:
+      status: 303
+      location_contains: /listings
+
+  - name: "anonymous POST is sent to login"
+    request:
+      method: POST
+      path: /listings/delete/doomed-listing
+    expect:
+      status: 302
+      location_contains: /login
+
+  - name: "owner POST deletes and redirects to /listings"
+    request:
+      method: POST
+      path: /listings/delete/doomed-listing
+      owner: true
+    expect:
+      status: 303
+      location_contains: /listings
+
+  - name: "subsequent detail GET returns 404 — listing is gone"
+    request:
+      method: GET
+      path: /listings/doomed-listing
+    expect:
+      status: 404
+
+closes_failure_modes:
+  - "Delete form silently 404s, leaving listing in place"
+  - "GET request can delete (CSRF-friendly destructive verb)"
+  - "Anonymous can delete owner-only content"
+
+known_regressions_caught:
+  - "2026-06-08 — initial discovery alongside listings_edit_returns_form"

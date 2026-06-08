@@ -1,0 +1,63 @@
+id: stats/googlebot_classified_as_agent
+version: "1.0.0"
+title: "Googlebot smartphone UA is classified as agent, not human"
+category: stats_classification
+summary: "Regression guard for the 2026-05-26 fix: UA scan must look far enough into the string to catch crawler identifiers placed after a Mozilla-spoofed prefix."
+narrative: |
+  Before 2026-05-26 the CallerFromUA function truncated the user-agent
+  string to 120 characters before scanning for bot keywords. Googlebot's
+  smartphone UA places the literal "Googlebot" token in the
+  "(compatible; Googlebot/2.1; ...)" suffix, well past the 120-char mark.
+  Result: every Googlebot read was classified as "human" because the
+  fallback "mozilla" match ran on the truncated prefix. The /mc humans
+  counter inflated with crawler traffic and humans appeared "active"
+  even on days with no real visitors.
+
+  This scenario locks the contract for every common Mozilla-spoofing
+  crawler. New crawlers should be added here AND to the keyword list in
+  content.CallerFromUA — the storyboard is the contract, the source is
+  the implementation.
+
+kind: unit
+function: content.CallerFromUA
+
+cases:
+  - name: "Googlebot smartphone (Mozilla-spoofed prefix, ~190 chars)"
+    input: "Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/W.X.Y.Z Mobile Safari/537.36 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+    expect: agent
+
+  - name: "Bingbot"
+    input: "Mozilla/5.0 (compatible; Bingbot/2.0; +http://www.bing.com/bingbot.htm)"
+    expect: agent
+
+  - name: "AhrefsBot"
+    input: "Mozilla/5.0 (compatible; AhrefsBot/7.0; +http://ahrefs.com/robot/)"
+    expect: agent
+
+  - name: "facebookexternalhit"
+    input: "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)"
+    expect: agent
+
+  - name: "Genuine Chrome desktop"
+    input: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    expect: human
+
+  - name: "Genuine Safari iPhone"
+    input: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+    expect: human
+
+  - name: "Empty UA → unknown"
+    input: ""
+    expect: unknown
+
+  - name: "Direct Anthropic API client"
+    input: "anthropic-sdk-python/0.18.1"
+    expect: agent
+
+closes_failure_modes:
+  - "Crawler traffic inflates the /mc humans counter"
+  - "New Mozilla-spoofing crawler silently classified as human"
+  - "Genuine browser UA misclassified as bot"
+
+known_regressions_caught:
+  - "2026-05-26 — initial fix: bumped UA scan cap from 120→400 chars and added explicit crawler keywords"

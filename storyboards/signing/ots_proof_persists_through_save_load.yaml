@@ -1,0 +1,49 @@
+id: signing/ots_proof_persists_through_save_load
+version: "1.0.0"
+title: "OTSProof survives Save → Load round-trip through frontmatter"
+category: signing_persistence
+summary: "Regression guard: marshalFrontmatter and parseFrontmatter must emit and read the ots_proof field so OpenTimestamps proofs aren't silently lost on reload."
+narrative: |
+  On 2026-05-26 the OpenTimestamps stamp button "didn't work" — clicking
+  it appeared to succeed but reloading the piece page reset the status to
+  "not yet timestamped". The cause: marshalFrontmatter in
+  internal/content/frontmatter.go did not write the OTSProof field to
+  disk, even though Save() updated it in-memory. On the next Load() the
+  field came back empty.
+
+  This storyboard pins the contract: a piece saved with a non-empty
+  OTSProof must read back with the same value after a fresh Store
+  rebuild and Load. The Signature field is also asserted as a
+  belt-and-suspenders check that no Save/Load regression silently drops
+  long base64 fields.
+
+kind: store
+
+operations:
+  - save:
+      slug: ots-roundtrip
+      title: "OTS Roundtrip"
+      body: "stamped piece body"
+      signature: "fakesig=="
+      ots_proof: "AE9wZW5UaW1lc3RhbXBzAABQcm9vZgC/ieLohOiSlAEIabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+/abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+/=="
+
+  - reload: true
+
+  - load: ots-roundtrip
+
+store_assertions:
+  - field: OTSProof
+    not_empty: true
+
+  - field: OTSProof
+    starts_with: "AE9wZW5UaW1lc3RhbXBz"
+
+  - field: Signature
+    equals: "fakesig=="
+
+closes_failure_modes:
+  - "Save updates in-memory but not on disk → next Load drops the field"
+  - "Frontmatter parser skips multi-line or long-line base64 values"
+
+known_regressions_caught:
+  - "2026-05-26 — initial fix: ots_proof read/write added to frontmatter.go"

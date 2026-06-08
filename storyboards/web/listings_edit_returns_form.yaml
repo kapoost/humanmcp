@@ -1,0 +1,60 @@
+id: web/listings_edit_returns_form
+version: "1.0.0"
+title: "Owner editing a listing sees the form, not 404"
+category: web_owner_ui
+summary: "Regression guard: /listings/edit/<slug> must render listing-new.html in edit mode; anonymous users redirect to /login."
+narrative: |
+  On 2026-06-08 the templates listings.html and listing.html rendered an
+  "edit" button (owner-only) and a "delete" form (POST), but the dispatcher
+  in handleListings never matched /listings/edit/<slug> or /listings/delete/<slug>.
+  Both paths fell through to the generic detail branch which called
+  listingStore.Get("edit/<slug>") and returned 404.
+
+  This scenario locks the contract: the edit route serves the form
+  populated with the existing listing's fields for an authenticated owner,
+  redirects anonymous callers to /login, and returns 404 for unknown
+  slugs. Delete behavior lives in a sibling storyboard.
+
+kind: http
+setup:
+  listings:
+    - slug: s2000-parts
+      title: "S2000 parts"
+      body: "Sprzedam zestaw części do Hondy"
+      type: sell
+      price: "200 PLN"
+
+assertions:
+  - name: "owner GETs the edit form prefilled"
+    request:
+      method: GET
+      path: /listings/edit/s2000-parts
+      owner: true
+    expect:
+      status: 200
+      body_contains:
+        - "Edit Listing"
+        - "S2000 parts"
+
+  - name: "anonymous is redirected to login"
+    request:
+      method: GET
+      path: /listings/edit/s2000-parts
+    expect:
+      status: 302
+      location_contains: /login
+
+  - name: "unknown slug returns 404"
+    request:
+      method: GET
+      path: /listings/edit/nonexistent-ghost-slug
+      owner: true
+    expect:
+      status: 404
+
+closes_failure_modes:
+  - "Templates render owner-only buttons that route to 404 (silent dead link)"
+  - "Owner-only routes accessible to anonymous"
+
+known_regressions_caught:
+  - "2026-06-08 — initial discovery: handleListings dispatcher missing /listings/edit/ branch"

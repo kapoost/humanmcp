@@ -234,9 +234,13 @@ func (h *Handler) validateSession(code string) bool {
 	return false
 }
 
-// normalizePoem strips Polish (and stray Czech) diacritics from a session
+// NormalizePoem strips Polish (and stray Czech) diacritics from a session
 // code and collapses whitespace. ę → e, ł → l, ą → a, ć → c, ś → s,
 // ń → n, ó → o, ź/ż → z. Plus tolerated typos: ě → e, č → c, š → s, ř → r.
+func NormalizePoem(s string) string {
+	return normalizePoem(s)
+}
+
 func normalizePoem(s string) string {
 	r := strings.NewReplacer(
 		"ę", "e", "ł", "l", "ą", "a", "ć", "c", "ś", "s",

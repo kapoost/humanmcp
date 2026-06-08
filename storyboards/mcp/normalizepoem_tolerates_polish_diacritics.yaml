@@ -1,0 +1,50 @@
+id: mcp/normalizepoem_tolerates_polish_diacritics
+version: "1.0.0"
+title: "NormalizePoem maps Polish (and stray Czech) diacritics to ASCII"
+category: mcp_session_auth
+summary: "Regression guard for the diacritic-tolerant bootstrap session code matcher. 'zginęła' / 'zginěła' / 'zginela' must all normalize to the same string."
+narrative: |
+  bootstrap_session takes a Polish poetry fragment as a session code.
+  Originally the validator did strict equality, which broke for two
+  reasons: (1) Polish keyboard input "ę" vs. typo'd Czech "ě"; (2)
+  agents stripping diacritics during paste. On 2026-05-23 the commit
+  "validateSession tolerates Polish diacritics — 'zginęła' / 'zginěła'
+  / 'zginela' all match" added normalizePoem.
+
+  This storyboard pins the normalization table. New diacritics added
+  to the implementation should land here first as a failing case.
+
+kind: unit
+function: mcp.NormalizePoem
+
+cases:
+  - name: "Polish ę → e"
+    input: "zginęła"
+    expect: "zginela"
+
+  - name: "Czech ě typo → e"
+    input: "zginěła"
+    expect: "zginela"
+
+  - name: "ASCII baseline (no diacritics)"
+    input: "zginela"
+    expect: "zginela"
+
+  - name: "Full Polish phrase"
+    input: "jeszcze polska nie zginęła"
+    expect: "jeszcze polska nie zginela"
+
+  - name: "Whitespace collapse"
+    input: "  jeszcze   polska\tnie\nzginela  "
+    expect: "jeszcze polska nie zginela"
+
+  - name: "Mixed Polish diacritics"
+    input: "łąka źdźbło ćma śnieg"
+    expect: "laka zdzblo cma snieg"
+
+closes_failure_modes:
+  - "Bootstrap rejects valid session code due to a single diacritic mismatch"
+  - "Agent strips diacritics during paste → strict equality fails silently"
+
+known_regressions_caught:
+  - "2026-05-23 — initial fix: normalizePoem introduced (commit 0cf51e9)"

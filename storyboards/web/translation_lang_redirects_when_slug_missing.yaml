@@ -1,0 +1,42 @@
+id: web/translation_lang_redirects_when_slug_missing
+version: "1.0.0"
+title: "/p/translation/<lang> with no slug redirects to / instead of 404"
+category: web_routing
+summary: "Regression guard for the empty-slug translation edge case fixed on 2026-05-23 (commit 389188b)."
+narrative: |
+  The translation URL shape is /p/<slug>/translation/<lang>. Templates
+  that built links from an empty slug (e.g. when a piece was viewed at
+  the root context) produced /p/translation/en, which previously 404'd
+  because handlePiece treated "translation/en" as a slug it couldn't
+  resolve. The fix: when the path starts with "translation/" after
+  stripping /p/, redirect to the home page rather than 404.
+
+  This scenario covers the no-slug case. The companion happy-path
+  scenario for a valid /p/<slug>/translation/<lang> render lives in a
+  sibling storyboard once a translation fixture is added.
+
+kind: http
+
+assertions:
+  - name: "empty-slug translation URL redirects to /"
+    request:
+      method: GET
+      path: /p/translation/en
+    expect:
+      status: 302
+      location_contains: /
+
+  - name: "alternative lang token (pl) behaves the same"
+    request:
+      method: GET
+      path: /p/translation/pl
+    expect:
+      status: 302
+      location_contains: /
+
+closes_failure_modes:
+  - "Empty-slug template link returns 404 instead of redirecting home"
+  - "Translation routing accidentally treats 'translation' as a slug"
+
+known_regressions_caught:
+  - "2026-05-23 — initial fix (commit 389188b): empty-slug /p/translation/<lang> → / redirect"
