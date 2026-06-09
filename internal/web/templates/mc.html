@@ -176,35 +176,35 @@ a:hover{text-decoration:underline}
 {{if .ReadsBySlug}}
 <div class="mc-section">
   <div class="mc-label">READS / PIECE</div>
-  {{range $s,$n := .ReadsBySlug}}<div class="mc-row"><span>{{$s}}</span><span class="mc-row-val">{{$n}}</span></div>{{end}}
+  {{range sortByValueDesc .ReadsBySlug}}<div class="mc-row"><span>{{.Key}}</span><span class="mc-row-val">{{.Val}}</span></div>{{end}}
 </div>
 {{end}}
 
 {{if .ListingReadsBySlug}}
 <div class="mc-section">
   <div class="mc-label">LISTING READS / SLUG</div>
-  {{range $s,$n := .ListingReadsBySlug}}<div class="mc-row"><span>{{$s}}</span><span class="mc-row-val">{{$n}}</span></div>{{end}}
+  {{range sortByValueDesc .ListingReadsBySlug}}<div class="mc-row"><span>{{.Key}}</span><span class="mc-row-val">{{.Val}}</span></div>{{end}}
 </div>
 {{end}}
 
 {{if .TopAgents}}
 <div class="mc-section">
   <div class="mc-label">TOP VISITORS</div>
-  {{range $n,$c := .TopAgents}}<div class="mc-row"><span>{{$n}}</span><span class="mc-row-val">{{$c}}</span></div>{{end}}
+  {{range sortByValueDesc .TopAgents}}<div class="mc-row"><span>{{.Key}}</span><span class="mc-row-val">{{.Val}}</span></div>{{end}}
 </div>
 {{end}}
 
 {{if .Countries}}
 <div class="mc-section">
   <div class="mc-label">BY REGION</div>
-  {{range $c,$n := .Countries}}<div class="mc-row"><span>{{$c}}</span><span class="mc-row-val">{{$n}}</span></div>{{end}}
+  {{range sortByValueDesc .Countries}}<div class="mc-row"><span>{{.Key}}</span><span class="mc-row-val">{{.Val}}</span></div>{{end}}
 </div>
 {{end}}
 
 {{if .TopSearches}}
 <div class="mc-section">
   <div class="mc-label">TOP SEARCHES</div>
-  {{range $q,$n := .TopSearches}}<div class="mc-row"><span>&#128269; {{$q}}</span><span class="mc-row-val">{{$n}}</span></div>{{end}}
+  {{range sortByValueDesc .TopSearches}}<div class="mc-row"><span>&#128269; {{.Key}}</span><span class="mc-row-val">{{.Val}}</span></div>{{end}}
 </div>
 {{end}}
 {{end}}
@@ -321,14 +321,14 @@ a:hover{text-decoration:underline}
 {{if .TopReferrers}}
 <div class="mc-section">
   <div class="mc-label">REFERRERS</div>
-  {{range $r,$n := .TopReferrers}}<div class="mc-row"><span>{{$r}}</span><span class="mc-row-val">{{$n}}</span></div>{{end}}
+  {{range sortByValueDesc .TopReferrers}}<div class="mc-row"><span>{{.Key}}</span><span class="mc-row-val">{{.Val}}</span></div>{{end}}
 </div>
 {{end}}
 
 {{if .TagReads}}
 <div class="mc-section">
   <div class="mc-label">READS / TAG</div>
-  {{range $t,$n := .TagReads}}<div class="mc-row"><span>#{{$t}}</span><span class="mc-row-val">{{$n}}</span></div>{{end}}
+  {{range sortByValueDesc .TagReads}}<div class="mc-row"><span>#{{.Key}}</span><span class="mc-row-val">{{.Val}}</span></div>{{end}}
 </div>
 {{end}}
 {{end}}

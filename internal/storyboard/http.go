@@ -86,6 +86,7 @@ func runHTTP(t *testing.T, sb Storyboard) {
 				Caller: content.CallerType(toStr(e["caller"])),
 				Slug:   toStr(e["slug"]),
 				From:   toStr(e["from"]),
+				Query:  toStr(e["query"]),
 			}
 			statStore.Record(ev)
 		}

@@ -1,0 +1,65 @@
+id: web/mc_lists_sorted_by_value_desc
+version: "1.0.0"
+title: "/mc lists render in descending count order, not Go's random map iteration"
+category: web_owner_ui
+summary: "Locks the sort contract on every map[string]int rendered on /mc. Seeds three search queries with different hit counts and asserts the rendered DOM order matches Val desc with Key asc as tiebreak."
+narrative: |
+  Go's html/template `range` over a map sorts by KEY (alphabetical),
+  not value. The dashboard wants biggest-first to surface the hot
+  signal, so we need an explicit sortByValueDesc helper.
+
+  This storyboard is deliberately constructed so alphabetical key sort
+  and value-desc sort produce DIFFERENT orderings — otherwise the
+  test would pass even with a broken helper. Three queries:
+    - "zebra" with 5 hits (last alphabetically, first by value)
+    - "morze" with 2 hits (middle both ways)
+    - "alfa"  with 1 hit  (first alphabetically, last by value)
+  Correct sort: zebra → morze → alfa. Broken (key-sorted) fallback:
+  alfa → morze → zebra. Sabotage-verified against the original code
+  before the fix.
+
+kind: http
+
+setup:
+  events:
+    # 5x "zebra" — last alphabetically, FIRST by value
+    - {type: search, caller: human, query: zebra}
+    - {type: search, caller: human, query: zebra}
+    - {type: search, caller: human, query: zebra}
+    - {type: search, caller: human, query: zebra}
+    - {type: search, caller: human, query: zebra}
+    # 2x "morze" — middle either way
+    - {type: search, caller: human, query: morze}
+    - {type: search, caller: human, query: morze}
+    # 1x "alfa" — first alphabetically, LAST by value
+    - {type: search, caller: human, query: alfa}
+
+assertions:
+  - name: "TOP SEARCHES renders zebra(5) → morze(2) → alfa(1)"
+    request:
+      method: GET
+      path: /mc
+      owner: true
+    expect:
+      status: 200
+      body_contains:
+        # All three queries must appear.
+        - "zebra"
+        - "morze"
+        - "alfa"
+        # The full DOM triple, spanning across three rows. Designed
+        # so a fallback to key-sorted iteration (alfa→morze→zebra)
+        # fails this substring immediately.
+        - "zebra</span><span class=\"mc-row-val\">5</span></div><div class=\"mc-row\"><span>&#128269; morze</span><span class=\"mc-row-val\">2</span></div><div class=\"mc-row\"><span>&#128269; alfa</span><span class=\"mc-row-val\">1</span>"
+      body_does_not_contain:
+        # The pre-fix broken order. Catches a regression that flips
+        # back to range $k,$v := .TopSearches (alphabetical key sort).
+        - "alfa</span><span class=\"mc-row-val\">1</span></div><div class=\"mc-row\"><span>&#128269; morze</span>"
+
+closes_failure_modes:
+  - "Lists shuffle every render — biggest items hide below smaller ones"
+  - "sortByValueDesc helper drops from FuncMap → templates fall back to raw map iteration"
+  - "Tiebreaker drift (alfa-asc, val-desc) producing non-deterministic output for equal counts"
+
+known_regressions_caught:
+  - "2026-06-09 — initial sortByValueDesc introduction"

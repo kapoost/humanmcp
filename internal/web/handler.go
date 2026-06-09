@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -172,6 +173,33 @@ func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler
 		},
 		"otsStatus": func(s string) string {
 			return otsStatusOf(s)
+		},
+		// sortByValueDesc turns a map[string]int into a slice of {Key, Val}
+		// pairs sorted by Val desc (with Key asc as the tiebreaker for
+		// deterministic rendering). Templates ranging over raw maps get
+		// Go's random iteration order — fine for correctness, bad for a
+		// dashboard that wants the biggest number first.
+		"sortByValueDesc": func(m map[string]int) []struct {
+			Key string
+			Val int
+		} {
+			out := make([]struct {
+				Key string
+				Val int
+			}, 0, len(m))
+			for k, v := range m {
+				out = append(out, struct {
+					Key string
+					Val int
+				}{k, v})
+			}
+			sort.Slice(out, func(i, j int) bool {
+				if out[i].Val != out[j].Val {
+					return out[i].Val > out[j].Val
+				}
+				return out[i].Key < out[j].Key
+			})
+			return out
 		},
 		"isHEIC": func(ref string) bool {
 			lower := strings.ToLower(ref)
