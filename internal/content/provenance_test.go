@@ -37,7 +37,7 @@ func TestProvenanceStoreRoundTrip(t *testing.T) {
 	store := NewProvenanceStore(dir)
 	issuedAt := time.Date(2024, 5, 12, 0, 0, 0, 0, time.UTC)
 	saved, err := store.Save(ProvenanceItem{
-		ArtworkSlug:   "test-painting",
+		OwnerKind: OwnerPiece, OwnerSlug: "test-painting",
 		Type:          ProvenanceCertificate,
 		IssuedBy:      "Galeria Foksal",
 		IssuedAt:      issuedAt,
@@ -63,7 +63,7 @@ func TestProvenanceStoreRoundTrip(t *testing.T) {
 
 	// Reload through a fresh store — disk persistence
 	store2 := NewProvenanceStore(dir)
-	items, err := store2.List("test-painting")
+	items, err := store2.List(OwnerPiece, "test-painting")
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -84,11 +84,11 @@ func TestProvenanceListGroupsAndSorts(t *testing.T) {
 	slug := "test-art"
 
 	// Insert in deliberately wrong order — store should re-sort on List.
-	store.Save(ProvenanceItem{ArtworkSlug: slug, Type: ProvenanceConservation, Title: "B", ChainPosition: 5, IssuedAt: time.Date(2022, 1, 1, 0, 0, 0, 0, time.UTC)}, nil)
-	store.Save(ProvenanceItem{ArtworkSlug: slug, Type: ProvenanceCertificate, Title: "A", ChainPosition: 1, IssuedAt: time.Date(1998, 1, 1, 0, 0, 0, 0, time.UTC)}, nil)
-	store.Save(ProvenanceItem{ArtworkSlug: slug, Type: ProvenanceInvoice, Title: "C", ChainPosition: 2, IssuedAt: time.Date(2010, 1, 1, 0, 0, 0, 0, time.UTC)}, nil)
+	store.Save(ProvenanceItem{OwnerKind: OwnerPiece, OwnerSlug: slug, Type: ProvenanceConservation, Title: "B", ChainPosition: 5, IssuedAt: time.Date(2022, 1, 1, 0, 0, 0, 0, time.UTC)}, nil)
+	store.Save(ProvenanceItem{OwnerKind: OwnerPiece, OwnerSlug: slug, Type: ProvenanceCertificate, Title: "A", ChainPosition: 1, IssuedAt: time.Date(1998, 1, 1, 0, 0, 0, 0, time.UTC)}, nil)
+	store.Save(ProvenanceItem{OwnerKind: OwnerPiece, OwnerSlug: slug, Type: ProvenanceInvoice, Title: "C", ChainPosition: 2, IssuedAt: time.Date(2010, 1, 1, 0, 0, 0, 0, time.UTC)}, nil)
 
-	items, err := store.List(slug)
+	items, err := store.List(OwnerPiece, slug)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestProvenanceSignAndVerify(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "content")
 	store := NewProvenanceStore(dir)
 	item, err := store.Save(ProvenanceItem{
-		ArtworkSlug:   "test-art",
+		OwnerKind: OwnerPiece, OwnerSlug: "test-art",
 		Type:          ProvenanceCertificate,
 		IssuedBy:      "X",
 		IssuedAt:      time.Now(),
@@ -149,19 +149,19 @@ func TestProvenanceDelete(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "content")
 	store := NewProvenanceStore(dir)
 	saved, _ := store.Save(ProvenanceItem{
-		ArtworkSlug: "x",
+		OwnerKind: OwnerPiece, OwnerSlug: "x",
 		Type:        ProvenanceCertificate,
 		Title:       "C1",
 		IssuedAt:    time.Now(),
 	}, nil)
-	if err := store.Delete("x", saved.ID); err != nil {
+	if err := store.Delete(OwnerPiece, "x", saved.ID); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	items, _ := store.List("x")
+	items, _ := store.List(OwnerPiece, "x")
 	if len(items) != 0 {
 		t.Errorf("expected empty list, got %d", len(items))
 	}
-	if err := store.Delete("x", "nonexistent"); err == nil {
+	if err := store.Delete(OwnerPiece, "x", "nonexistent"); err == nil {
 		t.Error("Delete on missing id should error")
 	}
 }
@@ -169,7 +169,7 @@ func TestProvenanceDelete(t *testing.T) {
 func TestProvenanceRejectsFreeFormType(t *testing.T) {
 	store := NewProvenanceStore(filepath.Join(t.TempDir(), "content"))
 	_, err := store.Save(ProvenanceItem{
-		ArtworkSlug: "x",
+		OwnerKind: OwnerPiece, OwnerSlug: "x",
 		Type:        "other",
 		Title:       "X",
 		IssuedAt:    time.Now(),

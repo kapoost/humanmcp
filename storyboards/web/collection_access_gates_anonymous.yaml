@@ -1,0 +1,106 @@
+id: web/collection_access_gates_anonymous
+version: "1.0.0"
+title: "Anonymous visitors see only public collection items"
+category: web_collection
+summary: "Locks the access contract for /collection: anonymous callers see only access=public; private items return 404 on detail, members items are hidden from anonymous listings, owner sees everything."
+narrative: |
+  CollectionItem.Access has three levels: private (default), members,
+  public. Pieces and listings already follow a similar gate, but the
+  collection store is new code — this storyboard pins its behaviour
+  before something quietly leaks a private acquisition record.
+
+  Setup uses three POSTs (one per access level) so the runner does not
+  need a dedicated `collection:` setup block. The first three POSTs
+  are themselves the setup; the assertions follow.
+
+kind: http
+
+assertions:
+  - name: "seed public item"
+    request:
+      method: POST
+      path: /collection-new
+      owner: true
+      form:
+        slug: pub-piece
+        title: "Public sketch"
+        original_creator: "Anon"
+        access: public
+    expect:
+      status: 303
+
+  - name: "seed members item"
+    request:
+      method: POST
+      path: /collection-new
+      owner: true
+      form:
+        slug: members-piece
+        title: "Members-only drawing"
+        original_creator: "Anon"
+        access: members
+    expect:
+      status: 303
+
+  - name: "seed private item"
+    request:
+      method: POST
+      path: /collection-new
+      owner: true
+      form:
+        slug: private-piece
+        title: "Private oil"
+        original_creator: "Anon"
+        access: private
+    expect:
+      status: 303
+
+  - name: "anonymous /collection shows only public item"
+    request:
+      method: GET
+      path: /collection
+    expect:
+      status: 200
+      body_contains:
+        - "Public sketch"
+      body_does_not_contain:
+        - "Members-only drawing"
+        - "Private oil"
+
+  - name: "owner /collection shows all three"
+    request:
+      method: GET
+      path: /collection
+      owner: true
+    expect:
+      status: 200
+      body_contains:
+        - "Public sketch"
+        - "Members-only drawing"
+        - "Private oil"
+
+  - name: "anonymous detail for private item is 404"
+    request:
+      method: GET
+      path: /collection/private-piece
+    expect:
+      status: 404
+
+  - name: "owner detail for private item renders normally"
+    request:
+      method: GET
+      path: /collection/private-piece
+      owner: true
+    expect:
+      status: 200
+      body_contains:
+        - "Private oil"
+        - "not signed"
+
+closes_failure_modes:
+  - "Private acquisition record leaks to anonymous /collection listing"
+  - "Members-only items appear on the public list without auth"
+  - "Direct URL to a private item returns 200 with full body"
+
+known_regressions_caught:
+  - "2026-06-09 — initial CollectionItem access gate"

@@ -82,6 +82,7 @@ type Handler struct {
 	questionStore   *content.QuestionStore
 	memoryStore     *content.MemoryStore
 	provenanceStore *content.ProvenanceStore
+	collectionStore *content.CollectionStore
 	sessions      map[string]time.Time // session ID → expiry time
 
 	mu              sync.Mutex
@@ -101,6 +102,7 @@ func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler
 		questionStore:   content.NewQuestionStore(cfg.ContentDir),
 		memoryStore:     content.NewMemoryStore(cfg.ContentDir),
 		provenanceStore: content.NewProvenanceStore(cfg.ContentDir),
+		collectionStore: content.NewCollectionStore(cfg.ContentDir),
 		sessions:       make(map[string]time.Time),
 		rateLimiter:    make(map[string][]time.Time),
 		askHumanLog:    make(map[string][]time.Time),
@@ -590,6 +592,25 @@ func (h *Handler) buildTools() []Tool {
 			},
 		},
 		{
+			Name:        "list_collection",
+			Description: "List items in kapoost's personal art collection — works he OWNS but did NOT create (paintings, drawings, prints). Each item has original_creator, medium, year, dimensions, acquired_at, and an access level. Anonymous callers see only access=public; bootstrapped callers may also see members. Unlike list_content (kapoost's own pieces), nothing here is signed by kapoost — the IP belongs to the original creator. Use to read provenance dossiers for works in his custody.",
+			InputSchema: map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+		},
+		{
+			Name:        "read_collection_item",
+			Description: "Read a single collection item by slug, including its full metadata and a count of attached dossier documents. Returns 'not found' for private items unless the caller is bootstrapped. Use list_provenance with the same slug to fetch the dossier itself.",
+			InputSchema: map[string]interface{}{
+				"type":     "object",
+				"required": []string{"slug"},
+				"properties": map[string]interface{}{
+					"slug": map[string]interface{}{"type": "string", "description": "Collection item slug (matches /collection/<slug>)."},
+				},
+			},
+		},
+		{
 			Name:        "about_humanmcp",
 			Description: "Self-description of this humanMCP server. Returns author, role, MCP endpoint, public web pages, and a short orientation. Safe to call without bootstrap_session — meant for first-contact discovery.",
 			InputSchema: map[string]interface{}{
@@ -766,6 +787,10 @@ func (h *Handler) handleToolsCall(w http.ResponseWriter, r *http.Request, req *R
 		h.toolListProvenance(w, req, params.Arguments)
 	case "read_provenance":
 		h.toolReadProvenance(w, req, params.Arguments)
+	case "list_collection":
+		h.toolListCollection(w, r, req, params.Arguments)
+	case "read_collection_item":
+		h.toolReadCollectionItem(w, r, req, params.Arguments)
 	case "remember":
 		h.toolRemember(w, r, req, params.Arguments)
 	case "recall":
@@ -1337,7 +1362,15 @@ func (h *Handler) toolListProvenance(w http.ResponseWriter, req *Request, args j
 		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: "slug required"}}})
 		return
 	}
-	items, err := h.provenanceStore.List(a.Slug)
+	// MCP callers don't currently distinguish piece vs collection; try
+	// both and return whichever resolves. Piece first matches the older
+	// behaviour and the common case.
+	items, err := h.provenanceStore.List(content.OwnerPiece, a.Slug)
+	if (err != nil || len(items) == 0) {
+		if ci, cerr := h.provenanceStore.List(content.OwnerCollection, a.Slug); cerr == nil && len(ci) > 0 {
+			items, err = ci, nil
+		}
+	}
 	if err != nil {
 		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
 			Text: "Could not list provenance: " + err.Error()}}})
@@ -1385,7 +1418,12 @@ func (h *Handler) toolReadProvenance(w http.ResponseWriter, req *Request, args j
 		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: "slug and id required"}}})
 		return
 	}
-	item, err := h.provenanceStore.Get(a.Slug, a.ID)
+	item, err := h.provenanceStore.Get(content.OwnerPiece, a.Slug, a.ID)
+	if err != nil {
+		if ci, cerr := h.provenanceStore.Get(content.OwnerCollection, a.Slug, a.ID); cerr == nil {
+			item, err = ci, nil
+		}
+	}
 	if err != nil {
 		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
 			Text: "Not found: " + err.Error()}}})
@@ -1418,6 +1456,111 @@ func (h *Handler) toolReadProvenance(w http.ResponseWriter, req *Request, args j
 	if item.Notes != "" {
 		fmt.Fprintf(&b, "\nNotes:\n%s\n", item.Notes)
 	}
+	writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: b.String()}}})
+}
+
+// toolListCollection enumerates items kapoost owns but did not create.
+// Returns only public items to non-bootstrapped callers; bootstrapped
+// callers additionally see "members" items. Private items are
+// owner-only and never returned via MCP.
+func (h *Handler) toolListCollection(w http.ResponseWriter, r *http.Request, req *Request, args json.RawMessage) {
+	bootstrapped := h.isSessionActive(r)
+
+	all := h.collectionStore.List()
+	var items []content.CollectionItem
+	for _, it := range all {
+		if it.Access == "public" {
+			items = append(items, it)
+		} else if it.Access == "members" && bootstrapped {
+			items = append(items, it)
+		}
+	}
+	if len(items) == 0 {
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
+			Text: "No collection items visible to this caller."}}})
+		return
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Collection (%d items) — works kapoost owns but did NOT create.\n", len(items))
+	fmt.Fprint(&b, "Nothing here is signed by kapoost; IP belongs to the original creator.\n\n")
+	for _, it := range items {
+		fmt.Fprintf(&b, "- %s\n", it.Title)
+		fmt.Fprintf(&b, "  slug:     %s\n", it.Slug)
+		fmt.Fprintf(&b, "  by:       %s", it.OriginalCreator)
+		if it.Year != 0 {
+			fmt.Fprintf(&b, ", %d", it.Year)
+		}
+		fmt.Fprintln(&b)
+		if it.Medium != "" || it.Dimensions != "" {
+			fmt.Fprintf(&b, "  details:  %s %s\n", it.Medium, it.Dimensions)
+		}
+		if !it.AcquiredAt.IsZero() {
+			fmt.Fprintf(&b, "  acquired: %s", it.AcquiredAt.Format("2006-01-02"))
+			if it.AcquiredFrom != "" {
+				fmt.Fprintf(&b, " from %s", it.AcquiredFrom)
+			}
+			fmt.Fprintln(&b)
+		}
+		fmt.Fprintf(&b, "  access:   %s\n\n", it.Access)
+	}
+	writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: b.String()}}})
+}
+
+// toolReadCollectionItem returns the full record for one item, gated
+// by access level.
+func (h *Handler) toolReadCollectionItem(w http.ResponseWriter, r *http.Request, req *Request, args json.RawMessage) {
+	var a struct {
+		Slug string `json:"slug"`
+	}
+	json.Unmarshal(args, &a)
+	if a.Slug == "" {
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: "slug required"}}})
+		return
+	}
+	item, err := h.collectionStore.Get(a.Slug)
+	if err != nil {
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
+			Text: "Not found: " + err.Error()}}})
+		return
+	}
+	bootstrapped := h.isSessionActive(r)
+	if item.Access == "private" {
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
+			Text: "Item is private; not visible to MCP callers."}}})
+		return
+	}
+	if item.Access == "members" && !bootstrapped {
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
+			Text: "Item is members-only. Bootstrap a session to see it."}}})
+		return
+	}
+	dossier, _ := h.provenanceStore.List(content.OwnerCollection, a.Slug)
+	var b strings.Builder
+	fmt.Fprintf(&b, "Collection item: %s\n\n", item.Title)
+	fmt.Fprintf(&b, "Slug:            %s\n", item.Slug)
+	fmt.Fprintf(&b, "Original creator: %s\n", item.OriginalCreator)
+	if item.Year != 0 {
+		fmt.Fprintf(&b, "Year:            %d\n", item.Year)
+	}
+	if item.Medium != "" {
+		fmt.Fprintf(&b, "Medium:          %s\n", item.Medium)
+	}
+	if item.Dimensions != "" {
+		fmt.Fprintf(&b, "Dimensions:      %s\n", item.Dimensions)
+	}
+	if !item.AcquiredAt.IsZero() {
+		fmt.Fprintf(&b, "Acquired:        %s\n", item.AcquiredAt.Format("2006-01-02"))
+	}
+	if item.AcquiredFrom != "" {
+		fmt.Fprintf(&b, "Acquired from:   %s\n", item.AcquiredFrom)
+	}
+	fmt.Fprintf(&b, "Access:          %s\n", item.Access)
+	if item.Notes != "" {
+		fmt.Fprintf(&b, "\nNotes:\n%s\n", item.Notes)
+	}
+	fmt.Fprintf(&b, "\nDossier: %d document(s). Use list_provenance(slug=%q) to enumerate.\n",
+		len(dossier), item.Slug)
+	fmt.Fprintln(&b, "\nThis work is NOT signed by kapoost. It belongs to the original creator.")
 	writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: b.String()}}})
 }
 

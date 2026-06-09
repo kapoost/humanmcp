@@ -81,10 +81,25 @@ type FileEntry struct {
 	SizeBytes   int64  `json:"size_bytes"`
 }
 
+// OwnerKind tells the store which entity a dossier is attached to. Pieces
+// (artworks kapoost made) and collection items (works he owns) both grow
+// provenance the same way.
+type OwnerKind string
+
+const (
+	OwnerPiece      OwnerKind = "piece"
+	OwnerCollection OwnerKind = "collection"
+)
+
 // ProvenanceItem is one dossier entry.
 type ProvenanceItem struct {
 	ID            string             `json:"id"`
-	ArtworkSlug   string             `json:"artwork_slug"`
+	// Owner identifies the parent. Older items wrote ArtworkSlug only;
+	// loader fills OwnerKind=piece when that legacy field is present
+	// and OwnerKind/OwnerSlug are not.
+	OwnerKind     OwnerKind          `json:"owner_kind,omitempty"`
+	OwnerSlug     string             `json:"owner_slug,omitempty"`
+	ArtworkSlug   string             `json:"artwork_slug,omitempty"` // legacy alias for OwnerSlug+kind=piece
 	Version       int                `json:"version"`
 	Category      ProvenanceCategory `json:"category"`
 	Type          ProvenanceType     `json:"type"`
@@ -97,6 +112,19 @@ type ProvenanceItem struct {
 	Signature     string             `json:"signature,omitempty"`
 	OTSProof      string             `json:"ots_proof,omitempty"`
 	AddedAt       time.Time          `json:"added_at"`
+}
+
+// normalizeOwner fills in OwnerKind/OwnerSlug from the legacy
+// ArtworkSlug field so callers can rely on the new fields regardless of
+// when the item was written.
+func (it *ProvenanceItem) normalizeOwner() {
+	if it.OwnerKind == "" && it.OwnerSlug == "" && it.ArtworkSlug != "" {
+		it.OwnerKind = OwnerPiece
+		it.OwnerSlug = it.ArtworkSlug
+	}
+	if it.OwnerKind == "" {
+		it.OwnerKind = OwnerPiece
+	}
 }
 
 // ProvenanceStore persists items grouped by artwork slug — one JSON file
@@ -121,21 +149,14 @@ func (s *ProvenanceStore) FilesDir() string {
 	return s.filesDir
 }
 
-// List returns all items for an artwork, sorted by Category then
-// ChainPosition then IssuedAt — Eleanor's hierarchy.
-func (s *ProvenanceStore) List(artworkSlug string) ([]ProvenanceItem, error) {
+// List returns all items for a given owner (piece or collection), sorted
+// by Category → ChainPosition → IssuedAt. The (kind, slug) pair lets the
+// same store back both artwork dossiers and collection-item dossiers.
+func (s *ProvenanceStore) List(kind OwnerKind, slug string) ([]ProvenanceItem, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	path := s.itemsPath(artworkSlug)
-	data, err := os.ReadFile(path)
+	items, err := s.loadAnyLocked(kind, slug)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	var items []ProvenanceItem
-	if err := json.Unmarshal(data, &items); err != nil {
 		return nil, err
 	}
 	sort.SliceStable(items, func(i, j int) bool {
@@ -150,9 +171,9 @@ func (s *ProvenanceStore) List(artworkSlug string) ([]ProvenanceItem, error) {
 	return items, nil
 }
 
-// Get loads a single item by id (within an artwork).
-func (s *ProvenanceStore) Get(artworkSlug, id string) (*ProvenanceItem, error) {
-	items, err := s.List(artworkSlug)
+// Get loads a single item by id, scoped to one owner.
+func (s *ProvenanceStore) Get(kind OwnerKind, slug, id string) (*ProvenanceItem, error) {
+	items, err := s.List(kind, slug)
 	if err != nil {
 		return nil, err
 	}
@@ -161,14 +182,19 @@ func (s *ProvenanceStore) Get(artworkSlug, id string) (*ProvenanceItem, error) {
 			return &items[i], nil
 		}
 	}
-	return nil, fmt.Errorf("provenance item not found: %s/%s", artworkSlug, id)
+	return nil, fmt.Errorf("provenance item not found: %s/%s/%s", kind, slug, id)
 }
 
 // Save persists a new item or replaces an existing one with the same ID.
-// Auto-populates Category from Type and AddedAt + ID when missing.
+// item.OwnerKind + item.OwnerSlug are required (legacy ArtworkSlug accepted
+// via normalizeOwner).
 func (s *ProvenanceStore) Save(item ProvenanceItem, signer *KeyPair) (ProvenanceItem, error) {
-	if item.ArtworkSlug == "" {
-		return ProvenanceItem{}, fmt.Errorf("artwork_slug required")
+	item.normalizeOwner()
+	if item.OwnerSlug == "" {
+		return ProvenanceItem{}, fmt.Errorf("owner_slug required")
+	}
+	if item.OwnerKind == "" {
+		return ProvenanceItem{}, fmt.Errorf("owner_kind required")
 	}
 	if !ValidProvenanceType(string(item.Type)) {
 		return ProvenanceItem{}, fmt.Errorf("invalid provenance type %q", item.Type)
@@ -181,7 +207,13 @@ func (s *ProvenanceStore) Save(item ProvenanceItem, signer *KeyPair) (Provenance
 		item.AddedAt = time.Now().UTC()
 	}
 	if item.ID == "" {
-		item.ID = generateProvenanceID(item.ArtworkSlug, item.Type, item.IssuedAt)
+		item.ID = generateProvenanceID(item.OwnerSlug, item.Type, item.IssuedAt)
+	}
+	// Keep ArtworkSlug in sync so older readers stay happy.
+	if item.OwnerKind == OwnerPiece {
+		item.ArtworkSlug = item.OwnerSlug
+	} else {
+		item.ArtworkSlug = ""
 	}
 	if signer != nil {
 		sig, err := signProvenance(&item, signer)
@@ -193,7 +225,7 @@ func (s *ProvenanceStore) Save(item ProvenanceItem, signer *KeyPair) (Provenance
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	items, _ := s.loadLocked(item.ArtworkSlug)
+	items, _ := s.loadAnyLocked(item.OwnerKind, item.OwnerSlug)
 	replaced := false
 	for i := range items {
 		if items[i].ID == item.ID {
@@ -205,17 +237,17 @@ func (s *ProvenanceStore) Save(item ProvenanceItem, signer *KeyPair) (Provenance
 	if !replaced {
 		items = append(items, item)
 	}
-	if err := s.saveLocked(item.ArtworkSlug, items); err != nil {
+	if err := s.saveLocked(item.OwnerKind, item.OwnerSlug, items); err != nil {
 		return ProvenanceItem{}, err
 	}
 	return item, nil
 }
 
 // Delete removes a single item plus its file payloads.
-func (s *ProvenanceStore) Delete(artworkSlug, id string) error {
+func (s *ProvenanceStore) Delete(kind OwnerKind, slug, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	items, err := s.loadLocked(artworkSlug)
+	items, err := s.loadAnyLocked(kind, slug)
 	if err != nil {
 		return err
 	}
@@ -229,12 +261,12 @@ func (s *ProvenanceStore) Delete(artworkSlug, id string) error {
 		kept = append(kept, items[i])
 	}
 	if removed == nil {
-		return fmt.Errorf("provenance item not found: %s/%s", artworkSlug, id)
+		return fmt.Errorf("provenance item not found: %s/%s/%s", kind, slug, id)
 	}
 	for _, f := range removed.Files {
 		_ = os.Remove(filepath.Join(s.filesDir, f.FileRef))
 	}
-	return s.saveLocked(artworkSlug, kept)
+	return s.saveLocked(kind, slug, kept)
 }
 
 // ComputeContentHash returns the SHA-256 hex of bytes — used both at upload
@@ -244,12 +276,50 @@ func ComputeContentHash(data []byte) string {
 	return hex.EncodeToString(h[:])
 }
 
-func (s *ProvenanceStore) itemsPath(slug string) string {
+// itemsPath returns /data/provenance/<kind>/<slug>.json. For OwnerPiece
+// the legacy path /data/provenance/<slug>.json is checked first via
+// loadAnyLocked so older artwork dossiers still resolve without migration.
+func (s *ProvenanceStore) itemsPath(kind OwnerKind, slug string) string {
+	return filepath.Join(s.dir, string(kind), slug+".json")
+}
+
+// legacyPiecePath returns the pre-2026-06-09 layout where artwork dossiers
+// lived directly under /data/provenance/<slug>.json.
+func (s *ProvenanceStore) legacyPiecePath(slug string) string {
 	return filepath.Join(s.dir, slug+".json")
 }
 
-func (s *ProvenanceStore) loadLocked(slug string) ([]ProvenanceItem, error) {
-	data, err := os.ReadFile(s.itemsPath(slug))
+// loadAnyLocked tries the new (kind-scoped) path first, then falls back to
+// the legacy artwork layout for backward compatibility.
+func (s *ProvenanceStore) loadAnyLocked(kind OwnerKind, slug string) ([]ProvenanceItem, error) {
+	if items, err := s.loadFromPath(s.itemsPath(kind, slug)); err == nil {
+		if items != nil {
+			for i := range items {
+				items[i].normalizeOwner()
+			}
+			return items, nil
+		}
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	}
+	if kind == OwnerPiece {
+		items, err := s.loadFromPath(s.legacyPiecePath(slug))
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil, nil
+			}
+			return nil, err
+		}
+		for i := range items {
+			items[i].normalizeOwner()
+		}
+		return items, nil
+	}
+	return nil, nil
+}
+
+func (s *ProvenanceStore) loadFromPath(path string) ([]ProvenanceItem, error) {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -263,15 +333,16 @@ func (s *ProvenanceStore) loadLocked(slug string) ([]ProvenanceItem, error) {
 	return items, nil
 }
 
-func (s *ProvenanceStore) saveLocked(slug string, items []ProvenanceItem) error {
-	if err := os.MkdirAll(s.dir, 0o755); err != nil {
+func (s *ProvenanceStore) saveLocked(kind OwnerKind, slug string, items []ProvenanceItem) error {
+	path := s.itemsPath(kind, slug)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(items, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.itemsPath(slug), data, 0o644)
+	return os.WriteFile(path, data, 0o644)
 }
 
 func generateProvenanceID(slug string, t ProvenanceType, issuedAt time.Time) string {
@@ -290,9 +361,13 @@ func signProvenance(item *ProvenanceItem, kp *KeyPair) (string, error) {
 }
 
 func provenanceCanonicalBytes(item *ProvenanceItem) []byte {
+	owner := item.OwnerSlug
+	if owner == "" {
+		owner = item.ArtworkSlug // legacy items
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s|%s|%s|%s|%s|%d|%s",
-		item.ArtworkSlug, item.ID, item.Type, item.IssuedBy,
+		owner, item.ID, item.Type, item.IssuedBy,
 		item.IssuedAt.Format(time.RFC3339), item.ChainPosition, item.Title)
 	for _, f := range item.Files {
 		fmt.Fprintf(&b, "|%s:%s", f.Filename, f.ContentHash)

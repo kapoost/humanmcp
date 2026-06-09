@@ -1,0 +1,73 @@
+{{define "collection-new.html"}}<!DOCTYPE html><html><head><meta charset="utf-8"><title>New collection item — {{.Author}}</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+body{font-family:Georgia,serif;max-width:720px;margin:0 auto;padding:2rem;background:#fafaf8;color:#222}
+h1{border-bottom:2px solid #333;padding-bottom:.5rem}
+.lede{color:#666;font-size:.9rem;margin-bottom:1.5rem;line-height:1.55}
+form{background:#fff;border:1px solid #ddd;border-radius:6px;padding:1.5rem 1.8rem;font-family:-apple-system,sans-serif;font-size:.92rem}
+label{display:block;color:#665;font-size:.78rem;margin-top:.9rem;margin-bottom:.25rem;font-weight:500;text-transform:uppercase;letter-spacing:.04em}
+input,select,textarea{width:100%;padding:.5rem .7rem;border:1px solid #d4cfc6;border-radius:4px;background:#fafaf8;font-family:Georgia,serif;font-size:.95rem;box-sizing:border-box}
+textarea{min-height:80px;line-height:1.55}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:.8rem}
+button{margin-top:1.2rem;padding:.6rem 1.5rem;background:#222;color:#fff;border:none;border-radius:4px;font-size:.92rem;cursor:pointer;font-family:-apple-system,sans-serif}
+button:hover{background:#000}
+.required{color:#a33}
+a.back{color:#666;font-size:.9rem;text-decoration:none}
+</style></head><body>
+<a class="back" href="/collection">← collection</a>
+<h1>New collection item</h1>
+<p class="lede">For works you own but did not create. No signature, no OpenTimestamps. You can attach the certificate / invoice / exhibition record from the item page after creating it.</p>
+
+<form method="POST" action="/collection-new">
+  <label>Slug <span class="required">*</span></label>
+  <input name="slug" placeholder="rzeznik-mountains-1998" required pattern="[a-z0-9\-]+">
+
+  <label>Title <span class="required">*</span></label>
+  <input name="title" placeholder="Mountains, 1998" required>
+
+  <label>Original creator <span class="required">*</span></label>
+  <input name="original_creator" placeholder="Artur Rzeźnik" required>
+
+  <div class="row">
+    <div>
+      <label>Medium</label>
+      <input name="medium" placeholder="oil on canvas">
+    </div>
+    <div>
+      <label>Year</label>
+      <input name="year" type="number" placeholder="1998" min="0" max="2100">
+    </div>
+  </div>
+
+  <label>Dimensions</label>
+  <input name="dimensions" placeholder="60 × 80 cm">
+
+  <div class="row">
+    <div>
+      <label>Acquired at</label>
+      <input name="acquired_at" type="date">
+    </div>
+    <div>
+      <label>Acquired from</label>
+      <input name="acquired_from" placeholder="Galeria Foksal">
+    </div>
+  </div>
+
+  <label>Acquisition price (private)</label>
+  <input name="acquisition_price" placeholder="5000 PLN">
+
+  <label>Notes</label>
+  <textarea name="notes" placeholder="Bought after a vernissage. The artist signed the back."></textarea>
+
+  <label>Access</label>
+  <select name="access">
+    <option value="private">private (only you see it)</option>
+    <option value="members">members (members-only listing)</option>
+    <option value="public">public (visible to anyone)</option>
+  </select>
+
+  <button type="submit">Add to collection</button>
+</form>
+
+</body></html>
+{{end}}

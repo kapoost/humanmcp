@@ -1,0 +1,81 @@
+id: web/collection_required_fields_reject
+version: "1.0.0"
+title: "Collection POST rejects items missing title or original_creator"
+category: web_collection
+summary: "Locks the validation contract for CollectionItem: a POST without title or original_creator returns 400, not 303. The 'original creator' rule is load-bearing — without it, a collection item is indistinguishable from a piece kapoost made himself."
+narrative: |
+  The semantic distinction between Piece and CollectionItem rests on
+  one rule: a collection item has an original_creator different from
+  kapoost. If the form lets that field through empty, the listing
+  starts looking like 'a piece without a signature' rather than 'a
+  work owned but not made by kapoost'. This storyboard prevents the
+  silent drift.
+
+kind: http
+
+assertions:
+  - name: "missing original_creator → 400"
+    request:
+      method: POST
+      path: /collection-new
+      owner: true
+      form:
+        slug: orphan-1
+        title: "Has title, no creator"
+    expect:
+      status: 400
+
+  - name: "missing title → 400"
+    request:
+      method: POST
+      path: /collection-new
+      owner: true
+      form:
+        slug: orphan-2
+        original_creator: "Someone"
+    expect:
+      status: 400
+
+  - name: "missing slug → 400"
+    request:
+      method: POST
+      path: /collection-new
+      owner: true
+      form:
+        title: "no slug"
+        original_creator: "Someone"
+    expect:
+      status: 400
+
+  - name: "minimal valid payload → 303"
+    request:
+      method: POST
+      path: /collection-new
+      owner: true
+      form:
+        slug: minimal-ok
+        title: "Bare minimum"
+        original_creator: "Z"
+    expect:
+      status: 303
+      location_contains: /collection/minimal-ok
+
+  - name: "anonymous POST → 302 to /login (auth before validation)"
+    request:
+      method: POST
+      path: /collection-new
+      form:
+        slug: should-not-save
+        title: "should not save"
+        original_creator: "X"
+    expect:
+      status: 302
+      location_contains: /login
+
+closes_failure_modes:
+  - "Empty original_creator silently saves and the item looks like a piece by kapoost"
+  - "Validation happens before auth — anonymous callers can probe required fields"
+  - "Empty slug produces a 'ghost' item with no addressable URL"
+
+known_regressions_caught:
+  - "2026-06-09 — initial CollectionItem validation"

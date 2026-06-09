@@ -1,0 +1,33 @@
+{{define "collection.html"}}<!DOCTYPE html><html><head><meta charset="utf-8"><title>Collection — {{.Author}}</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+body{font-family:Georgia,serif;max-width:900px;margin:0 auto;padding:2rem;background:#fafaf8;color:#222}
+h1{border-bottom:2px solid #333;padding-bottom:.5rem;margin-bottom:.4rem}
+.lede{color:#666;font-size:.95rem;margin-bottom:2rem;line-height:1.55}
+.item{border:1px solid #ddd;padding:1.3rem 1.5rem;margin:1.2rem 0;background:#fff;border-radius:4px;overflow:hidden}
+.item h2{margin:0 0 .25rem;font-size:1.15rem}
+.item h2 a{color:#222;text-decoration:none}
+.item h2 a:hover{color:#2a5a8a}
+.creator{color:#555;font-style:italic;font-size:.92rem;margin-bottom:.45rem}
+.meta{color:#888;font-size:.82rem;font-family:-apple-system,sans-serif;letter-spacing:.02em}
+.notes{margin-top:.6rem;color:#555;font-size:.9rem;line-height:1.55}
+.access{display:inline-block;padding:1px 7px;border-radius:3px;font-size:.7rem;font-family:-apple-system,sans-serif;text-transform:uppercase;letter-spacing:.05em;margin-left:.4rem}
+.access.private{background:#f3eada;color:#766244}
+.access.members{background:#dde6f0;color:#3a5570}
+.access.public{background:#dfeede;color:#3a6a3a}
+.add{display:inline-block;margin-top:.5rem;padding:.4rem 1rem;background:#222;color:#fff;border-radius:4px;text-decoration:none;font-family:-apple-system,sans-serif;font-size:.85rem}
+a{color:#2a5a8a;text-decoration:none}
+a:hover{text-decoration:underline}
+</style></head><body>
+<a href="/" style="color:#666;font-size:.9rem;">← back</a>
+<h1>Collection</h1>
+<p class="lede">Works I own but did not make. Paintings, drawings, prints — each with its own dossier of certificates, invoices, and exhibition history. Unlike pieces I authored, nothing here is signed by me; the originals belong to the artists who made them.</p>
+{{if .IsOwner}}<a class="add" href="/collection-new">+ add item</a>{{end}}
+{{if .Items}}{{range .Items}}<div class="item">
+  <h2><a href="/collection/{{.Slug}}">{{.Title}}</a>{{if $.IsOwner}}<span class="access {{.Access}}">{{.Access}}</span>{{end}}</h2>
+  <div class="creator">by {{.OriginalCreator}}{{if .Year}}, {{.Year}}{{end}}</div>
+  <div class="meta">{{if .Medium}}{{.Medium}}{{end}}{{if .Dimensions}} · {{.Dimensions}}{{end}}{{if not .AcquiredAt.IsZero}} · acquired {{formatDate .AcquiredAt}}{{end}}{{if .AcquiredFrom}} from {{.AcquiredFrom}}{{end}}</div>
+  {{if .Notes}}<div class="notes">{{.Notes}}</div>{{end}}
+</div>{{end}}{{else}}<p style="color:#888;margin-top:2rem">No items in the collection yet.</p>{{end}}
+</body></html>
+{{end}}

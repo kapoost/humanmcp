@@ -32,6 +32,7 @@ type Handler struct {
 	questionStore     *content.QuestionStore
 	subscriptionStore *content.SubscriptionStore
 	provenanceStore   *content.ProvenanceStore
+	collectionStore   *content.CollectionStore
 	signingKey        *content.KeyPair
 	tmpl              *template.Template
 	startedAt         time.Time
@@ -55,6 +56,7 @@ func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler
 		questionStore:     content.NewQuestionStore(cfg.ContentDir),
 		subscriptionStore: content.NewSubscriptionStore(cfg.ContentDir),
 		provenanceStore:   content.NewProvenanceStore(cfg.ContentDir),
+		collectionStore:   content.NewCollectionStore(cfg.ContentDir),
 		startedAt:         time.Now(),
 		contactRateLog:    make(map[string][]time.Time),
 	}
@@ -285,6 +287,13 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("/llms-edit", h.auth.RequireOwner(http.HandlerFunc(h.handleLLMSTxtEdit)))
 	mux.HandleFunc("/stats", h.handleStats)
 	mux.HandleFunc("/gallery", h.handleGallery)
+
+	// Collection — works kapoost owns but did NOT create.
+	// No signature, no OTS, no license: archival listing only.
+	mux.HandleFunc("/collection", h.handleCollection)
+	mux.HandleFunc("/collection/", h.handleCollection)
+	mux.Handle("/collection-new", h.auth.RequireOwner(http.HandlerFunc(h.handleCollectionNew)))
+	mux.Handle("/collection-delete/", h.auth.RequireOwner(http.HandlerFunc(h.handleCollectionDelete)))
 }
 
 func (h *Handler) handleWellKnown(w http.ResponseWriter, r *http.Request) {
@@ -2044,7 +2053,7 @@ func (h *Handler) handleArtworks(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	items, _ := h.provenanceStore.List(slug)
+	items, _ := h.provenanceStore.List(content.OwnerPiece, slug)
 	h.render(w, "artwork.html", map[string]interface{}{
 		"Author":          h.cfg.AuthorName,
 		"IsOwner":         h.auth.IsOwner(r),
@@ -2087,7 +2096,7 @@ func (h *Handler) handleProvenanceMutation(w http.ResponseWriter, r *http.Reques
 	// Delete subpath: /<id>/delete
 	if strings.HasSuffix(sub, "/delete") {
 		id := strings.TrimSuffix(strings.TrimPrefix(sub, "/"), "/delete")
-		if err := h.provenanceStore.Delete(slug, id); err != nil {
+		if err := h.provenanceStore.Delete(content.OwnerPiece, slug, id); err != nil {
 			http.Error(w, err.Error(), 400)
 			return
 		}
@@ -2101,7 +2110,8 @@ func (h *Handler) handleProvenanceMutation(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	item := content.ProvenanceItem{
-		ArtworkSlug: slug,
+		OwnerKind: content.OwnerPiece,
+		OwnerSlug: slug,
 		Type:        content.ProvenanceType(r.FormValue("type")),
 		IssuedBy:    strings.TrimSpace(r.FormValue("issued_by")),
 		Title:       strings.TrimSpace(r.FormValue("title")),
@@ -2212,10 +2222,13 @@ func (h *Handler) handleProvenanceFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slug := parts[0]
-	// Confirm artwork exists; refuse to serve files for unknown pieces.
+	// Confirm the slug belongs to either a piece OR a collection item;
+	// refuse to serve files for unknown owners.
 	if _, err := h.store.Get(slug, true); err != nil {
-		http.NotFound(w, r)
-		return
+		if _, cerr := h.collectionStore.Get(slug); cerr != nil {
+			http.NotFound(w, r)
+			return
+		}
 	}
 	disk := filepath.Join(h.provenanceStore.FilesDir(), rel)
 	if _, err := os.Stat(disk); err != nil {
@@ -2724,4 +2737,213 @@ func (h *Handler) handleLLMSTxtEdit(w http.ResponseWriter, r *http.Request) {
 		"Domain": h.cfg.Domain,
 		"Body":   body,
 	})
+}
+
+// handleCollection serves both the listing (/collection) and the detail
+// page (/collection/<slug>). Anonymous visitors see only items with
+// Access == "public"; owner sees everything.
+//
+// The /collection/<slug>/provenance subpath routes through to the
+// shared ProvenanceStore with OwnerKind = collection.
+func (h *Handler) handleCollection(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+	isOwner := h.auth.IsOwner(r)
+
+	if path == "/collection" || path == "/collection/" {
+		var items []content.CollectionItem
+		if isOwner {
+			items = h.collectionStore.List()
+		} else {
+			items = h.collectionStore.PublicList()
+		}
+		h.render(w, "collection.html", map[string]interface{}{
+			"Author":  h.cfg.AuthorName,
+			"IsOwner": isOwner,
+			"Items":   items,
+		})
+		return
+	}
+
+	rest := strings.TrimPrefix(path, "/collection/")
+	slug, sub, hasSub := strings.Cut(rest, "/provenance")
+	if hasSub {
+		h.handleCollectionProvenanceMutation(w, r, slug, sub)
+		return
+	}
+
+	item, err := h.collectionStore.Get(slug)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	// Access gate: only public items are visible to non-owners.
+	if !isOwner && item.Access != "public" {
+		http.NotFound(w, r)
+		return
+	}
+	dossier, _ := h.provenanceStore.List(content.OwnerCollection, slug)
+	h.render(w, "collection-item.html", map[string]interface{}{
+		"Author":     h.cfg.AuthorName,
+		"IsOwner":    isOwner,
+		"Item":       item,
+		"Provenance": dossier,
+		"ProvenanceTypes": []string{
+			string(content.ProvenanceCertificate),
+			string(content.ProvenanceInvoice),
+			string(content.ProvenanceExhibition),
+			string(content.ProvenanceConservation),
+			string(content.ProvenanceAppraisal),
+			string(content.ProvenanceSaleRecord),
+			string(content.ProvenancePhotoRecord),
+			string(content.ProvenanceShipping),
+			string(content.ProvenanceInsurance),
+		},
+	})
+}
+
+// handleCollectionProvenanceMutation is the collection-side twin of
+// handleProvenanceMutation. Same shape, owner kind is OwnerCollection,
+// no signing key — collection items are not signed by kapoost (he is
+// not the author of the work).
+func (h *Handler) handleCollectionProvenanceMutation(w http.ResponseWriter, r *http.Request, slug, sub string) {
+	if !h.auth.IsOwner(r) {
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	if _, err := h.collectionStore.Get(slug); err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	if strings.HasSuffix(sub, "/delete") {
+		id := strings.TrimSuffix(strings.TrimPrefix(sub, "/"), "/delete")
+		if err := h.provenanceStore.Delete(content.OwnerCollection, slug, id); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		http.Redirect(w, r, "/collection/"+slug, http.StatusSeeOther)
+		return
+	}
+
+	if err := r.ParseMultipartForm(64 << 20); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	item := content.ProvenanceItem{
+		OwnerKind: content.OwnerCollection,
+		OwnerSlug: slug,
+		Type:      content.ProvenanceType(r.FormValue("type")),
+		IssuedBy:  strings.TrimSpace(r.FormValue("issued_by")),
+		Title:     strings.TrimSpace(r.FormValue("title")),
+		Notes:     strings.TrimSpace(r.FormValue("notes")),
+	}
+	if ia := r.FormValue("issued_at"); ia != "" {
+		for _, layout := range []string{"2006-01-02", time.RFC3339, "2006-01-02 15:04"} {
+			if t, err := time.Parse(layout, strings.TrimSpace(ia)); err == nil {
+				item.IssuedAt = t
+				break
+			}
+		}
+	}
+	if cp := r.FormValue("chain_position"); cp != "" {
+		fmt.Sscanf(cp, "%d", &item.ChainPosition)
+	}
+	item.ID = "prov-pending-" + fmt.Sprintf("%d", time.Now().UnixNano())
+
+	files, err := h.extractProvenanceFiles(r, slug, item.ID)
+	if err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	if len(files) == 0 {
+		http.Error(w, "at least one file required", 400)
+		return
+	}
+	item.Files = files
+	item.ID = ""
+
+	// Pass nil signer — collection dossiers are not Ed25519-signed.
+	saved, err := h.provenanceStore.Save(item, nil)
+	if err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	oldDir := filepath.Join(h.provenanceStore.FilesDir(), slug, files[0].FileRef[:strings.LastIndex(files[0].FileRef, "/")][len(slug)+1:])
+	newDir := filepath.Join(h.provenanceStore.FilesDir(), slug, saved.ID)
+	if oldDir != newDir {
+		_ = os.Rename(oldDir, newDir)
+		for i := range saved.Files {
+			saved.Files[i].FileRef = strings.Replace(saved.Files[i].FileRef, "/"+filepath.Base(oldDir)+"/", "/"+saved.ID+"/", 1)
+		}
+		_, _ = h.provenanceStore.Save(saved, nil)
+	}
+	http.Redirect(w, r, "/collection/"+slug, http.StatusSeeOther)
+}
+
+// handleCollectionNew renders the create form (GET) and persists a new
+// item (POST). Owner-only, gated by the route registration.
+func (h *Handler) handleCollectionNew(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		h.render(w, "collection-new.html", map[string]interface{}{
+			"Author":  h.cfg.AuthorName,
+			"IsOwner": true,
+		})
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	item := content.CollectionItem{
+		Slug:             strings.TrimSpace(r.FormValue("slug")),
+		Title:            strings.TrimSpace(r.FormValue("title")),
+		OriginalCreator:  strings.TrimSpace(r.FormValue("original_creator")),
+		Medium:           strings.TrimSpace(r.FormValue("medium")),
+		Dimensions:       strings.TrimSpace(r.FormValue("dimensions")),
+		AcquiredFrom:     strings.TrimSpace(r.FormValue("acquired_from")),
+		AcquisitionPrice: strings.TrimSpace(r.FormValue("acquisition_price")),
+		Notes:            strings.TrimSpace(r.FormValue("notes")),
+		Access:           strings.TrimSpace(r.FormValue("access")),
+	}
+	if y := strings.TrimSpace(r.FormValue("year")); y != "" {
+		fmt.Sscanf(y, "%d", &item.Year)
+	}
+	if ad := strings.TrimSpace(r.FormValue("acquired_at")); ad != "" {
+		if t, err := time.Parse("2006-01-02", ad); err == nil {
+			item.AcquiredAt = t
+		}
+	}
+	saved, err := h.collectionStore.Save(item)
+	if err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	http.Redirect(w, r, "/collection/"+saved.Slug, http.StatusSeeOther)
+}
+
+// handleCollectionDelete removes an item. Owner-only.
+// Path: /collection-delete/<slug>
+func (h *Handler) handleCollectionDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	slug := strings.TrimPrefix(r.URL.Path, "/collection-delete/")
+	if slug == "" {
+		http.Error(w, "slug required", 400)
+		return
+	}
+	if err := h.collectionStore.Delete(slug); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	http.Redirect(w, r, "/collection", http.StatusSeeOther)
 }

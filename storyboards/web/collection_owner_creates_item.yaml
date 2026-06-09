@@ -1,0 +1,73 @@
+id: web/collection_owner_creates_item
+version: "1.0.0"
+title: "Owner creates a collection item → appears on /collection and /collection/<slug>"
+category: web_collection
+summary: "Round-trip for the new CollectionItem domain: owner POSTs /collection-new, gets a 303 to /collection/<slug>, and the listing + detail pages show the item with original_creator, medium, year, and dimensions intact."
+narrative: |
+  CollectionItem is the separate domain for works kapoost OWNS but did
+  not create. No Ed25519 signature, no OpenTimestamps. The user's
+  insight that triggered the split: "czy podpisywanie w tym dziale
+  jest w ogole potrzebne? moze powinien byc bardziej jako listing".
+
+  This storyboard pins the happy path: an owner creates an item via
+  form POST, lands on its detail page, and the listing renders the
+  item with all the metadata the form accepts.
+
+kind: http
+
+assertions:
+  - name: "owner POSTs /collection-new and is redirected to detail page"
+    request:
+      method: POST
+      path: /collection-new
+      owner: true
+      form:
+        slug: rzeznik-mountains-1998
+        title: "Mountains, 1998"
+        original_creator: "Artur Rzeźnik"
+        medium: "oil on canvas"
+        year: "1998"
+        dimensions: "60 × 80 cm"
+        acquired_at: "2010-05-01"
+        acquired_from: "Galeria Foksal"
+        acquisition_price: "5000 PLN"
+        notes: "Bought directly after a vernissage."
+        access: public
+    expect:
+      status: 303
+      location_contains: /collection/rzeznik-mountains-1998
+
+  - name: "GET /collection lists the new item with creator and medium"
+    request:
+      method: GET
+      path: /collection
+      owner: true
+    expect:
+      status: 200
+      body_contains:
+        - "Mountains, 1998"
+        - "Artur Rzeźnik"
+        - "oil on canvas"
+        - "60 × 80 cm"
+
+  - name: "GET /collection/<slug> shows full metadata + unsigned notice"
+    request:
+      method: GET
+      path: /collection/rzeznik-mountains-1998
+      owner: true
+    expect:
+      status: 200
+      body_contains:
+        - "Mountains, 1998"
+        - "Artur Rzeźnik"
+        - "Galeria Foksal"
+        - "not signed"
+        - "Dossier (0)"
+
+closes_failure_modes:
+  - "Form silently drops original_creator and shows an unattributed item"
+  - "Detail page falsely advertises a signature on a collection item"
+  - "Year/dimensions/medium round-trip loses precision somewhere"
+
+known_regressions_caught:
+  - "2026-06-09 — initial CollectionItem implementation"
