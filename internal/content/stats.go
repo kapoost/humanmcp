@@ -55,6 +55,7 @@ type HourBucket struct {
 type Stats struct {
 	// Counters
 	TotalReads    int `json:"total_reads"`
+	TotalSearches int `json:"total_searches"`
 	TotalMessages int `json:"total_messages"`
 	TotalComments int `json:"total_comments"`
 	TotalUnlocks  int `json:"total_unlocks"`
@@ -251,6 +252,7 @@ func (ss *StatStore) Compute() (*Stats, error) {
 			// keystrokes, not searches.
 			q := strings.ToLower(strings.TrimSpace(e.Query))
 			if len(q) >= 2 {
+				s.TotalSearches++
 				s.TopSearches[q]++
 			}
 		case EventAccess:
@@ -306,6 +308,7 @@ type WindowStats struct {
 	Visitors int
 	Agents   int
 	Humans   int
+	Searches int
 	Messages int
 }
 
@@ -360,6 +363,9 @@ func (ss *StatStore) ComputeWindows(now time.Time) (*Windows, error) {
 		}
 		if e.Type == EventMessage {
 			ws.Messages++
+		}
+		if e.Type == EventSearch {
+			ws.Searches++
 		}
 	}
 

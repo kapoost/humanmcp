@@ -2282,6 +2282,7 @@ func (h *Handler) buildEnrichedStats(stats *content.Stats, pieceCount, listingCo
 		VaultOnline:   true,
 		Uptime:        formatUptime(time.Since(h.startedAt)),
 		ToolCalls:     stats.AgentCalls,
+		TotalSearches: stats.TotalSearches,
 		TopSearches:   stats.TopSearches,
 	}
 	if w, err := h.statStore.ComputeWindows(time.Now()); err == nil && w != nil {
@@ -2291,6 +2292,7 @@ func (h *Handler) buildEnrichedStats(stats *content.Stats, pieceCount, listingCo
 				Visitors: ws.Visitors,
 				Agents:   ws.Agents,
 				Humans:   ws.Humans,
+				Searches: ws.Searches,
 				Messages: ws.Messages,
 			}
 		}

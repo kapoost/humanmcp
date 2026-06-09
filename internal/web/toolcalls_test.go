@@ -9,14 +9,16 @@ import (
 )
 
 // Guards every counter buildEnrichedStats is contractually supposed to
-// populate. Catches the class of regression that bit ToolCalls for weeks:
-// field declared on the struct, threaded into the render map, never
-// assigned — silently renders the zero value (0 / "" / false) while the
-// page returns 200.
+// populate. Catches the class of regression that bit ToolCalls and then
+// TotalSearches: field declared on the struct, threaded into the render
+// map, never assigned — silently renders the zero value (0 / "" / false)
+// while the page returns 200.
 //
-// Add a row whenever buildEnrichedStats gains a new derived field.
-// Do NOT cover fields set elsewhere (Inbox*, SessionExp, TopSearches) —
-// those belong in handleMissionControl's own test.
+// Add a row whenever buildEnrichedStats gains a new derived field, and
+// every time you add a new card to mc.html that reads $.Foo, audit
+// whether Foo needs to be propagated here.
+// Do NOT cover fields set elsewhere (Inbox*, SessionExp) — those belong
+// in handleMissionControl's own test.
 func TestBuildEnrichedStatsPropagation(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &config.Config{ContentDir: dir}
@@ -24,9 +26,11 @@ func TestBuildEnrichedStatsPropagation(t *testing.T) {
 	h := NewHandler(cfg, store, auth.New("x"))
 
 	in := &content.Stats{
-		AgentCalls:  42,
-		TotalReads:  17,
-		HumanVisits: 9,
+		AgentCalls:    42,
+		TotalReads:    17,
+		HumanVisits:   9,
+		TotalSearches: 11,
+		TopSearches:   map[string]int{"niebo": 3, "morze": 2},
 	}
 	es := h.buildEnrichedStats(in, 5, 3)
 
@@ -41,11 +45,13 @@ func TestBuildEnrichedStatsPropagation(t *testing.T) {
 
 		// derived from stats
 		{"ToolCalls", es.ToolCalls, 42},
+		{"TotalSearches", es.TotalSearches, 11},
 
 		// Stats pointer preserved + readable through embedding
 		{"Stats.TotalReads", es.Stats.TotalReads, 17},
 		{"Stats.AgentCalls", es.Stats.AgentCalls, 42},
 		{"Stats.HumanVisits", es.Stats.HumanVisits, 9},
+		{"Stats.TotalSearches", es.Stats.TotalSearches, 11},
 
 		// hardcoded invariants
 		{"VaultOnline", es.VaultOnline, true},
@@ -61,6 +67,12 @@ func TestBuildEnrichedStatsPropagation(t *testing.T) {
 	// never assigned.
 	if es.Uptime == "" {
 		t.Error("Uptime is empty — buildEnrichedStats forgot to set it")
+	}
+	// TopSearches map propagation — declaring the field but not
+	// assigning it leaves a nil map, which collapses both the card
+	// {{if .TopSearches}} and any subsequent {{range}}.
+	if got := es.TopSearches["niebo"]; got != 3 {
+		t.Errorf("TopSearches[niebo] = %d, want 3 (map must propagate)", got)
 	}
 }
 

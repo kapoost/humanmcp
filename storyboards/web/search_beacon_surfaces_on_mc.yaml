@@ -71,6 +71,14 @@ assertions:
         - "morze"
         # Hit count for "niebo" must be 2 (two beacons above).
         - ">2</span></div>"
+        # SEARCHES summary card — must mirror TotalSearches (=3:
+        # two "niebo" + one "morze"). Catches the regression where
+        # TopSearches gets wired but the scalar counter stays at 0.
+        - "font-size:20px;font-weight:500\">3</div><div style=\"font-size:9px;color:var(--mc-muted);text-transform:uppercase;letter-spacing:.08em;margin-top:2px\">searches"
+      body_does_not_contain:
+        # The exact pre-fix bug: card hardcoded to 0 because nobody
+        # assigned es.TotalSearches. Anchor on the searches label.
+        - "font-size:20px;font-weight:500\">0</div><div style=\"font-size:9px;color:var(--mc-muted);text-transform:uppercase;letter-spacing:.08em;margin-top:2px\">searches"
 
 closes_failure_modes:
   - "Beacon endpoint never wires query into the event store"
