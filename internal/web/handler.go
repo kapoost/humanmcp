@@ -187,6 +187,12 @@ func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler
 		},
 	}
 	h.tmpl = template.Must(template.New("").Funcs(funcs).ParseFS(TemplatesFS, "templates/*"))
+	// Background poller for OpenTimestamps upgrades — pieces stamped
+	// initially live in "pending" until a calendar's commitment lands on
+	// Bitcoin (~1h end-to-end). Without an active poll, the info-box
+	// would lie about pending forever. 1h cadence: conservative,
+	// matches the calendar batch + Bitcoin confirmation window.
+	h.startOTSPoller(1 * time.Hour)
 	return h
 }
 
@@ -237,6 +243,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("/delete/", h.auth.RequireOwner(http.HandlerFunc(h.handleDelete)))
 	mux.Handle("/timestamp/", h.auth.RequireOwner(http.HandlerFunc(h.handleTimestamp)))
 	mux.Handle("/timestamp-all", h.auth.RequireOwner(http.HandlerFunc(h.handleTimestampAll)))
+	mux.Handle("/timestamp-upgrade-all", h.auth.RequireOwner(http.HandlerFunc(h.handleTimestampUpgradeAll)))
 
 
 	// Skills API (owner only)
@@ -1097,26 +1104,47 @@ func (h *Handler) handleTimestamp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Upgrade flow: parse existing proof, walk pending attestations, fetch bitcoin paths.
+	upgraded, err := h.tryUpgradeOTS(ctx, p)
+	if err != nil {
+		http.Error(w, "upgrade failed: "+err.Error(), 500)
+		return
+	}
+	if !upgraded {
+		http.Redirect(w, r, "/p/"+slug+"?upgrade=not-ready", http.StatusSeeOther)
+		return
+	}
+	if err := h.store.Save(p); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	http.Redirect(w, r, "/p/"+slug, http.StatusSeeOther)
+}
+
+// tryUpgradeOTS attempts to swap a piece's pending OTS proof for an
+// anchored one by polling each calendar's /timestamp/<commitment> endpoint.
+// On success the piece is mutated in place (OTSProof + re-signed); the
+// caller is responsible for persisting via store.Save.
+//
+// Returns (true, nil) when at least one pending attestation was replaced
+// with a Bitcoin attestation, (false, nil) when calendars say "not yet
+// anchored", and (_, err) when the proof is malformed or the walk fails.
+func (h *Handler) tryUpgradeOTS(ctx context.Context, p *content.Piece) (bool, error) {
 	raw, err := base64.StdEncoding.DecodeString(p.OTSProof)
 	if err != nil {
-		http.Error(w, "stored proof not valid base64", 500)
-		return
+		return false, fmt.Errorf("stored proof not valid base64: %w", err)
 	}
 	parsedDigest, body, err := splitOTS(raw)
 	if err != nil {
-		http.Error(w, "stored proof malformed: "+err.Error(), 500)
-		return
+		return false, fmt.Errorf("stored proof malformed: %w", err)
 	}
 	upgraded, count, err := walkAndUpgrade(body, parsedDigest, func(cal string, commitment []byte) ([]byte, error) {
 		return fetchUpgrade(ctx, cal, commitment)
 	})
 	if err != nil {
-		http.Error(w, "upgrade walk failed: "+err.Error(), 500)
-		return
+		return false, fmt.Errorf("upgrade walk failed: %w", err)
 	}
 	if count == 0 {
-		http.Redirect(w, r, "/p/"+slug+"?upgrade=not-ready", http.StatusSeeOther)
-		return
+		return false, nil
 	}
 	newProof := buildOTSFile(parsedDigest, [][]byte{upgraded})
 	p.OTSProof = base64.StdEncoding.EncodeToString(newProof)
@@ -1125,11 +1153,75 @@ func (h *Handler) handleTimestamp(w http.ResponseWriter, r *http.Request) {
 			p.Signature = sig
 		}
 	}
-	if err := h.store.Save(p); err != nil {
-		http.Error(w, err.Error(), 500)
+	return true, nil
+}
+
+// pollPendingOTS scans every piece for a pending OTSProof and tries to
+// upgrade it. Returns (numUpgraded, numCheckedStillPending, errors).
+// Designed to be called from the background ticker as well as the
+// /timestamp-upgrade-all owner endpoint.
+func (h *Handler) pollPendingOTS(ctx context.Context) (upgraded int, stillPending int, errs []error) {
+	if err := h.store.Load(); err != nil {
+		return 0, 0, []error{fmt.Errorf("store load: %w", err)}
+	}
+	for _, lp := range h.store.List(true) {
+		if lp.OTSProof == "" {
+			continue
+		}
+		if otsStatusOf(lp.OTSProof) == "anchored" {
+			continue
+		}
+		p, err := h.store.GetForEdit(lp.Slug)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: get: %w", lp.Slug, err))
+			continue
+		}
+		// Each piece gets its own timeout so one stuck calendar doesn't
+		// freeze the whole sweep.
+		pieceCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+		ok, err := h.tryUpgradeOTS(pieceCtx, p)
+		cancel()
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", lp.Slug, err))
+			continue
+		}
+		if !ok {
+			stillPending++
+			continue
+		}
+		if err := h.store.Save(p); err != nil {
+			errs = append(errs, fmt.Errorf("%s: save: %w", lp.Slug, err))
+			continue
+		}
+		log.Printf("[OTS] %s: upgraded to anchored", lp.Slug)
+		upgraded++
+	}
+	return
+}
+
+// startOTSPoller fires a goroutine that polls calendars on a fixed cadence
+// (1h is conservative; calendar batches every 5-30 min and Bitcoin confirms
+// in ~1h). First sweep runs after the first tick — server startup stays
+// fast and pieces stamped seconds before deploy aren't queried immediately.
+func (h *Handler) startOTSPoller(interval time.Duration) {
+	if interval <= 0 {
 		return
 	}
-	http.Redirect(w, r, "/p/"+slug, http.StatusSeeOther)
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for range ticker.C {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			up, sp, errs := h.pollPendingOTS(ctx)
+			cancel()
+			if up > 0 || sp > 0 || len(errs) > 0 {
+				log.Printf("[OTS] poll: upgraded=%d still_pending=%d errors=%d", up, sp, len(errs))
+				for _, e := range errs {
+					log.Printf("[OTS] poll error: %v", e)
+				}
+			}
+		}
+	}()
 }
 
 // handleTimestampAll stamps every signed piece that doesn't yet have an OTSProof.
@@ -1223,6 +1315,29 @@ func (h *Handler) handleTimestampAll(w http.ResponseWriter, r *http.Request) {
 		"skipped": skipped,
 		"failed":  failed,
 		"items":   results,
+	})
+}
+
+// handleTimestampUpgradeAll polls calendars for every piece whose OTSProof
+// is still pending and persists any that managed to upgrade to anchored.
+// Idempotent — re-runs are cheap and only cost calendar bandwidth.
+func (h *Handler) handleTimestampUpgradeAll(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	defer cancel()
+	upgraded, stillPending, errs := h.pollPendingOTS(ctx)
+	errStrs := make([]string, 0, len(errs))
+	for _, e := range errs {
+		errStrs = append(errStrs, e.Error())
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"upgraded":      upgraded,
+		"still_pending": stillPending,
+		"errors":        errStrs,
 	})
 }
 

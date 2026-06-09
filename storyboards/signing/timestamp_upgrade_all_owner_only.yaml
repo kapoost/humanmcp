@@ -1,0 +1,62 @@
+id: signing/timestamp_upgrade_all_owner_only
+version: "1.0.0"
+title: "/timestamp-upgrade-all is owner-only and reports JSON"
+category: signing_ops
+summary: "Regression guard for the 2026-06-09 background poller — manual trigger endpoint must stay owner-gated and return a deterministic JSON envelope so a cron/script can rely on the shape."
+narrative: |
+  Background poller fires hourly inside the server process to walk
+  every piece with a pending OTSProof and ask calendars whether the
+  commitment landed on Bitcoin yet. The manual endpoint
+  /timestamp-upgrade-all exposes the same sweep so kapoost can force
+  a poll without waiting for the next tick.
+
+  Two contracts to lock:
+    1. Anonymous traffic gets bounced — calendars don't need to be
+       polled on behalf of unknown callers.
+    2. Response is JSON with the fields {upgraded, still_pending,
+       errors}. The keys are the contract the future "Bitcoin status"
+       widget on /mc will read.
+
+  We don't assert against a real calendar — that's flaky and slow.
+  The test fixture has no pieces with OTSProof, so the sweep finds
+  nothing and the counters are all zero. That's enough to verify
+  the auth gate and the envelope shape.
+
+kind: http
+
+assertions:
+  - name: "anonymous POST is bounced to /login"
+    request:
+      method: POST
+      path: /timestamp-upgrade-all
+    expect:
+      status: 302
+      location_contains: /login
+
+  - name: "GET is rejected — POST-only mutator"
+    request:
+      method: GET
+      path: /timestamp-upgrade-all
+      owner: true
+    expect:
+      status: 405
+
+  - name: "owner POST returns the JSON envelope"
+    request:
+      method: POST
+      path: /timestamp-upgrade-all
+      owner: true
+    expect:
+      status: 200
+      body_contains:
+        - '"upgraded"'
+        - '"still_pending"'
+        - '"errors"'
+
+closes_failure_modes:
+  - "Anonymous traffic can trigger calendar polls — DOS amplification"
+  - "Response shape drifts — future /mc widget or cron script breaks silently"
+  - "GET works and someone accidentally crawls the endpoint, doubling poll load"
+
+known_regressions_caught:
+  - "2026-06-09 — initial implementation of background poller + manual trigger"
