@@ -72,6 +72,18 @@ func runHTTP(t *testing.T, sb Storyboard) {
 			t.Fatalf("setup piece %v: %v", p, err)
 		}
 	}
+	if len(sb.Setup.Events) > 0 {
+		statStore := content.NewStatStore(contentDir)
+		for _, e := range sb.Setup.Events {
+			ev := content.Event{
+				Type:   content.EventType(toStr(e["type"])),
+				Caller: content.CallerType(toStr(e["caller"])),
+				Slug:   toStr(e["slug"]),
+				From:   toStr(e["from"]),
+			}
+			statStore.Record(ev)
+		}
+	}
 
 	for _, asn := range sb.HTTPCases {
 		name := asn.Name

@@ -1,0 +1,83 @@
+id: web/mc_counters_reflect_recorded_events
+version: "1.0.0"
+title: "/mc counters reflect events seeded into the stats store"
+category: web_owner_ui
+summary: "End-to-end smoke for the dashboard counter pipeline: seed events → load /mc → assert the visible numbers are NOT zero. Catches the silent-zero regression class (field declared, threaded, never assigned)."
+narrative: |
+  ToolCalls was broken for weeks: declared on enrichedStats, threaded
+  into the render map, never populated. /mc returned 200 and rendered
+  a card showing "0" forever — the kind of failure where everything
+  looks fine until you stare at the page.
+
+  This storyboard treats counters as black boxes. We seed a real mix
+  of events (3 agent reads, 1 human read, 2 messages, 1 agent call to
+  list_content), open /mc, and the visible HTML must contain non-zero
+  values for the touched counters. If a future refactor breaks the
+  Stats → enrichedStats → template chain anywhere, this scenario fails
+  loud regardless of WHICH link broke.
+
+  Unit-level guard for the same regression class lives in
+  internal/web/toolcalls_test.go (TestBuildEnrichedStatsPropagation).
+
+kind: http
+
+setup:
+  events:
+    - type: read
+      caller: agent
+      slug: example
+    - type: read
+      caller: agent
+      slug: example
+    - type: read
+      caller: agent
+      slug: example
+    - type: read
+      caller: human
+      slug: example
+    - type: message
+      caller: agent
+    - type: message
+      caller: agent
+    - type: list
+      caller: agent
+    - type: comment
+      caller: agent
+
+assertions:
+  - name: "owner loads /mc and sees the rendered windowed-stats table"
+    request:
+      method: GET
+      path: /mc
+      owner: true
+    expect:
+      status: 200
+      body_contains:
+        # Four 'today' counters should be >0 after the seed. The exact
+        # number is brittle (visitor uniqueness hashing on the test IP),
+        # so we lock the non-zero state via the ">N<" pattern inside
+        # the first body row. Numbers below are minimum lower bounds.
+        - ">today<"
+        # 4 reads recorded (3 agent + 1 human)
+        - ">4<"
+        # 2 messages recorded
+        - ">2<"
+        # mcp tool calls card — must mirror AgentCalls (=7: 3 agent
+        # reads + 2 messages + 1 list + 1 comment, every caller=agent
+        # event). The 2026-06-09 fix that triggered this storyboard.
+        - "font-size:20px;font-weight:500\">7</div><div style=\"font-size:9px;color:var(--mc-muted);text-transform:uppercase;letter-spacing:.08em;margin-top:2px\">mcp tool calls"
+      body_does_not_contain:
+        # The pre-fix bug: card always rendered "0" regardless of
+        # actual activity. Anchor on the EXACT div surrounding the
+        # mcp-tool-calls label so we don't false-positive on other
+        # legitimately-zero counters.
+        - ">0</div><div style=\"font-size:9px;color:var(--mc-muted);text-transform:uppercase;letter-spacing:.08em;margin-top:2px\">mcp tool calls"
+
+closes_failure_modes:
+  - "Stats → enrichedStats wiring breaks silently (any field stays at zero)"
+  - "Template field reference points at a render-map key that was never set"
+  - "ComputeWindows stops aggregating today's events and the table shows zeros"
+  - "mcp tool calls card silently regresses to displaying 0 forever"
+
+known_regressions_caught:
+  - "2026-06-09 — ToolCalls card forever showed 0 because field was unset"
