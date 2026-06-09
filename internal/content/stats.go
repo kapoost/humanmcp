@@ -269,22 +269,18 @@ func (ss *StatStore) Compute() (*Stats, error) {
 
 	s.UniqueVisitors = len(uniqueVH)
 
-	// All events from the last 24h (newest first), with a 500-event safety cap
-	// for high-traffic days. Falls back to last 30 if no event is recent.
-	cutoff := time.Now().Add(-24 * time.Hour)
+	// All events from the last 7 days (newest first), with a 500-event
+	// safety cap for high-traffic windows. 7d is the right span for a
+	// low-traffic personal site — 24h was often empty after a quiet
+	// stretch, which forced a confusing "fall back to last 30 ever"
+	// branch. With 7d the feed almost always shows real recent activity.
+	cutoff := time.Now().Add(-7 * 24 * time.Hour)
 	const recentCap = 500
 	for i := len(all) - 1; i >= 0 && len(s.RecentEvents) < recentCap; i-- {
 		if all[i].At.Before(cutoff) {
 			break
 		}
 		s.RecentEvents = append(s.RecentEvents, all[i])
-	}
-	if len(s.RecentEvents) < 30 {
-		for i := len(all) - 1; i >= 0 && len(s.RecentEvents) < 30; i-- {
-			if all[i].At.Before(cutoff) {
-				s.RecentEvents = append(s.RecentEvents, all[i])
-			}
-		}
 	}
 
 	// Reverse each AttemptsBySlug list (newest first) and cap at 20 per slug
