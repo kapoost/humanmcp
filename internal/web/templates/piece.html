@@ -20,8 +20,11 @@
 .status-val{line-height:1.45;color:var(--muted);}
 .status-val small{display:block;font-size:.63rem;color:var(--muted);opacity:.7;margin-top:.12rem;font-family:monospace;word-break:break-all;}
 .status-actions{display:flex;gap:.3rem;align-items:flex-start;padding-top:.1rem;flex-shrink:0;}
-.st-active{color:var(--muted);}
-.st-anchored{color:var(--muted);}
+/* Three "good" states earn an accent — signature verified, OTS anchored
+   in Bitcoin, license terms acknowledged. Failing or absent states stay
+   muted so the eye lands on the green first. */
+.st-active{color:var(--accent);}
+.st-anchored{color:var(--accent);font-weight:500;}
 .st-pending{color:var(--muted);}
 .st-none{color:var(--muted);opacity:.6;}
 .info-btn{font-size:.62rem;padding:1px 6px;border:1px solid var(--border);border-radius:3px;background:transparent;color:var(--muted);cursor:pointer;text-decoration:none;display:inline-block;white-space:nowrap;opacity:.8;}
