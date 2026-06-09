@@ -2277,6 +2277,7 @@ func (h *Handler) buildEnrichedStats(stats *content.Stats, pieceCount, listingCo
 		TotalListings: listingCount,
 		VaultOnline:   true,
 		Uptime:        formatUptime(time.Since(h.startedAt)),
+		ToolCalls:     stats.AgentCalls,
 	}
 	if w, err := h.statStore.ComputeWindows(time.Now()); err == nil && w != nil {
 		toPS := func(ws content.WindowStats) periodStats {
