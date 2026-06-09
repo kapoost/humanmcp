@@ -1,0 +1,72 @@
+id: web/anon_endpoints_classify_caller_via_ua
+version: "1.0.0"
+title: "Anonymous endpoints classify caller via User-Agent, not hardcoded human"
+category: web_stats
+summary: "Regression guard for the silent-misclassification bug: anonymous endpoints (search beacon, contact, subscribe) must run User-Agent through CallerFromUA. Hardcoding CallerHuman makes every bot, curl probe, or LLM agent pollute the human-visitor stats."
+narrative: |
+  On 2026-06-09 kapoost noticed that smoke-test `curl` requests against
+  the search beacon showed up on /mc tagged HMN. The cause: handler
+  hardcoded `Caller: content.CallerHuman` instead of running the UA
+  through CallerFromUA. Same pattern then showed up on /contact and
+  /subscribe — every anonymous POST endpoint trusted "if it hits this
+  route, it must be a human." It cannot.
+
+  After the fix:
+    - browser UA (Mozilla/Chrome/Safari/Firefox)  → CallerHuman
+    - curl, go-http, claude, bot, etc.            → CallerAgent
+    - missing/unknown UA                          → CallerUnknown
+
+  Locking it via /mc's "agents" column on the today row: send a
+  beacon with a curl-flavoured UA, then with a browser UA, then
+  load /mc and assert the today.Agents counter is ≥ 1.
+
+kind: http
+
+assertions:
+  - name: "beacon with curl UA"
+    request:
+      method: POST
+      path: /api/search-beacon
+      headers:
+        Content-Type: application/json
+        User-Agent: "curl/8.4.0"
+      body: '{"q":"verify-fix"}'
+    expect:
+      status: 204
+
+  - name: "beacon with a browser-shaped UA"
+    request:
+      method: POST
+      path: /api/search-beacon
+      headers:
+        Content-Type: application/json
+        User-Agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+      body: '{"q":"niebo"}'
+    expect:
+      status: 204
+
+  - name: "owner /mc shows BOTH agents and humans on today's row"
+    request:
+      method: GET
+      path: /mc
+      owner: true
+    expect:
+      status: 200
+      body_contains:
+        # The today row reads: today | reads | visitors | agents | humans | searches | msgs | lic
+        # After one curl beacon + one Safari beacon, today.Agents ≥ 1
+        # AND today.Humans ≥ 1. If a future regression flips the
+        # search-beacon back to a CallerHuman hardcode, the agents
+        # cell drops to 0 and this scenario fails.
+        # Columns: reads | visitors | agents | humans | searches | msgs | lic
+        # Two beacons (curl + Safari) → 0 reads, 0 visitors (no
+        # VisitorHash on beacons), 1 agent, 1 human, 2 searches.
+        - "<td class=\"mc-trend-label\">today</td><td>0</td><td>0</td><td>1</td><td>1</td><td>2</td>"
+
+closes_failure_modes:
+  - "Endpoint hardcodes CallerHuman → every bot/curl pollutes human stats"
+  - "CallerFromUA stops recognising curl/go-http/agent keywords"
+  - "User-Agent header is dropped before classification (empty UA → unknown, not human)"
+
+known_regressions_caught:
+  - "2026-06-09 — search beacon, /contact, /subscribe all hardcoded CallerHuman"

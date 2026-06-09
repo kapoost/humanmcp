@@ -1529,10 +1529,11 @@ func (h *Handler) handleContact(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+		ua := r.UserAgent()
 		h.statStore.Record(content.Event{
 			Type:   content.EventMessage,
-			Caller: content.CallerHuman,
-			UA:     r.Header.Get("User-Agent"),
+			Caller: content.CallerFromUA(ua),
+			UA:     ua,
 		})
 		h.render(w, "contact.html", map[string]interface{}{
 			"Author": h.cfg.AuthorName,
@@ -2559,10 +2560,11 @@ func (h *Handler) handleSubscribeConfirm(w http.ResponseWriter, r *http.Request)
 		})
 		return
 	}
+	ua := r.UserAgent()
 	h.statStore.Record(content.Event{
 		Type:   content.EventMessage,
-		Caller: content.CallerHuman,
-		UA:     r.Header.Get("User-Agent"),
+		Caller: content.CallerFromUA(ua),
+		UA:     ua,
 	})
 	h.render(w, "subscribe-confirm.html", map[string]interface{}{
 		"Author":       h.cfg.AuthorName,
@@ -2675,9 +2677,14 @@ func (h *Handler) handleSearchBeacon(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
+	// Classify by User-Agent rather than hardcoding human: the beacon
+	// is reachable to anything that can POST JSON, and curl/bots
+	// querying the page should NOT pollute the human-visitor stats.
+	ua := r.UserAgent()
 	h.statStore.Record(content.Event{
 		Type:   content.EventSearch,
-		Caller: content.CallerHuman,
+		Caller: content.CallerFromUA(ua),
+		UA:     ua,
 		Query:  q,
 	})
 	w.WriteHeader(http.StatusNoContent)
