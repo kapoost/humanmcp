@@ -22,6 +22,7 @@ const (
 	EventComment    EventType = "comment"
 	EventProfile    EventType = "profile"
 	EventAccess     EventType = "access"
+	EventSearch     EventType = "search"
 )
 
 type CallerType string
@@ -68,6 +69,7 @@ type Stats struct {
 	TagReads       map[string]int `json:"tag_reads"`
 	TopAgents      map[string]int `json:"top_agents"`
 	TopReferrers   map[string]int `json:"top_referrers"`
+	TopSearches    map[string]int `json:"top_searches"`
 	Countries      map[string]int `json:"countries"`
 
 	// Challenge funnel per slug: [checked, attempted, succeeded]
@@ -148,6 +150,7 @@ func (ss *StatStore) Compute() (*Stats, error) {
 		TagReads:        make(map[string]int),
 		TopAgents:       make(map[string]int),
 		TopReferrers:    make(map[string]int),
+		TopSearches:     make(map[string]int),
 		Countries:       make(map[string]int),
 		ChallengeFunnel: make(map[string][3]int),
 		AttemptsBySlug:  make(map[string][]Event),
@@ -241,6 +244,14 @@ func (ss *StatStore) Compute() (*Stats, error) {
 				if e.Query != "" {
 					s.AttemptsBySlug[e.Slug] = append(s.AttemptsBySlug[e.Slug], e)
 				}
+			}
+		case EventSearch:
+			// Lower-case + trim — "Niebo", "niebo ", "NIEBO" are
+			// one search. Drops blanks and 1-char queries; those are
+			// keystrokes, not searches.
+			q := strings.ToLower(strings.TrimSpace(e.Query))
+			if len(q) >= 2 {
+				s.TopSearches[q]++
 			}
 		case EventAccess:
 			s.TotalInterest++

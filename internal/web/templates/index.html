@@ -322,8 +322,27 @@
     });
   }
 
+  // Beacon: after the user pauses typing for 1.5s, send the final
+  // query string to the server so /mc can show top searches. Skips
+  // owners, single-char queries, and repeats within the same session.
+  var beaconTimer = null;
+  var lastBeacon = '';
+  function sendSearchBeacon(q){
+    q = (q || '').trim();
+    if(q.length < 2 || q === lastBeacon) return;
+    lastBeacon = q;
+    fetch('/api/search-beacon', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({q: q}),
+      keepalive: true
+    }).catch(function(){});
+  }
   document.getElementById('search-input').addEventListener('input', function(){
     filterItems(this.value);
+    if(beaconTimer) clearTimeout(beaconTimer);
+    var v = this.value;
+    beaconTimer = setTimeout(function(){ sendSearchBeacon(v); }, 1500);
   });
 
   // Help trigger button

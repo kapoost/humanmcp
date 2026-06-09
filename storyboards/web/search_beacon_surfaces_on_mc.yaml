@@ -1,0 +1,83 @@
+id: web/search_beacon_surfaces_on_mc
+version: "1.0.0"
+title: "Search beacon POST → /mc surfaces the query in top searches"
+category: web_owner_ui
+summary: "End-to-end: anonymous POST /api/search-beacon with q=niebo lands in stats.TopSearches and renders on /mc inside the top-searches block. Validates rate-limit/min-length boundaries too."
+narrative: |
+  TopSearches was a phantom field — declared on enrichedStats, read by
+  mc.html under {{if .TopSearches}}, but nothing ever populated it.
+  The card never rendered. Wiring up a beacon endpoint flips it from
+  hidden to visible; this storyboard pins the wiring at every layer:
+  endpoint contract, store aggregation, render path.
+
+kind: http
+
+assertions:
+  - name: "single-char query is silently dropped"
+    request:
+      method: POST
+      path: /api/search-beacon
+      body: '{"q":"a"}'
+    expect:
+      status: 204
+
+  - name: "empty body bounces with 400"
+    request:
+      method: POST
+      path: /api/search-beacon
+    expect:
+      status: 400
+
+  - name: "GET is rejected — POST-only beacon"
+    request:
+      method: GET
+      path: /api/search-beacon
+    expect:
+      status: 405
+
+  - name: "valid query accepted with 204"
+    request:
+      method: POST
+      path: /api/search-beacon
+      body: '{"q":"niebo"}'
+    expect:
+      status: 204
+
+  - name: "second hit on the same query for higher count"
+    request:
+      method: POST
+      path: /api/search-beacon
+      body: '{"q":"niebo"}'
+    expect:
+      status: 204
+
+  - name: "different query, lowercased on aggregation"
+    request:
+      method: POST
+      path: /api/search-beacon
+      body: '{"q":"Morze"}'
+    expect:
+      status: 204
+
+  - name: "owner /mc renders top searches with counts and lowercased queries"
+    request:
+      method: GET
+      path: /mc
+      owner: true
+    expect:
+      status: 200
+      body_contains:
+        - "niebo"
+        - "morze"
+        # Hit count for "niebo" must be 2 (two beacons above).
+        - ">2</span></div>"
+
+closes_failure_modes:
+  - "Beacon endpoint never wires query into the event store"
+  - "EventSearch added but Compute() forgets to aggregate into TopSearches"
+  - "es.TopSearches not assigned in buildEnrichedStats — card silently disappears"
+  - "Rate-limit boundary stops accepting valid queries"
+  - "Aggregation forgets to lower-case → 'Morze' and 'morze' counted as two distinct searches"
+
+known_regressions_caught:
+  - "2026-06-09 — TopSearches phantom field wired through end-to-end"

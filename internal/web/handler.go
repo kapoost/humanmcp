@@ -285,6 +285,10 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/stats", h.handleStats)
 	mux.HandleFunc("/gallery", h.handleGallery)
 
+	// Anonymous search beacon — the index page JS pings this with the
+	// query string after the user pauses typing. Rate-limited per IP.
+	mux.HandleFunc("/api/search-beacon", h.handleSearchBeacon)
+
 	// Collection — works kapoost owns but did NOT create.
 	// No signature, no OTS, no license: archival listing only.
 	mux.HandleFunc("/collection", h.handleCollection)
@@ -2278,6 +2282,7 @@ func (h *Handler) buildEnrichedStats(stats *content.Stats, pieceCount, listingCo
 		VaultOnline:   true,
 		Uptime:        formatUptime(time.Since(h.startedAt)),
 		ToolCalls:     stats.AgentCalls,
+		TopSearches:   stats.TopSearches,
 	}
 	if w, err := h.statStore.ComputeWindows(time.Now()); err == nil && w != nil {
 		toPS := func(ws content.WindowStats) periodStats {
@@ -2638,6 +2643,42 @@ func splitTags(s string) []string {
 		}
 	}
 	return out
+}
+
+// handleSearchBeacon records a single anonymous search query into the
+// stat store as an EventSearch. The index page JS posts {q: "..."} after
+// the user pauses typing — fire-and-forget, no body returned. Queries
+// shorter than 2 chars or longer than 100 are silently dropped (they
+// are keystrokes / abuse, not searches). Rate-limited per IP via the
+// same sliding window the contact form uses.
+func (h *Handler) handleSearchBeacon(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	ip := h.contactClientIP(r)
+	if !h.checkContactRateLimit(ip) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		return
+	}
+	var body struct {
+		Q string `json:"q"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 256)).Decode(&body); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	q := strings.TrimSpace(body.Q)
+	if len(q) < 2 || len(q) > 100 {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	h.statStore.Record(content.Event{
+		Type:   content.EventSearch,
+		Caller: content.CallerHuman,
+		Query:  q,
+	})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // /stats and /gallery — aliases for /mc and /images respectively
