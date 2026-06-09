@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -13,6 +14,98 @@ import (
 	"github.com/kapoost/humanmcp-go/internal/config"
 	"github.com/kapoost/humanmcp-go/internal/mcp"
 )
+
+// TestDocsToolCountMatchesReality walks docs/index.html for the cardinal
+// "N MCP tools" claim (appears in both the body copy and the Twitter card
+// meta tag) and asserts the number matches Handler.ToolNames(). Stops the
+// kind of drift that left "12 MCP tools" sitting in production while we
+// shipped 24 — the count is the single number a casual reader and the
+// social-card scraper both see.
+func TestDocsToolCountMatchesReality(t *testing.T) {
+	repoRoot, err := findRepoRoot()
+	if err != nil {
+		t.Fatalf("locate repo root: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(repoRoot, "docs/index.html"))
+	if err != nil {
+		t.Fatalf("read docs/index.html: %v", err)
+	}
+	actual := len(implementedToolSet(t))
+	re := regexp.MustCompile(`(\d+)\s+MCP\s+tools`)
+	matches := re.FindAllStringSubmatch(string(data), -1)
+	if len(matches) == 0 {
+		t.Fatal(`docs/index.html no longer contains the "N MCP tools" claim — if removed intentionally, drop this test too`)
+	}
+	for _, m := range matches {
+		claimed, _ := strconv.Atoi(m[1])
+		if claimed != actual {
+			t.Errorf("docs/index.html claims %q but Handler.ToolNames() returns %d", m[0], actual)
+		}
+	}
+}
+
+// TestDocsPieceLinksResolve walks docs/index.html for /p/<slug> references
+// and asserts each slug is one of the seeds bundled in default-content/
+// or — for production-only pieces used as live examples — explicitly
+// allow-listed below. Catches stale demo slugs (the 2026-06-09 audit
+// found deka-log referenced five times despite a 404 on production).
+func TestDocsPieceLinksResolve(t *testing.T) {
+	repoRoot, err := findRepoRoot()
+	if err != nil {
+		t.Fatalf("locate repo root: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(repoRoot, "docs/index.html"))
+	if err != nil {
+		t.Fatalf("read docs/index.html: %v", err)
+	}
+
+	// Slugs that live only on Łukasz's production volume but are stable
+	// enough to reference from the marketing page. Each entry must have
+	// a comment with the source of truth.
+	allowedProductionSlugs := map[string]string{
+		"love":              "kapoost's public poem — production volume",
+		"piosenki":          "kapoost's public poem — production volume",
+		"private-parts":     "kapoost's public poem — production volume",
+		"prompty-o-ludziach": "kapoost's public poem — production volume",
+	}
+
+	seedSlugs := map[string]bool{}
+	for _, dir := range []string{"default-content/poems", "default-content/content", "content/poems", "content"} {
+		entries, err := os.ReadDir(filepath.Join(repoRoot, dir))
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+				continue
+			}
+			seedSlugs[strings.TrimSuffix(e.Name(), ".md")] = true
+		}
+	}
+
+	re := regexp.MustCompile(`/p/([a-z0-9][a-z0-9-]*)`)
+	seen := map[string]bool{}
+	var missing []string
+	for _, m := range re.FindAllStringSubmatch(string(data), -1) {
+		slug := m[1]
+		if seen[slug] {
+			continue
+		}
+		seen[slug] = true
+		if seedSlugs[slug] {
+			continue
+		}
+		if _, ok := allowedProductionSlugs[slug]; ok {
+			continue
+		}
+		missing = append(missing, slug)
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		t.Errorf("docs/index.html references piece slugs not in default-content/ and not in the production allow-list:\n  %s\n\nFix either by:\n  - replacing with a real seed slug (see default-content/),\n  - adding to allowedProductionSlugs with a justification, or\n  - removing the reference.",
+			strings.Join(missing, "\n  "))
+	}
+}
 
 // TestNoPhantomToolsInAgentDocs scans every agent-facing surface for tool
 // names — internal/web/templates/for-agents.html, docs/index.html, README.md,
