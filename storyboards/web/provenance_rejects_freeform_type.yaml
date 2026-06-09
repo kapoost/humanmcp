@@ -1,0 +1,63 @@
+id: web/provenance_rejects_freeform_type
+version: "1.0.0"
+title: "Upload rejects unknown Type values — closed enum enforced at the handler"
+category: web_provenance
+summary: "Harvey's audit insistence: Type must be one of the nine known constants. 'other', empty, or typo'd values fail at the handler, not silently as 'category: unknown'."
+narrative: |
+  The store-level enforcement (ProvenanceStore.Save) already rejects
+  free-form Type via ValidProvenanceType — covered by the Go unit
+  tests. This storyboard locks the HTTP wrapper: the handler must
+  propagate the rejection as a 400, not 500 or silent success.
+
+kind: http
+
+setup:
+  pieces:
+    - slug: test-art-2
+      title: "Test"
+      type: artwork
+
+assertions:
+  - name: "type='other' returns 400"
+    request:
+      method: POST
+      path: /artworks/test-art-2/provenance
+      owner: true
+      form:
+        type: other
+        issued_by: "X"
+        issued_at: "2020-01-01"
+        title: "Should fail"
+      files:
+        - field: files
+          filename: x.pdf
+          content_type: application/pdf
+          content_b64: "JVBERi0xLjQK"
+    expect:
+      status: 400
+      body_contains:
+        - "invalid provenance type"
+
+  - name: "type missing entirely returns 400"
+    request:
+      method: POST
+      path: /artworks/test-art-2/provenance
+      owner: true
+      form:
+        issued_by: "X"
+        issued_at: "2020-01-01"
+        title: "Should fail"
+      files:
+        - field: files
+          filename: x.pdf
+          content_type: application/pdf
+          content_b64: "JVBERi0xLjQK"
+    expect:
+      status: 400
+
+closes_failure_modes:
+  - "Free-form 'other' Type gets persisted with empty Category — Eleanor's UI grouping breaks"
+  - "Handler accepts unknown type and stores 'category: unknown' silently"
+
+known_regressions_caught:
+  - "2026-06-09 — initial implementation"

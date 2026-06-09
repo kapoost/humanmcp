@@ -1,0 +1,79 @@
+id: web/provenance_owner_uploads_single_certificate
+version: "1.0.0"
+title: "Owner uploads a single certificate file → persists, signed, hashed"
+category: web_provenance
+summary: "Locks the basic upload contract for the ProvenanceStore: owner-authenticated multipart POST to /artworks/<slug>/provenance creates a signed entry with the file's SHA-256 hash, and the artwork page renders it in the right category."
+narrative: |
+  The 2026-06-09 narada with Harvey + Eleanor + Mira + Carlin landed
+  the ProvenanceStore data model: per-artwork JSON, closed type enum,
+  derived Category, per-file ContentHash, Ed25519 signature, multiple
+  files per item. This scenario is the smallest end-to-end exercise of
+  the happy path:
+
+    setup an artwork piece on disk
+    owner POSTs multipart with type=certificate + a single file
+    GET /artworks/<slug> renders an Authenticity section containing it
+
+kind: http
+
+setup:
+  pieces:
+    - slug: vintage-portrait
+      title: "Vintage portrait, 1972"
+      type: artwork
+      body: "Oil on canvas"
+
+assertions:
+  - name: "anonymous POST is bounced to /login"
+    request:
+      method: POST
+      path: /artworks/vintage-portrait/provenance
+    expect:
+      status: 302
+      location_contains: /login
+
+  - name: "owner POST with a certificate file persists and redirects"
+    request:
+      method: POST
+      path: /artworks/vintage-portrait/provenance
+      owner: true
+      form:
+        type: certificate_of_authenticity
+        issued_by: "Galeria Foksal"
+        issued_at: "1998-04-12"
+        chain_position: "1"
+        title: "Original Certificate of Authenticity"
+        notes: "Signed by gallery director Maria Kowalska."
+      files:
+        - field: files
+          filename: cert.pdf
+          content_type: application/pdf
+          # Tiny fake PDF header so http.ServeFile (later in the flow)
+          # treats it as application/pdf.
+          content_b64: "JVBERi0xLjQKJeLjz9MKMSAwIG9iago8PC9UeXBlL0NhdGFsb2c+PgplbmRvYmoKdHJhaWxlcgo8PC9Sb290IDEgMCBSPj4KJSVFT0Y="
+    expect:
+      status: 303
+      location_contains: /artworks/vintage-portrait
+
+  - name: "artwork page renders the certificate under Authenticity"
+    request:
+      method: GET
+      path: /artworks/vintage-portrait
+      owner: true
+    expect:
+      status: 200
+      body_contains:
+        - "Authenticity"
+        - "Galeria Foksal"
+        - "Original Certificate of Authenticity"
+        - "certificate_of_authenticity"
+        - "✓ signed"
+        - "sha256:"
+
+closes_failure_modes:
+  - "Provenance entry persists without a signature when a signing key is configured"
+  - "ContentHash field stays empty — Harvey's external-verify path falls apart"
+  - "Artwork page silently swallows the upload and shows empty dossier"
+
+known_regressions_caught:
+  - "2026-06-09 — initial ProvenanceStore implementation"

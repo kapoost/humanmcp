@@ -6,9 +6,31 @@ h1{margin-bottom:.3rem}
 .meta{color:#666;font-size:.9rem;margin-bottom:1rem}
 .body{line-height:1.7;margin:1.5rem 0}
 .artwork-img{max-width:100%;max-height:500px;border-radius:4px;margin:1rem 0}
-h2{margin-top:2rem;border-bottom:1px solid #ccc;padding-bottom:.3rem}
+h2{margin-top:2.5rem;border-bottom:1px solid #ccc;padding-bottom:.3rem;font-size:1.1rem}
+h3{margin-top:1.4rem;font-size:.78rem;text-transform:uppercase;letter-spacing:.12em;color:#888;font-weight:600;font-family:-apple-system,sans-serif}
 .signed{color:#2a7a2a;font-size:.8rem}
 a.back{color:#666;font-size:.9rem}
+.prov-item{background:#fff;border:1px solid #e0dcd2;border-radius:6px;padding:.9rem 1.2rem;margin:.6rem 0}
+.prov-head{display:flex;flex-wrap:wrap;gap:.6rem;align-items:baseline;font-size:.82rem;margin-bottom:.4rem}
+.prov-type{font-family:-apple-system,sans-serif;font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;background:#efece4;color:#665;padding:2px 8px;border-radius:3px}
+.prov-issued{color:#888}
+.prov-pos{color:#aaa;font-size:.78rem}
+.prov-title{font-weight:600;color:#333;margin-bottom:.4rem}
+.prov-files{font-size:.85rem;margin:.3rem 0}
+.prov-files a{color:#2a5a8a;text-decoration:none;margin-right:.7rem}
+.prov-files a:hover{text-decoration:underline}
+.prov-hash{font-family:Menlo,monospace;font-size:.7rem;color:#aaa}
+.prov-notes{font-size:.85rem;color:#555;margin-top:.4rem;font-style:italic;line-height:1.5}
+.prov-sig{color:#2a7a2a;font-size:.75rem;font-family:-apple-system,sans-serif}
+.prov-no-sig{color:#aa6622;font-size:.75rem;font-family:-apple-system,sans-serif}
+.prov-delete{float:right;background:none;border:1px solid #d4cfc6;color:#988;font-size:.7rem;padding:1px 7px;border-radius:3px;cursor:pointer;font-family:-apple-system,sans-serif}
+.prov-delete:hover{border-color:#a44;color:#a44}
+.prov-form{background:#fff;border:1px dashed #c8c4ba;border-radius:6px;padding:1.2rem 1.4rem;margin-top:1.5rem;font-size:.88rem;font-family:-apple-system,sans-serif}
+.prov-form label{display:block;color:#665;font-size:.78rem;margin-top:.6rem;margin-bottom:.2rem;font-weight:500}
+.prov-form input,.prov-form select,.prov-form textarea{width:100%;padding:.4rem .6rem;border:1px solid #d4cfc6;border-radius:4px;background:#fafaf8;font-family:inherit;font-size:.88rem}
+.prov-form textarea{min-height:60px;font-family:Georgia,serif}
+.prov-form button{margin-top:.9rem;padding:.5rem 1.2rem;background:#222;color:#fff;border:none;border-radius:4px;font-size:.85rem;cursor:pointer}
+.prov-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:.6rem}
 </style></head><body>
 <a class="back" href="/artworks">← all artworks</a>
 <h1>{{.Piece.Title}}</h1>
@@ -16,6 +38,66 @@ a.back{color:#666;font-size:.9rem}
 {{if .Piece.BlobImageMap.thumb}}<img class="artwork-img" src="/files/{{.Piece.BlobImageMap.thumb}}" alt="{{.Piece.Title}}">{{end}}
 {{if .Piece.Description}}<div class="body"><em>{{.Piece.Description}}</em></div>{{end}}
 <div class="body">{{.Piece.Body | nl2br}}</div>
-<h2>Provenance (0)</h2><p>No provenance documents yet.</p>
+
+<h2>Provenance ({{len .Provenance}})</h2>
+
+{{if .Provenance}}
+{{$prevCat := ""}}
+{{range .Provenance}}
+  {{if ne (print .Category) $prevCat}}
+    <h3>{{if eq (print .Category) "authenticity"}}Authenticity{{else if eq (print .Category) "ownership"}}Ownership{{else if eq (print .Category) "public_history"}}Public history{{else if eq (print .Category) "care"}}Care{{else}}{{.Category}}{{end}}</h3>
+    {{$prevCat = (print .Category)}}
+  {{end}}
+  <div class="prov-item">
+    {{if $.IsOwner}}<form method="POST" action="/artworks/{{$.Piece.Slug}}/provenance/{{.ID}}/delete" style="display:inline" onsubmit="return confirm('Delete this provenance item?')"><button class="prov-delete" type="submit">delete</button></form>{{end}}
+    <div class="prov-head">
+      <span class="prov-type">{{.Type}}</span>
+      {{if .IssuedBy}}<span class="prov-issued">{{.IssuedBy}}</span>{{end}}
+      {{if not .IssuedAt.IsZero}}<span class="prov-issued">{{formatDate .IssuedAt}}</span>{{end}}
+      {{if .ChainPosition}}<span class="prov-pos">#{{.ChainPosition}} in chain</span>{{end}}
+      {{if .Signature}}<span class="prov-sig">✓ signed</span>{{else}}<span class="prov-no-sig">unsigned</span>{{end}}
+    </div>
+    {{if .Title}}<div class="prov-title">{{.Title}}</div>{{end}}
+    {{if .Files}}<div class="prov-files">{{range .Files}}<a href="/provenance/files/{{.FileRef}}" target="_blank">{{.Filename}}</a>{{end}}</div>
+    <div class="prov-hash">sha256: {{(index .Files 0).ContentHash}}</div>{{end}}
+    {{if .Notes}}<div class="prov-notes">{{nl2br .Notes}}</div>{{end}}
+  </div>
+{{end}}
+{{else}}
+<p style="color:#888;font-size:.9rem;">No provenance documents yet.</p>
+{{end}}
+
+{{if .IsOwner}}
+<form class="prov-form" method="POST" action="/artworks/{{.Piece.Slug}}/provenance" enctype="multipart/form-data">
+  <strong style="font-size:.95rem;color:#333">Add provenance document</strong>
+  <div class="prov-row">
+    <div>
+      <label>Type</label>
+      <select name="type" required>
+        <option value="">choose…</option>
+        {{range .ProvenanceTypes}}<option value="{{.}}">{{.}}</option>{{end}}
+      </select>
+    </div>
+    <div>
+      <label>Issued at (date on document)</label>
+      <input type="date" name="issued_at" required>
+    </div>
+    <div>
+      <label>Chain position</label>
+      <input type="number" name="chain_position" min="1" placeholder="1, 2, 3…">
+    </div>
+  </div>
+  <label>Issued by (gallery / institution / appraiser)</label>
+  <input name="issued_by" placeholder="Galeria Foksal" required>
+  <label>Title</label>
+  <input name="title" placeholder="Certificate of Authenticity — 1998" required>
+  <label>Files (you can attach multiple — original + translation + photo)</label>
+  <input type="file" name="files" multiple required>
+  <label>Notes (Markdown OK, kept private to humans)</label>
+  <textarea name="notes" placeholder="Original certificate, signed by gallery director. Gallery closed 2015."></textarea>
+  <button type="submit">Add to dossier</button>
+</form>
+{{end}}
+
 </body></html>
 {{end}}

@@ -31,6 +31,7 @@ type Handler struct {
 	listingStore      *content.ListingStore
 	questionStore     *content.QuestionStore
 	subscriptionStore *content.SubscriptionStore
+	provenanceStore   *content.ProvenanceStore
 	signingKey        *content.KeyPair
 	tmpl              *template.Template
 	startedAt         time.Time
@@ -53,6 +54,7 @@ func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler
 		listingStore:      content.NewListingStore(cfg.ContentDir),
 		questionStore:     content.NewQuestionStore(cfg.ContentDir),
 		subscriptionStore: content.NewSubscriptionStore(cfg.ContentDir),
+		provenanceStore:   content.NewProvenanceStore(cfg.ContentDir),
 		startedAt:         time.Now(),
 		contactRateLog:    make(map[string][]time.Time),
 	}
@@ -266,6 +268,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/listings/", h.handleListings)
 	mux.HandleFunc("/artworks", h.handleArtworks)
 	mux.HandleFunc("/artworks/", h.handleArtworks)
+	mux.HandleFunc("/provenance/files/", h.handleProvenanceFile)
 	mux.Handle("/mc", h.auth.RequireOwner(http.HandlerFunc(h.handleMissionControl)))
 	mux.HandleFunc("/team", h.handleTeam)
 	mux.HandleFunc("/personas", h.handlePersonasPage)
@@ -2023,7 +2026,15 @@ func (h *Handler) handleArtworks(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	slug := strings.TrimPrefix(path, "/artworks/")
+	// Strip /artworks/ prefix and split off any /provenance suffix.
+	rest := strings.TrimPrefix(path, "/artworks/")
+	slug, sub, hasSub := strings.Cut(rest, "/provenance")
+	if hasSub {
+		// /artworks/<slug>/provenance     (POST upload, owner-only)
+		// /artworks/<slug>/provenance/<id>/delete (POST, owner-only)
+		h.handleProvenanceMutation(w, r, slug, sub)
+		return
+	}
 	p, err := h.store.Get(slug, true)
 	if err != nil {
 		http.NotFound(w, r)
@@ -2033,11 +2044,186 @@ func (h *Handler) handleArtworks(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	items, _ := h.provenanceStore.List(slug)
 	h.render(w, "artwork.html", map[string]interface{}{
-		"Author":  h.cfg.AuthorName,
-		"IsOwner": h.auth.IsOwner(r),
-		"Piece":   p,
+		"Author":          h.cfg.AuthorName,
+		"IsOwner":         h.auth.IsOwner(r),
+		"Piece":           p,
+		"Provenance":      items,
+		"ProvenanceTypes": []string{
+			string(content.ProvenanceCertificate),
+			string(content.ProvenanceInvoice),
+			string(content.ProvenanceExhibition),
+			string(content.ProvenanceConservation),
+			string(content.ProvenanceAppraisal),
+			string(content.ProvenanceSaleRecord),
+			string(content.ProvenancePhotoRecord),
+			string(content.ProvenanceShipping),
+			string(content.ProvenanceInsurance),
+		},
 	})
+}
+
+// handleProvenanceMutation routes POST under /artworks/<slug>/provenance.
+// Two shapes:
+//   sub == ""               → POST upload new item (multipart)
+//   sub == "/<id>/delete"   → POST delete an item
+func (h *Handler) handleProvenanceMutation(w http.ResponseWriter, r *http.Request, slug, sub string) {
+	if !h.auth.IsOwner(r) {
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	// Confirm the artwork exists and is an artwork (not random piece).
+	p, err := h.store.Get(slug, true)
+	if err != nil || !strings.EqualFold(string(p.Type), "artwork") {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Delete subpath: /<id>/delete
+	if strings.HasSuffix(sub, "/delete") {
+		id := strings.TrimSuffix(strings.TrimPrefix(sub, "/"), "/delete")
+		if err := h.provenanceStore.Delete(slug, id); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		http.Redirect(w, r, "/artworks/"+slug, http.StatusSeeOther)
+		return
+	}
+
+	// Default: upload new item
+	if err := r.ParseMultipartForm(64 << 20); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	item := content.ProvenanceItem{
+		ArtworkSlug: slug,
+		Type:        content.ProvenanceType(r.FormValue("type")),
+		IssuedBy:    strings.TrimSpace(r.FormValue("issued_by")),
+		Title:       strings.TrimSpace(r.FormValue("title")),
+		Notes:       strings.TrimSpace(r.FormValue("notes")),
+	}
+	if ia := r.FormValue("issued_at"); ia != "" {
+		for _, layout := range []string{"2006-01-02", time.RFC3339, "2006-01-02 15:04"} {
+			if t, err := time.Parse(layout, strings.TrimSpace(ia)); err == nil {
+				item.IssuedAt = t
+				break
+			}
+		}
+	}
+	if cp := r.FormValue("chain_position"); cp != "" {
+		fmt.Sscanf(cp, "%d", &item.ChainPosition)
+	}
+	// Pre-allocate ID so file paths can reference it.
+	item.ID = "prov-pending-" + fmt.Sprintf("%d", time.Now().UnixNano())
+
+	files, err := h.extractProvenanceFiles(r, slug, item.ID)
+	if err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	if len(files) == 0 {
+		http.Error(w, "at least one file required", 400)
+		return
+	}
+	item.Files = files
+	// Reset ID so Save generates a stable hash-derived one.
+	item.ID = ""
+
+	saved, err := h.provenanceStore.Save(item, h.signingKey)
+	if err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	// Rename the temp files dir to the canonical id-based one so
+	// FileRef paths align with the actual on-disk location.
+	oldDir := filepath.Join(h.provenanceStore.FilesDir(), slug, files[0].FileRef[:strings.LastIndex(files[0].FileRef, "/")][len(slug)+1:])
+	newDir := filepath.Join(h.provenanceStore.FilesDir(), slug, saved.ID)
+	if oldDir != newDir {
+		_ = os.Rename(oldDir, newDir)
+		// Update the FileRef strings in the saved item.
+		for i := range saved.Files {
+			saved.Files[i].FileRef = strings.Replace(saved.Files[i].FileRef, "/"+filepath.Base(oldDir)+"/", "/"+saved.ID+"/", 1)
+		}
+		_, _ = h.provenanceStore.Save(saved, h.signingKey)
+	}
+	http.Redirect(w, r, "/artworks/"+slug, http.StatusSeeOther)
+}
+
+// extractProvenanceFiles pulls every multipart "file" attachment, writes
+// it under /data/provenance/files/<slug>/<id>/<filename>, and returns
+// FileEntry records with the content hash computed at upload time.
+func (h *Handler) extractProvenanceFiles(r *http.Request, slug, id string) ([]content.FileEntry, error) {
+	mform := r.MultipartForm
+	if mform == nil {
+		return nil, fmt.Errorf("no multipart form")
+	}
+	dir := filepath.Join(h.provenanceStore.FilesDir(), slug, id)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	var out []content.FileEntry
+	for _, headers := range mform.File {
+		for _, hdr := range headers {
+			f, err := hdr.Open()
+			if err != nil {
+				return nil, err
+			}
+			data, err := io.ReadAll(f)
+			f.Close()
+			if err != nil {
+				return nil, err
+			}
+			safeName := filepath.Base(hdr.Filename)
+			diskPath := filepath.Join(dir, safeName)
+			if err := os.WriteFile(diskPath, data, 0o644); err != nil {
+				return nil, err
+			}
+			ref := slug + "/" + id + "/" + safeName
+			out = append(out, content.FileEntry{
+				FileRef:     ref,
+				Filename:    safeName,
+				ContentHash: content.ComputeContentHash(data),
+				MimeType:    hdr.Header.Get("Content-Type"),
+				SizeBytes:   int64(len(data)),
+			})
+		}
+	}
+	return out, nil
+}
+
+// handleProvenanceFile serves an attached file. Path:
+// /provenance/files/<artwork-slug>/<id>/<filename>
+// Anonymous callers see public artworks' provenance attachments. Owner
+// sees everything (current scope = all artworks public).
+func (h *Handler) handleProvenanceFile(w http.ResponseWriter, r *http.Request) {
+	rel := strings.TrimPrefix(r.URL.Path, "/provenance/files/")
+	if rel == "" || strings.Contains(rel, "..") {
+		http.NotFound(w, r)
+		return
+	}
+	parts := strings.SplitN(rel, "/", 3)
+	if len(parts) < 3 {
+		http.NotFound(w, r)
+		return
+	}
+	slug := parts[0]
+	// Confirm artwork exists; refuse to serve files for unknown pieces.
+	if _, err := h.store.Get(slug, true); err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	disk := filepath.Join(h.provenanceStore.FilesDir(), rel)
+	if _, err := os.Stat(disk); err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	http.ServeFile(w, r, disk)
 }
 
 // formatUptime renders a duration as "3d 4h" / "5h 12m" / "47s".

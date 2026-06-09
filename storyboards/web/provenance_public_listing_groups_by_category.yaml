@@ -1,0 +1,74 @@
+id: web/provenance_public_listing_groups_by_category
+version: "1.0.0"
+title: "Anonymous /artworks/<slug> shows provenance grouped by category; upload form is owner-only"
+category: web_provenance
+summary: "Eleanor's UX hierarchy contract: anonymous visitors see the dossier grouped under Authenticity / Ownership / Public history / Care, but the upload form is invisible to them."
+narrative: |
+  Provenance dossiers are public by default — a collector evaluating
+  the work should be able to walk the chain without an account. But
+  the upload form belongs only to the owner. The artwork.html template
+  guards the form behind {{if .IsOwner}}; this scenario locks both the
+  visible category groupings and the form's absence for anonymous.
+
+kind: http
+
+setup:
+  pieces:
+    - slug: mountains-1985
+      title: "Mountains, 1985"
+      type: artwork
+      body: ""
+
+assertions:
+  - name: "owner uploads a certificate (setup for the public-view check)"
+    request:
+      method: POST
+      path: /artworks/mountains-1985/provenance
+      owner: true
+      form:
+        type: certificate_of_authenticity
+        issued_by: "Independent expert R. Nowak"
+        issued_at: "1986-02-01"
+        chain_position: "1"
+        title: "Independent appraisal"
+      files:
+        - field: files
+          filename: c.pdf
+          content_type: application/pdf
+          content_b64: "JVBERi0xLjQKJeLjz9MK"
+    expect:
+      status: 303
+
+  - name: "anonymous sees the entry under its category header"
+    request:
+      method: GET
+      path: /artworks/mountains-1985
+    expect:
+      status: 200
+      body_contains:
+        - "Authenticity"
+        - "Independent expert R. Nowak"
+        - "Independent appraisal"
+      body_does_not_contain:
+        # The upload form's submit button text is owner-only.
+        - "Add to dossier"
+
+  - name: "owner sees both the entry and the upload form"
+    request:
+      method: GET
+      path: /artworks/mountains-1985
+      owner: true
+    expect:
+      status: 200
+      body_contains:
+        - "Authenticity"
+        - "Independent expert R. Nowak"
+        - "Add to dossier"
+
+closes_failure_modes:
+  - "Upload form leaks to anonymous visitors — collector tries to add fake provenance"
+  - "Public visitors see ungrouped flat list — Eleanor's category hierarchy lost"
+  - "Owner can't tell whether they're seeing the public view or the editor"
+
+known_regressions_caught:
+  - "2026-06-09 — initial implementation"

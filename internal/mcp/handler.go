@@ -79,8 +79,9 @@ type Handler struct {
 	msgStore      *content.MessageStore
 	statStore     *content.StatStore
 	blobStore     *content.BlobStore
-	questionStore *content.QuestionStore
-	memoryStore   *content.MemoryStore
+	questionStore   *content.QuestionStore
+	memoryStore     *content.MemoryStore
+	provenanceStore *content.ProvenanceStore
 	sessions      map[string]time.Time // session ID → expiry time
 
 	mu              sync.Mutex
@@ -97,8 +98,9 @@ func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler
 		msgStore:      content.NewMessageStore(cfg.ContentDir),
 		statStore:     content.NewStatStore(cfg.ContentDir),
 		blobStore:     content.NewBlobStore(cfg.ContentDir),
-		questionStore: content.NewQuestionStore(cfg.ContentDir),
-		memoryStore:   content.NewMemoryStore(cfg.ContentDir),
+		questionStore:   content.NewQuestionStore(cfg.ContentDir),
+		memoryStore:     content.NewMemoryStore(cfg.ContentDir),
+		provenanceStore: content.NewProvenanceStore(cfg.ContentDir),
 		sessions:       make(map[string]time.Time),
 		rateLimiter:    make(map[string][]time.Time),
 		askHumanLog:    make(map[string][]time.Time),
@@ -565,6 +567,29 @@ func (h *Handler) buildTools() []Tool {
 			},
 		},
 		{
+			Name:        "list_provenance",
+			Description: "List the provenance dossier (certificates, invoices, exhibition records, conservation reports, etc.) for an artwork piece. Returns each entry's type, issued_by, issued_at, title, chain_position, file content hashes, and signature status. Open to any caller — provenance is meant to be externally verifiable. Use to check the chain of custody before quoting authenticity.",
+			InputSchema: map[string]interface{}{
+				"type":     "object",
+				"required": []string{"slug"},
+				"properties": map[string]interface{}{
+					"slug": map[string]interface{}{"type": "string", "description": "Artwork slug (matches /artworks/<slug>)."},
+				},
+			},
+		},
+		{
+			Name:        "read_provenance",
+			Description: "Read a single provenance item by id, including file URLs the caller can fetch directly. Returns the same metadata as list_provenance plus the resolvable URLs.",
+			InputSchema: map[string]interface{}{
+				"type":     "object",
+				"required": []string{"slug", "id"},
+				"properties": map[string]interface{}{
+					"slug": map[string]interface{}{"type": "string", "description": "Artwork slug."},
+					"id":   map[string]interface{}{"type": "string", "description": "Provenance item id returned by list_provenance."},
+				},
+			},
+		},
+		{
 			Name:        "about_humanmcp",
 			Description: "Self-description of this humanMCP server. Returns author, role, MCP endpoint, public web pages, and a short orientation. Safe to call without bootstrap_session — meant for first-contact discovery.",
 			InputSchema: map[string]interface{}{
@@ -737,6 +762,10 @@ func (h *Handler) handleToolsCall(w http.ResponseWriter, r *http.Request, req *R
 		h.toolFetchAnswer(w, r, req, params.Arguments)
 	case "about_humanmcp":
 		h.toolAboutHumanmcp(w, req)
+	case "list_provenance":
+		h.toolListProvenance(w, req, params.Arguments)
+	case "read_provenance":
+		h.toolReadProvenance(w, req, params.Arguments)
 	case "remember":
 		h.toolRemember(w, r, req, params.Arguments)
 	case "recall":
@@ -1291,8 +1320,104 @@ func (h *Handler) toolAboutHumanmcp(w http.ResponseWriter, req *Request) {
 	fmt.Fprintln(&b, "  - content:   list_content, read_content, get_certificate, verify_content")
 	fmt.Fprintln(&b, "  - access:    request_access, submit_answer, request_license")
 	fmt.Fprintln(&b, "  - feedback:  leave_comment, leave_message")
-	fmt.Fprintln(&b, "  - dialogue:  ask_human, fetch_answer (session-gated)")
+	fmt.Fprintln(&b, "  - dialogue:  ask_human, fetch_answer (open, rate-limited)")
+	fmt.Fprintln(&b, "  - provenance: list_provenance, read_provenance (for artwork pieces)")
 	fmt.Fprintln(&b, "  - team:      list_personas, get_persona, list_skills, get_skill (post-session)")
+	writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: b.String()}}})
+}
+
+// toolListProvenance returns the provenance dossier for an artwork — open
+// to any caller, because provenance is meant to be externally verifiable.
+func (h *Handler) toolListProvenance(w http.ResponseWriter, req *Request, args json.RawMessage) {
+	var a struct {
+		Slug string `json:"slug"`
+	}
+	json.Unmarshal(args, &a)
+	if a.Slug == "" {
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: "slug required"}}})
+		return
+	}
+	items, err := h.provenanceStore.List(a.Slug)
+	if err != nil {
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
+			Text: "Could not list provenance: " + err.Error()}}})
+		return
+	}
+	if len(items) == 0 {
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
+			Text: fmt.Sprintf("No provenance items for artwork %q.", a.Slug)}}})
+		return
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Provenance for %q (%d items, grouped by category):\n\n", a.Slug, len(items))
+	prevCat := ""
+	for _, it := range items {
+		if string(it.Category) != prevCat {
+			fmt.Fprintf(&b, "## %s\n\n", strings.ToUpper(string(it.Category)))
+			prevCat = string(it.Category)
+		}
+		fmt.Fprintf(&b, "- [%s] %s\n", it.Type, it.Title)
+		fmt.Fprintf(&b, "  id: %s\n", it.ID)
+		fmt.Fprintf(&b, "  issued_by: %s\n", it.IssuedBy)
+		fmt.Fprintf(&b, "  issued_at: %s\n", it.IssuedAt.Format("2006-01-02"))
+		if it.ChainPosition > 0 {
+			fmt.Fprintf(&b, "  chain_position: %d\n", it.ChainPosition)
+		}
+		for _, f := range it.Files {
+			fmt.Fprintf(&b, "  file: %s  sha256=%s  bytes=%d\n", f.Filename, f.ContentHash, f.SizeBytes)
+		}
+		if it.Signature != "" {
+			fmt.Fprintf(&b, "  signed: yes\n")
+		}
+		fmt.Fprintln(&b)
+	}
+	writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: b.String()}}})
+}
+
+// toolReadProvenance returns one item + resolvable file URLs.
+func (h *Handler) toolReadProvenance(w http.ResponseWriter, req *Request, args json.RawMessage) {
+	var a struct {
+		Slug string `json:"slug"`
+		ID   string `json:"id"`
+	}
+	json.Unmarshal(args, &a)
+	if a.Slug == "" || a.ID == "" {
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: "slug and id required"}}})
+		return
+	}
+	item, err := h.provenanceStore.Get(a.Slug, a.ID)
+	if err != nil {
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
+			Text: "Not found: " + err.Error()}}})
+		return
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Provenance item %s\n\n", item.ID)
+	fmt.Fprintf(&b, "Artwork:        %s\n", item.ArtworkSlug)
+	fmt.Fprintf(&b, "Category:       %s\n", item.Category)
+	fmt.Fprintf(&b, "Type:           %s\n", item.Type)
+	fmt.Fprintf(&b, "Title:          %s\n", item.Title)
+	fmt.Fprintf(&b, "Issued by:      %s\n", item.IssuedBy)
+	fmt.Fprintf(&b, "Issued at:      %s\n", item.IssuedAt.Format("2006-01-02"))
+	if item.ChainPosition > 0 {
+		fmt.Fprintf(&b, "Chain position: %d\n", item.ChainPosition)
+	}
+	fmt.Fprintln(&b)
+	if len(item.Files) > 0 {
+		fmt.Fprintln(&b, "Files:")
+		for _, f := range item.Files {
+			fmt.Fprintf(&b, "  https://%s/provenance/files/%s\n", h.cfg.Domain, f.FileRef)
+			fmt.Fprintf(&b, "    sha256: %s\n", f.ContentHash)
+			fmt.Fprintf(&b, "    bytes:  %d\n", f.SizeBytes)
+		}
+		fmt.Fprintln(&b)
+	}
+	if item.Signature != "" {
+		fmt.Fprintf(&b, "Signature:      %s (Ed25519)\n", item.Signature[:32]+"…")
+	}
+	if item.Notes != "" {
+		fmt.Fprintf(&b, "\nNotes:\n%s\n", item.Notes)
+	}
 	writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: b.String()}}})
 }
 

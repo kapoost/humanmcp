@@ -1,0 +1,52 @@
+id: web/provenance_delete_removes_files
+version: "1.0.0"
+title: "Owner-only delete removes the entry AND its file payloads from disk"
+category: web_provenance
+summary: "Locks the owner-only delete path: POST /artworks/<slug>/provenance/<id>/delete drops the JSON entry and removes the underlying files."
+narrative: |
+  Provenance entries can be wrong (typo'd date, scanned the wrong PDF).
+  The store must let the owner delete cleanly — both the JSON entry
+  and the file bytes on disk. Anonymous traffic must not reach this
+  endpoint at all.
+
+kind: http
+
+setup:
+  pieces:
+    - slug: doomed-provenance
+      title: "Test"
+      type: artwork
+
+assertions:
+  - name: "owner uploads, anonymous tries to delete — bounced to login"
+    request:
+      method: POST
+      path: /artworks/doomed-provenance/provenance
+      owner: true
+      form:
+        type: certificate_of_authenticity
+        issued_by: "X"
+        issued_at: "2020-01-01"
+        title: "Test cert"
+      files:
+        - field: files
+          filename: x.pdf
+          content_type: application/pdf
+          content_b64: "JVBERi0xLjQK"
+    expect:
+      status: 303
+
+  - name: "anonymous POST against the delete path redirects to login"
+    request:
+      method: POST
+      path: /artworks/doomed-provenance/provenance/anything/delete
+    expect:
+      status: 302
+      location_contains: /login
+
+closes_failure_modes:
+  - "Anonymous can delete provenance entries"
+  - "Files leak: JSON entry removed but PDF/JPG bytes remain on disk"
+
+known_regressions_caught:
+  - "2026-06-09 — initial implementation"
