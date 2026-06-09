@@ -106,6 +106,12 @@ func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler
 			}
 			return t.Format("02 Jan")
 		},
+		"shortDateTime": func(t time.Time) string {
+			if t.IsZero() {
+				return ""
+			}
+			return t.Format("2006-01-02 15:04")
+		},
 		"isoDate": func(t time.Time) string {
 			if t.IsZero() {
 				return ""
