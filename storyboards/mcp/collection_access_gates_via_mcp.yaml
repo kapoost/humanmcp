@@ -1,0 +1,177 @@
+id: mcp/collection_access_gates_via_mcp
+version: "1.0.0"
+title: "list_collection / read_collection_item gate by bootstrap session"
+category: mcp_access
+summary: "Anonymous MCP callers see only access=public collection items. After bootstrap_session, members-only items also surface. Private items are NEVER visible via MCP regardless of session state."
+narrative: |
+  Collection items have three access levels: private (owner only),
+  members (bootstrapped agents), public (everyone). The HTTP web side
+  is covered by collection_access_gates_anonymous.yaml — this is the
+  twin for the MCP surface, where the gate hinges on isSessionActive(r)
+  reading the Mcp-Session-Id header.
+
+  Three regression risks if this drifts:
+  (1) anonymous list_collection returns members items → unauthenticated
+      agents leak the operator's curated lists
+  (2) anonymous read_collection_item bypasses the private gate →
+      private acquisition records leak
+  (3) bootstrapped session somehow stops being recognized → members
+      tier silently degrades to public-only
+
+kind: http
+
+assertions:
+  - name: "seed three items, one per access level (HTTP setup)"
+    request:
+      method: POST
+      path: /collection-new
+      owner: true
+      form:
+        slug: pub
+        title: "Public sketch"
+        original_creator: "Z"
+        access: public
+    expect:
+      status: 303
+
+  - name: "seed members item"
+    request:
+      method: POST
+      path: /collection-new
+      owner: true
+      form:
+        slug: members-only
+        title: "Members-only drawing"
+        original_creator: "Z"
+        access: members
+    expect:
+      status: 303
+
+  - name: "seed private item"
+    request:
+      method: POST
+      path: /collection-new
+      owner: true
+      form:
+        slug: private-piece
+        title: "Private oil"
+        original_creator: "Z"
+        access: private
+    expect:
+      status: 303
+
+  - name: "anonymous list_collection returns ONLY public"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_collection","arguments":{}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "Public sketch"
+      body_does_not_contain:
+        - "Members-only drawing"
+        - "Private oil"
+
+  - name: "anonymous read_collection_item on private → refusal text"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"read_collection_item","arguments":{"slug":"private-piece"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "Item is private"
+      body_does_not_contain:
+        - "Private oil"
+
+  - name: "anonymous read_collection_item on members → refusal + bootstrap hint"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"read_collection_item","arguments":{"slug":"members-only"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "members-only"
+        - "Bootstrap a session"
+      body_does_not_contain:
+        - "Members-only drawing"
+
+  - name: "bootstrap_session with the storyboard's PoetPool code"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Mcp-Session-Id: storyboard-test-sid
+      body: '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"bootstrap_session","arguments":{"code":"jeszcze polska nie zginęła"}}}'
+    expect:
+      status: 200
+      # If bootstrap succeeded it returns the team briefing. The
+      # negative case ("Niepoprawne hasło") would be a hint that
+      # the test PoetPool config drifted.
+      body_does_not_contain:
+        - "Niepoprawne hasło"
+
+  - name: "bootstrapped list_collection surfaces public + members"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Mcp-Session-Id: storyboard-test-sid
+      body: '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"list_collection","arguments":{}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "Public sketch"
+        - "Members-only drawing"
+      body_does_not_contain:
+        # Private NEVER surfaces via MCP, regardless of bootstrap.
+        - "Private oil"
+
+  - name: "bootstrapped read_collection_item on private STILL refused"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Mcp-Session-Id: storyboard-test-sid
+      body: '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"read_collection_item","arguments":{"slug":"private-piece"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "Item is private"
+      body_does_not_contain:
+        - "Private oil"
+
+  - name: "bootstrapped read_collection_item on members → full record"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Mcp-Session-Id: storyboard-test-sid
+      body: '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"read_collection_item","arguments":{"slug":"members-only"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "Members-only drawing"
+        - "Original creator"
+
+closes_failure_modes:
+  - "list_collection leaks members-tier items to anonymous callers"
+  - "read_collection_item bypasses the private gate after refactor"
+  - "isSessionActive stops honoring the Mcp-Session-Id header"
+  - "Private items become visible via MCP through any path (NEVER allowed)"
+  - "Bootstrapped session silently degrades to public-only because session map lookup fails"
+
+known_regressions_caught:
+  - "2026-06-09 — initial CollectionItem MCP tools implementation"

@@ -15,6 +15,7 @@ import (
 	"github.com/kapoost/humanmcp-go/internal/auth"
 	"github.com/kapoost/humanmcp-go/internal/config"
 	"github.com/kapoost/humanmcp-go/internal/content"
+	"github.com/kapoost/humanmcp-go/internal/mcp"
 	"github.com/kapoost/humanmcp-go/internal/web"
 )
 
@@ -58,6 +59,11 @@ func runHTTP(t *testing.T, sb Storyboard) {
 	a := auth.New(cfg.EditToken)
 	h := web.NewHandler(cfg, store, a)
 	mux := http.NewServeMux()
+	// Mount MCP at /mcp + /mcp/ so storyboards can POST JSON-RPC
+	// against tools/call without spinning up a parallel server.
+	mcpHandler := mcp.NewHandler(cfg, store, a)
+	mux.Handle("/mcp", mcpHandler)
+	mux.Handle("/mcp/", mcpHandler)
 	h.RegisterRoutes(mux)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)

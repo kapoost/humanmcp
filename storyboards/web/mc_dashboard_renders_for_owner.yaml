@@ -64,7 +64,9 @@ assertions:
         - "var d=["
         # Rotation cadence copy must match PickActivePoem (Unix/3600 = hourly).
         # If the divisor changes, this line must change in lockstep — caught
-        # 2026-06-08 when /dashboard claimed 24h while code did hourly.
+        # 2026-06-08 when one mission-control surface claimed 24h while
+        # code did hourly. The legacy /dashboard surface was retired the
+        # next day; this assertion is the surviving guard.
         - "rotation hourly"
       body_does_not_contain:
         # The 2026-05-23 sparkline bug rendered Go structs into the JS

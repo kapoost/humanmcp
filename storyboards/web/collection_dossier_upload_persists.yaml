@@ -1,0 +1,95 @@
+id: web/collection_dossier_upload_persists
+version: "1.0.0"
+title: "Owner attaches a dossier document to a collection item → persists, renders"
+category: web_collection
+summary: "Pins the polymorphic ProvenanceStore path: POST /collection/<slug>/provenance with a file routes through OwnerCollection (no Ed25519 signature, no signing key), persists, and the detail page renders the dossier entry under its category."
+narrative: |
+  ProvenanceStore became polymorphic (OwnerPiece + OwnerCollection)
+  when CollectionItem landed. Pieces test the OwnerPiece path —
+  provenance_owner_uploads_single_certificate.yaml. But the collection
+  path is new code; if a future refactor breaks the kind dispatch,
+  the dossier upload form on /collection/<slug> silently swallows
+  documents and nobody notices until kapoost goes looking for a
+  certificate that isn't there.
+
+  Distinct from the piece path in two ways: nil signer (collection
+  items are not signed by kapoost), file lives at the same
+  /provenance/files/<slug>/<id>/ but the manifest under
+  /data/provenance/collection/<slug>.json instead of piece/<slug>.json.
+
+kind: http
+
+assertions:
+  - name: "seed a collection item to attach the dossier to"
+    request:
+      method: POST
+      path: /collection-new
+      owner: true
+      form:
+        slug: rzeznik-test
+        title: "Test painting"
+        original_creator: "Artur Rzeźnik"
+        access: public
+    expect:
+      status: 303
+
+  - name: "anonymous POST against the dossier path is bounced to /login"
+    request:
+      method: POST
+      path: /collection/rzeznik-test/provenance
+    expect:
+      status: 302
+      location_contains: /login
+
+  - name: "owner uploads a certificate with a real file"
+    request:
+      method: POST
+      path: /collection/rzeznik-test/provenance
+      owner: true
+      form:
+        type: certificate_of_authenticity
+        issued_by: "Galeria Foksal"
+        issued_at: "1998-04-12"
+        chain_position: "1"
+        title: "Certificate of Authenticity"
+        notes: "Hand-signed by Rzeźnik in the studio."
+      files:
+        - field: files
+          filename: cert.pdf
+          content_type: application/pdf
+          # Tiny valid PDF stub.
+          content_b64: "JVBERi0xLjQKJeLjz9MKMSAwIG9iago8PC9UeXBlL0NhdGFsb2c+PgplbmRvYmoKdHJhaWxlcgo8PC9Sb290IDEgMCBSPj4KJSVFT0Y="
+    expect:
+      status: 303
+      location_contains: /collection/rzeznik-test
+
+  - name: "detail page renders the dossier entry under its category"
+    request:
+      method: GET
+      path: /collection/rzeznik-test
+      owner: true
+    expect:
+      status: 200
+      body_contains:
+        - "Galeria Foksal"
+        - "Certificate of Authenticity"
+        - "certificate_of_authenticity"
+        - "sha256:"
+        # The unsigned-notice on the collection-item page must still
+        # show — collection dossiers are NOT signed even when the
+        # individual entry would be if it belonged to a piece.
+        - "not signed"
+      body_does_not_contain:
+        # Pre-fix bug: if the upload accidentally routed through
+        # OwnerPiece, h.signingKey would sign the entry → the green
+        # checkmark would render. Lock that out.
+        - "✓ signed"
+
+closes_failure_modes:
+  - "Collection dossier upload silently routes through OwnerPiece — file lands under the wrong manifest"
+  - "Polymorphic dispatch breaks → uploads vanish, dossier listing stays empty"
+  - "Signing key accidentally applied to collection entry (collection items must stay unsigned)"
+  - "Anonymous gains access to the dossier mutation endpoint"
+
+known_regressions_caught:
+  - "2026-06-09 — initial polymorphic ProvenanceStore implementation"
