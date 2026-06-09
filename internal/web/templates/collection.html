@@ -6,6 +6,7 @@ h1{border-bottom:2px solid #333;padding-bottom:.5rem;margin-bottom:.4rem}
 .lede{color:#666;font-size:.95rem;margin-bottom:2rem;line-height:1.55}
 .item{border:1px solid #ddd;padding:1.3rem 1.5rem;margin:1.2rem 0;background:#fff;border-radius:4px;overflow:hidden}
 .item h2{margin:0 0 .25rem;font-size:1.15rem}
+.thumb{float:right;width:140px;height:110px;object-fit:cover;border-radius:4px;margin:0 0 .8rem 1.2rem;border:1px solid #d8d2c4}
 .item h2 a{color:#222;text-decoration:none}
 .item h2 a:hover{color:#2a5a8a}
 .creator{color:#555;font-style:italic;font-size:.92rem;margin-bottom:.45rem}
@@ -24,6 +25,7 @@ a:hover{text-decoration:underline}
 <p class="lede">Works I own but did not make. Paintings, drawings, prints — each with its own dossier of certificates, invoices, and exhibition history. Unlike pieces I authored, nothing here is signed by me; the originals belong to the artists who made them.</p>
 {{if .IsOwner}}<a class="add" href="/collection-new">+ add item</a>{{end}}
 {{if .Items}}{{range .Items}}<div class="item">
+  {{if .ImageRef}}<a href="/collection/{{.Slug}}"><img class="thumb" src="/{{.ImageRef}}" alt="{{.Title}}"></a>{{end}}
   <h2><a href="/collection/{{.Slug}}">{{.Title}}</a>{{if $.IsOwner}}<span class="access {{.Access}}">{{.Access}}</span>{{end}}</h2>
   <div class="creator">by {{.OriginalCreator}}{{if .Year}}, {{.Year}}{{end}}</div>
   <div class="meta">{{if .Medium}}{{.Medium}}{{end}}{{if .Dimensions}} · {{.Dimensions}}{{end}}{{if not .AcquiredAt.IsZero}} · acquired {{formatDate .AcquiredAt}}{{end}}{{if .AcquiredFrom}} from {{.AcquiredFrom}}{{end}}</div>

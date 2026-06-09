@@ -2898,9 +2898,19 @@ func (h *Handler) handleCollectionNew(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if err := r.ParseForm(); err != nil {
+	// Multipart so the form can carry a photo of the work itself.
+	// Fall back to plain form parsing when the body is not multipart —
+	// keeps storyboards that POST application/x-www-form-urlencoded
+	// working without forcing them to fabricate file parts.
+	if err := r.ParseMultipartForm(32 << 20); err != nil && err != http.ErrNotMultipart {
 		http.Error(w, err.Error(), 400)
 		return
+	}
+	if r.MultipartForm == nil {
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
 	}
 	item := content.CollectionItem{
 		Slug:             strings.TrimSpace(r.FormValue("slug")),
@@ -2919,6 +2929,16 @@ func (h *Handler) handleCollectionNew(w http.ResponseWriter, r *http.Request) {
 	if ad := strings.TrimSpace(r.FormValue("acquired_at")); ad != "" {
 		if t, err := time.Parse("2006-01-02", ad); err == nil {
 			item.AcquiredAt = t
+		}
+	}
+	// Photo of the work itself — stored as a blob, referenced by URL
+	// path. Reuses the same upload helper as listings.
+	if r.MultipartForm != nil {
+		if ref, err := h.extractAndStoreImage(r, item.Slug); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		} else if ref != "" {
+			item.ImageRef = ref
 		}
 	}
 	saved, err := h.collectionStore.Save(item)

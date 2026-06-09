@@ -4,6 +4,7 @@
 body{font-family:Georgia,serif;max-width:900px;margin:0 auto;padding:2rem;background:#fafaf8;color:#222}
 h1{margin-bottom:.2rem}
 .creator{color:#555;font-style:italic;font-size:1.05rem;margin-bottom:1rem}
+.hero{max-width:100%;max-height:520px;border-radius:6px;margin:1rem 0;border:1px solid #d8d2c4;display:block}
 .meta{color:#666;font-size:.9rem;margin-bottom:1.5rem;font-family:-apple-system,sans-serif;line-height:1.6}
 .meta strong{color:#444;font-weight:600}
 .notes{margin:1.5rem 0;padding:1rem 1.4rem;background:#fff;border-left:3px solid #c8c4ba;color:#444;line-height:1.7}
@@ -40,6 +41,7 @@ a.back{color:#666;font-size:.9rem}
 <a class="back" href="/collection">← collection</a>
 <h1>{{.Item.Title}}{{if .IsOwner}}<span class="access {{.Item.Access}}">{{.Item.Access}}</span>{{end}}</h1>
 <div class="creator">by {{.Item.OriginalCreator}}{{if .Item.Year}}, {{.Item.Year}}{{end}}</div>
+{{if .Item.ImageRef}}<img class="hero" src="/{{.Item.ImageRef}}" alt="{{.Item.Title}}">{{end}}
 <div class="meta">
   {{if .Item.Medium}}<strong>Medium:</strong> {{.Item.Medium}}<br>{{end}}
   {{if .Item.Dimensions}}<strong>Dimensions:</strong> {{.Item.Dimensions}}<br>{{end}}

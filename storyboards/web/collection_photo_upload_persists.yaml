@@ -1,0 +1,64 @@
+id: web/collection_photo_upload_persists
+version: "1.0.0"
+title: "Photo attached during create round-trips to /collection and detail page"
+category: web_collection
+summary: "Pins the hero-photo upload contract: multipart POST to /collection-new with an 'image' file persists ImageRef, the listing renders a thumbnail, and the detail page renders the hero image."
+narrative: |
+  kapoost asked "czy moge miec tu obrazek/zdjecie?" — the form needs
+  to accept a photo of the painting itself (not just dossier
+  documents attached later). This storyboard pins the end-to-end
+  flow: multipart upload at creation → ImageRef stored → thumbnail
+  on /collection list → hero on /collection/<slug> detail.
+
+kind: http
+
+assertions:
+  - name: "owner POSTs multipart with a tiny PNG photo"
+    request:
+      method: POST
+      path: /collection-new
+      owner: true
+      form:
+        slug: photo-roundtrip
+        title: "With photo"
+        original_creator: "Test Artist"
+        access: public
+      files:
+        - field: image
+          filename: hero.png
+          content_type: image/png
+          # 1×1 transparent PNG — smallest valid PNG.
+          content_b64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgAAIAAAUAAeImBZsAAAAASUVORK5CYII="
+    expect:
+      status: 303
+      location_contains: /collection/photo-roundtrip
+
+  - name: "listing renders thumb <img> for the item"
+    request:
+      method: GET
+      path: /collection
+      owner: true
+    expect:
+      status: 200
+      body_contains:
+        - "With photo"
+        - "class=\"thumb\""
+
+  - name: "detail page renders hero <img>"
+    request:
+      method: GET
+      path: /collection/photo-roundtrip
+      owner: true
+    expect:
+      status: 200
+      body_contains:
+        - "With photo"
+        - "class=\"hero\""
+
+closes_failure_modes:
+  - "Multipart upload silently drops the photo and ImageRef stays empty"
+  - "Listing template forgets to render the thumb even when ImageRef is set"
+  - "Detail page renders raw text instead of the hero image"
+
+known_regressions_caught:
+  - "2026-06-09 — photo upload added to CollectionItem"

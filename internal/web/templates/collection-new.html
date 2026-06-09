@@ -18,7 +18,7 @@ a.back{color:#666;font-size:.9rem;text-decoration:none}
 <h1>New collection item</h1>
 <p class="lede">For works you own but did not create. No signature, no OpenTimestamps. You can attach the certificate / invoice / exhibition record from the item page after creating it.</p>
 
-<form method="POST" action="/collection-new">
+<form method="POST" action="/collection-new" enctype="multipart/form-data">
   <label>Slug <span class="required">*</span></label>
   <input name="slug" placeholder="rzeznik-mountains-1998" required pattern="[a-z0-9\-]+">
 
@@ -55,6 +55,9 @@ a.back{color:#666;font-size:.9rem;text-decoration:none}
 
   <label>Acquisition price (private)</label>
   <input name="acquisition_price" placeholder="5000 PLN">
+
+  <label>Photo of the work</label>
+  <input type="file" name="image" accept="image/*">
 
   <label>Notes</label>
   <textarea name="notes" placeholder="Bought after a vernissage. The artist signed the back."></textarea>
