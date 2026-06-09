@@ -10,7 +10,7 @@
     <nav style="font-size:.8rem;color:var(--muted);display:flex;gap:.7rem;align-items:center;">
       {{if .IsOwner}}
         <a href="/llms-edit" style="color:var(--muted);">llms.txt</a>
-        <a href="/dashboard" style="color:var(--muted);">dashboard</a>
+        <a href="/mc" style="color:var(--muted);">mc</a>
         <a href="/logout" style="color:var(--muted);">logout</a>
       {{else}}
         {{if .Poems}}<a href="#wiersze" style="color:var(--accent2);" data-i18n="nav_wiersze">wiersze</a>{{end}}

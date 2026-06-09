@@ -62,6 +62,10 @@ assertions:
         - "uptime"
         # Sparkline JS opens with a numeric array, not a struct dump
         - "var d=["
+        # Rotation cadence copy must match PickActivePoem (Unix/3600 = hourly).
+        # If the divisor changes, this line must change in lockstep — caught
+        # 2026-06-08 when /dashboard claimed 24h while code did hourly.
+        - "rotation hourly"
       body_does_not_contain:
         # The 2026-05-23 sparkline bug rendered Go structs into the JS
         # array, e.g. `var d=[{0 0 0 0 0 0 0},{0 0 0 0 0 0 0},...]`.

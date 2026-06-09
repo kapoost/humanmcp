@@ -213,9 +213,6 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/.well-known/mcp-server.json", h.handleWellKnown)
 	mux.HandleFunc("/.well-known/agent.json", h.handleAgentCard)
 
-	// Dashboard (owner only)
-	mux.Handle("/dashboard", h.auth.RequireOwner(http.HandlerFunc(h.handleDashboard)))
-
 	// Messages (owner only)
 	mux.Handle("/messages", h.auth.RequireOwner(http.HandlerFunc(h.handleMessages)))
 	mux.Handle("/api/messages/", h.auth.RequireOwner(http.HandlerFunc(h.handleDeleteMessage)))
@@ -794,42 +791,6 @@ func (h *Handler) handleAPIContent(w http.ResponseWriter, r *http.Request) {
 
 // --- Login/logout ---
 
-
-func (h *Handler) handleDashboard(w http.ResponseWriter, r *http.Request) {
-	stats, err := h.statStore.Compute()
-	if err != nil {
-		http.Error(w, "stats error: "+err.Error(), 500)
-		return
-	}
-	if err := h.store.Load(); err != nil {
-		log.Printf("store load: %v", err)
-	}
-	pieces := h.store.List(false)
-	msgs, _ := h.msgStore.List()
-	listings := h.listingStore.List()
-
-	now := time.Now()
-	activePoem, _ := h.cfg.PickActivePoem(now)
-	// SessionExp = top of the next hour. Matches PickActivePoem's
-	// hourKey divisor (3600 seconds) — copy on the page must agree.
-	sessionExp := now.Truncate(time.Hour).Add(time.Hour)
-
-	view := h.buildEnrichedStats(stats, len(pieces), len(listings))
-
-	h.render(w, "dashboard.html", map[string]interface{}{
-		"Author":       h.cfg.AuthorName,
-		"IsOwner":      true,
-		"Stats":        view,
-		"Pieces":       pieces,
-		"Messages":     msgs,
-		"Listings":     listings,
-		"PieceCount":   len(pieces),
-		"SessionCode":  activePoem,
-		"SessionExp":   sessionExp,
-		"SkillCount":   view.SkillCount,
-		"PersonaCount": view.PersonaCount,
-	})
-}
 
 func (h *Handler) countPersonas() int {
 	dir := filepath.Join(h.cfg.ContentDir, "personas")
@@ -1474,7 +1435,7 @@ func (h *Handler) handleAgentCard(w http.ResponseWriter, r *http.Request) {
 			{"name": "content", "description": "Public pieces (poems, essays) with Ed25519 signatures and optional OpenTimestamps anchoring."},
 			{"name": "dialogue", "description": "ask_human / fetch_answer — submit a question, retrieve human-authored answer asynchronously."},
 			{"name": "memory", "description": "remember / recall — persist agent observations across sessions, scoped to a session code."},
-			{"name": "feedback", "description": "leave_comment / leave_message — surface reactions and messages to the author dashboard."},
+			{"name": "feedback", "description": "leave_comment / leave_message — surface reactions and messages to the author's inbox."},
 			{"name": "licensing", "description": "request_license — declare intended use, receive terms, audit-logged."},
 			{"name": "team", "description": "list_personas / get_persona / list_skills / get_skill — expert personas and instruction skills (post-session)."},
 		},
@@ -2253,13 +2214,13 @@ func formatUptime(d time.Duration) string {
 	return fmt.Sprintf("%dd %dh", int(d.Hours()/24), int(d.Hours())%24)
 }
 
-// periodStats is daily/weekly aggregate used by mc.html and dashboard.html.
+// periodStats is daily/weekly aggregate used by mc.html.
 type periodStats struct {
 	Reads, Visitors, Agents, Humans, Searches, Messages, Licenses int
 }
 
 // enrichedStats embeds *content.Stats and adds the extra fields v273
-// templates (mc.html, dashboard.html) expect inside {{with .Stats}}...
+// templates (mc.html) expect inside {{with .Stats}}...
 type enrichedStats struct {
 	*content.Stats
 	PieceCount         int
@@ -2288,7 +2249,7 @@ type enrichedStats struct {
 func (h *Handler) buildEnrichedStats(stats *content.Stats, pieceCount, listingCount int) enrichedStats {
 	// Drop stale slugs from ChallengeFunnel and AttemptsBySlug — pieces
 	// can be deleted but their historical events stay in stats.ndjson
-	// forever, polluting the dashboard with ghost entries.
+	// forever, polluting mission control with ghost entries.
 	live := h.liveSlugs()
 	if len(stats.ChallengeFunnel) > 0 {
 		filtered := make(map[string][3]int, len(stats.ChallengeFunnel))
@@ -2678,9 +2639,9 @@ func splitTags(s string) []string {
 	return out
 }
 
-// /stats and /gallery — aliases for /dashboard and /images respectively
+// /stats and /gallery — aliases for /mc and /images respectively
 func (h *Handler) handleStats(w http.ResponseWriter, r *http.Request) {
-	http.Redirect(w, r, "/dashboard", http.StatusFound)
+	http.Redirect(w, r, "/mc", http.StatusFound)
 }
 
 func (h *Handler) handleGallery(w http.ResponseWriter, r *http.Request) {
