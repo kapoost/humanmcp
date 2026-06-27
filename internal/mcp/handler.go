@@ -319,6 +319,15 @@ destructive commands (rm -rf, force push, DROP, secret-unset on prod).
 After bootstrap_session you also get operational-safety-private with
 incident history and stack-specific lessons.
 
+LANGUAGE STYLE — apply whenever you write to kapoost in Polish:
+This server has a skill "language-style-polish" (slug: language-style-polish)
+that defines how to write in Polish: proper Polish, English borrowings
+only for proper-name technical terms (MCP, JWS, EAS, Merkle, SHA-256)
+or where Polish equivalent would be unclear. Avoid calques like
+"flagujemy", "mergujemy", "strzelę". Call get_skill(slug=language-style-polish)
+before responding in Polish — applies across all kapoost's projects
+(humanMCP, onAudience, myśloodsiewnia), not just this one.
+
 TOOLS — call them in this order:
 1. get_author_profile  — full profile and content overview
 2. list_content        — all pieces: title, type, access, tags
@@ -1949,23 +1958,40 @@ func (h *Handler) toolBootstrapSession(w http.ResponseWriter, r *http.Request, r
 	}
 	sb.WriteString("=== END GUARDIAN ===\n\n")
 
+	// Style — loaded prominently after guardian. Communication rules that
+	// apply across all of kapoost's projects, not just this repo.
+	sb.WriteString("=== STYLE — APPLY TO EVERY POLISH RESPONSE ===\n\n")
+	sb.WriteString("Communication-style rules. Apply whenever you write to kapoost in Polish.\n\n")
+	for _, s := range skills {
+		if s.Slug == "language-style-polish" {
+			sb.WriteString(fmt.Sprintf("## %s [%s]\n%s\n\n", s.Title, s.Category, s.Body))
+		}
+	}
+	sb.WriteString("=== END STYLE ===\n\n")
+
+	// Helpers to identify items already promoted into earlier blocks so we
+	// do not repeat them in the general roster/skills sections below.
+	isGuardianPersona := func(slug string) bool { return slug == "hodor" }
+	isGuardianSkill := func(slug string) bool { return strings.HasPrefix(slug, "operational-safety-") }
+	isStyleSkill := func(slug string) bool { return slug == "language-style-polish" }
+
 	// Count non-guardian items for the headers
 	nonGuardianPersonas := 0
 	for _, p := range personas {
-		if p.Slug != "hodor" {
+		if !isGuardianPersona(p.Slug) {
 			nonGuardianPersonas++
 		}
 	}
 	nonGuardianSkills := 0
 	for _, s := range skills {
-		if !strings.HasPrefix(s.Slug, "operational-safety-") {
+		if !isGuardianSkill(s.Slug) && !isStyleSkill(s.Slug) {
 			nonGuardianSkills++
 		}
 	}
 
 	sb.WriteString(fmt.Sprintf("TEAM ROSTER — %d personas:\n\n", nonGuardianPersonas))
 	for _, p := range personas {
-		if p.Slug == "hodor" {
+		if isGuardianPersona(p.Slug) {
 			continue
 		}
 		sb.WriteString(fmt.Sprintf("## %s — %s\n", p.Title, p.Role))
@@ -1976,7 +2002,7 @@ func (h *Handler) toolBootstrapSession(w http.ResponseWriter, r *http.Request, r
 	if nonGuardianSkills > 0 {
 		sb.WriteString(fmt.Sprintf("\n---\nSKILLS — %d instructions:\n\n", nonGuardianSkills))
 		for _, s := range skills {
-			if strings.HasPrefix(s.Slug, "operational-safety-") {
+			if isGuardianSkill(s.Slug) || isStyleSkill(s.Slug) {
 				continue
 			}
 			sb.WriteString(fmt.Sprintf("## %s [%s]\n%s\n\n", s.Title, s.Category, s.Body))
