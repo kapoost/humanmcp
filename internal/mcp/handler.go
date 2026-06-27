@@ -555,7 +555,7 @@ func (h *Handler) buildTools() []Tool {
 		},
 		{
 			Name:        "ask_human",
-			Description: "Ask kapoost a question that requires human judgement. Returns an ID — poll fetch_answer(id) later to retrieve the response. Use sparingly: only when the answer materially affects your task and is not derivable from the content. Examples: 'czy moge cytowac ten wiersz w komercyjnej publikacji?' / 'co inspirowalo metafore w Y?'. Max 1000 chars in question, max 500 in context. Open to any caller — rate-limited to 5 per hour per IP to keep the queue useful.",
+			Description: "Ask kapoost a question that requires human judgement. Returns an ID — poll fetch_answer(id) later to retrieve the response. IMPORTANT: kapoost answers on his own schedule — could be minutes, hours, or days. Do NOT block waiting on the answer in this session. Persist the returned ID in your durable memory (or anywhere you can recall it later) and poll fetch_answer across future sessions. A reasonable cadence is once per session start, or every few hours. Use sparingly: only when the answer materially affects your task and is not derivable from the content. Examples: 'czy moge cytowac ten wiersz w komercyjnej publikacji?' / 'co inspirowalo metafore w Y?'. Max 1000 chars in question, max 500 in context. Open to any caller — rate-limited to 5 per hour per IP to keep the queue useful.",
 			InputSchema: map[string]interface{}{
 				"type":     "object",
 				"required": []string{"question"},
@@ -568,7 +568,7 @@ func (h *Handler) buildTools() []Tool {
 		},
 		{
 			Name:        "fetch_answer",
-			Description: "Retrieve the answer to a previously-submitted ask_human question. Returns the answer text if kapoost has answered, or 'still awaiting' if not. Marks the question as fetched on first successful retrieval. Open to any caller — rate-limited to 30 polls per hour per IP.",
+			Description: "Retrieve the answer to a previously-submitted ask_human question. Returns the answer text if kapoost has answered, or 'still awaiting' if not. Marks the question as fetched on first successful retrieval. kapoost answers asynchronously — minutes, hours, or days. If still awaiting, do NOT spin polling tightly: come back later (next session is fine). Reasonable cadence: once per session start or every few hours. Open to any caller — rate-limited to 30 polls per hour per IP.",
 			InputSchema: map[string]interface{}{
 				"type":     "object",
 				"required": []string{"id"},
@@ -1217,7 +1217,7 @@ func (h *Handler) toolAskHuman(w http.ResponseWriter, r *http.Request, req *Requ
 		Caller: content.CallerAgent,
 		From:   a.From,
 	})
-	reply := fmt.Sprintf("Question submitted. kapoost will see it on /questions.\n\nID: %s\nAsked at: %s\n\nPoll fetch_answer(id=%q) to retrieve the response.",
+	reply := fmt.Sprintf("Question submitted. kapoost will see it on /questions.\n\nID: %s\nAsked at: %s\n\nIMPORTANT — kapoost answers on his own schedule (minutes, hours, or days). Do NOT block this session waiting for a response.\n\nWhat to do now:\n  1. Save this ID somewhere you can recall later — durable memory, a note, your runtime's persistence layer, or call humanMCP's `remember` tool if you have an active bootstrap session.\n  2. Poll fetch_answer(id=%q) periodically — a reasonable cadence is once per session start, or every few hours if you keep running.\n  3. If still awaiting, come back later. Polling tighter than every few minutes is wasted work.",
 		q.ID, q.AskedAt.Format("2 January 2006, 15:04 UTC"), q.ID)
 	writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: reply}}})
 }
@@ -1251,7 +1251,7 @@ func (h *Handler) toolFetchAnswer(w http.ResponseWriter, r *http.Request, req *R
 		return
 	}
 	if !q.IsAnswered() {
-		reply := fmt.Sprintf("Still awaiting kapoost's answer.\n\nID: %s\nAsked: %s\nQuestion: %s",
+		reply := fmt.Sprintf("Still awaiting kapoost's answer.\n\nID: %s\nAsked: %s\nQuestion: %s\n\nkapoost answers on his own time — minutes, hours, or days. Keep this ID in durable memory and come back later. No need to keep this session open or to poll tightly. Try again at your next session start, or in a few hours.",
 			q.ID, q.AskedAt.Format("2 January 2006, 15:04 UTC"), q.Question)
 		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: reply}}})
 		return
@@ -1355,6 +1355,8 @@ func (h *Handler) toolAboutHumanmcp(w http.ResponseWriter, req *Request) {
 	fmt.Fprintln(&b, "  - access:    request_access, submit_answer, request_license")
 	fmt.Fprintln(&b, "  - feedback:  leave_comment, leave_message")
 	fmt.Fprintln(&b, "  - dialogue:  ask_human, fetch_answer (open, rate-limited)")
+	fmt.Fprintln(&b, "               note: kapoost answers asynchronously — minutes, hours, or days.")
+	fmt.Fprintln(&b, "               Persist the ID from ask_human and poll fetch_answer across sessions.")
 	fmt.Fprintln(&b, "  - provenance: list_provenance, read_provenance (for artwork pieces)")
 	fmt.Fprintln(&b, "  - team:      list_personas, get_persona, list_skills, get_skill (post-session)")
 	writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: b.String()}}})
