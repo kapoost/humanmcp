@@ -1,5 +1,7 @@
 #!/bin/sh
-# Sync default content to volume — only copy files that don't exist or are empty
+# Sync default content to volume — user content dirs are preserve-only
+# (don't overwrite user edits), rituals/ is always refreshed because
+# ritual manifests are code-adjacent config, not user content.
 for dir in poems personas skills translations; do
   if [ -d "/app/default-content/$dir" ]; then
     mkdir -p "/data/content/$dir"
@@ -13,4 +15,10 @@ for dir in poems personas skills translations; do
     done
   fi
 done
+# Ritual manifests: force overwrite on every boot so shipped updates land.
+if [ -d "/app/default-content/rituals" ]; then
+  mkdir -p /data/content/rituals
+  cp /app/default-content/rituals/*.json /data/content/rituals/
+  echo "Refreshed rituals manifests"
+fi
 exec ./humanmcp

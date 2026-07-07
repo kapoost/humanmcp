@@ -2361,6 +2361,17 @@ type inboxItem struct {
 	Q    *content.Question // when Kind starts with "q-"
 }
 
+// at returns the arrival time used to sort inbox items newest-first.
+func (it inboxItem) at() time.Time {
+	if it.M != nil {
+		return it.M.At
+	}
+	if it.Q != nil {
+		return it.Q.AskedAt
+	}
+	return time.Time{}
+}
+
 func (h *Handler) handleMissionControl(w http.ResponseWriter, r *http.Request) {
 	if !h.auth.IsOwner(r) {
 		http.Redirect(w, r, "/login", http.StatusFound)
@@ -2406,6 +2417,10 @@ func (h *Handler) handleMissionControl(w http.ResponseWriter, r *http.Request) {
 			pickedCount++
 		}
 	}
+
+	sort.Slice(inbox, func(i, j int) bool {
+		return inbox[i].at().After(inbox[j].at())
+	})
 
 	view := h.buildEnrichedStats(stats, len(pieces), len(listings))
 	view.Inbox = make([]interface{}, len(inbox))
@@ -2594,12 +2609,6 @@ func (h *Handler) handleSubscribeConfirm(w http.ResponseWriter, r *http.Request)
 		})
 		return
 	}
-	ua := r.UserAgent()
-	h.statStore.Record(content.Event{
-		Type:   content.EventMessage,
-		Caller: content.CallerFromUA(ua),
-		UA:     ua,
-	})
 	h.render(w, "subscribe-confirm.html", map[string]interface{}{
 		"Author":       h.cfg.AuthorName,
 		"Domain":       h.cfg.Domain,

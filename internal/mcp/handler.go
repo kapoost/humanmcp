@@ -15,6 +15,7 @@ import (
 	"github.com/kapoost/humanmcp-go/internal/auth"
 	"github.com/kapoost/humanmcp-go/internal/config"
 	"github.com/kapoost/humanmcp-go/internal/content"
+	"github.com/kapoost/humanmcp-go/internal/llm"
 )
 
 type Request struct {
@@ -83,12 +84,17 @@ type Handler struct {
 	memoryStore     *content.MemoryStore
 	provenanceStore *content.ProvenanceStore
 	collectionStore *content.CollectionStore
+	ritualStore     *content.RitualStore
+	journalStore    *content.PersonaJournalStore
+	llm             *llm.Client
 	sessions      map[string]time.Time // session ID → expiry time
 
 	mu              sync.Mutex
 	rateLimiter     map[string][]time.Time // IP → bootstrap_session attempts (5/min)
 	askHumanLog     map[string][]time.Time // IP → ask_human calls (5/hr)
 	fetchAnswerLog  map[string][]time.Time // IP → fetch_answer polls (30/hr)
+	naradaLog       map[string][]time.Time // IP → run_narada calls (5/hr)
+	naradaFetchLog  map[string][]time.Time // IP → fetch_narada_result polls (60/hr)
 }
 
 func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler {
@@ -103,13 +109,19 @@ func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler
 		memoryStore:     content.NewMemoryStore(cfg.ContentDir),
 		provenanceStore: content.NewProvenanceStore(cfg.ContentDir),
 		collectionStore: content.NewCollectionStore(cfg.ContentDir),
+		ritualStore:     content.NewRitualStore(cfg.ContentDir),
+		journalStore:    content.NewPersonaJournalStore(cfg.ContentDir),
+		llm:             llm.New(cfg.ClaudeAPIKey),
 		sessions:       make(map[string]time.Time),
 		rateLimiter:    make(map[string][]time.Time),
 		askHumanLog:    make(map[string][]time.Time),
 		fetchAnswerLog: make(map[string][]time.Time),
+		naradaLog:      make(map[string][]time.Time),
+		naradaFetchLog: make(map[string][]time.Time),
 	}
 	// Cleanup goroutines
 	go h.cleanupLoop()
+	go h.naradaWorkerLoop()
 	return h
 }
 
@@ -555,7 +567,7 @@ func (h *Handler) buildTools() []Tool {
 		},
 		{
 			Name:        "ask_human",
-			Description: "Ask kapoost a question that requires human judgement. Returns an ID — poll fetch_answer(id) later to retrieve the response. IMPORTANT: kapoost answers on his own schedule — could be minutes, hours, or days. Do NOT block waiting on the answer in this session. Persist the returned ID in your durable memory (or anywhere you can recall it later) and poll fetch_answer across future sessions. A reasonable cadence is once per session start, or every few hours. Use sparingly: only when the answer materially affects your task and is not derivable from the content. Examples: 'czy moge cytowac ten wiersz w komercyjnej publikacji?' / 'co inspirowalo metafore w Y?'. Max 1000 chars in question, max 500 in context. Open to any caller — rate-limited to 5 per hour per IP to keep the queue useful.",
+			Description: "Ask kapoost a question that requires human judgement. Returns an ID — poll fetch_answer(id) later to retrieve the response. IMPORTANT: kapoost answers on his own schedule — could be minutes, hours, or days. Do NOT block waiting on the answer in this session. Instead: (a) PERSIST the returned ID to durable memory — humanMCP's `remember` tool, Claude Code's MEMORY.md, Claude Agent SDK memory, a KV/DB row, or any store that survives teardown; (b) SCHEDULE the poll — Claude Code /schedule cron or /loop, a standalone cron/systemd timer, or simply a once-per-session check on your next boot; (c) on WAKE, call fetch_answer(id) — reschedule if awaiting, act & clear the persisted ID once answered. The return value of ask_human contains a concrete procedure with runtime-specific examples — follow it. Use sparingly: only when the answer materially affects your task and is not derivable from the content. Examples: 'czy moge cytowac ten wiersz w komercyjnej publikacji?' / 'co inspirowalo metafore w Y?'. Max 1000 chars in question, max 500 in context. Open to any caller — rate-limited to 5 per hour per IP to keep the queue useful.",
 			InputSchema: map[string]interface{}{
 				"type":     "object",
 				"required": []string{"question"},
@@ -746,6 +758,53 @@ func (h *Handler) buildTools() []Tool {
 				},
 			},
 		},
+		Tool{
+			Name:        "run_narada",
+			Description: "Start a narada (multi-persona advisory) on the given context. Server-side pipeline picks 3-5 personas via keyword routing, then each persona produces a recommendation in their own voice. ASYNCHRONOUS — returns a job id immediately; call fetch_narada_result(id) to retrieve voices when ready. Typical latency: seconds to a minute (LLM inference). Use for decisions where multiple perspectives matter more than one specialist. Context should describe the situation, not just a topic — e.g. 'planujemy zamienić session cookies na JWS przed publicznym launchem' is better than 'JWS'.",
+			InputSchema: map[string]interface{}{
+				"type":     "object",
+				"required": []string{"context"},
+				"properties": map[string]interface{}{
+					"context": map[string]interface{}{"type": "string", "description": "Situation to be discussed. 1-2 paragraphs is ideal, up to 4000 chars. Include what you're trying to decide and any constraints."},
+					"from":    map[string]interface{}{"type": "string", "description": "Optional: caller identity (e.g. 'claude-code'). Max 64 chars."},
+				},
+			},
+		},
+		Tool{
+			Name:        "fetch_narada_result",
+			Description: "Retrieve the result of a run_narada job. Returns status (pending/running/done/failed) and, when done, the list of persona voices with recommendations. Poll every 5-30 seconds until done. Rate-limited to 60 polls per hour per IP.",
+			InputSchema: map[string]interface{}{
+				"type":     "object",
+				"required": []string{"id"},
+				"properties": map[string]interface{}{
+					"id": map[string]interface{}{"type": "string", "description": "Job id returned by run_narada."},
+				},
+			},
+		},
+		Tool{
+			Name:        "get_persona_journal",
+			Description: "Return the personal journal of a persona — reflections on past recommendations that were later rolled back. Owner-only (requires edit token). Journals are append-only and written by /dobranoc when it detects a rollback of a commit tagged [narada:<id>]. Useful for narady where you want a persona to remember its own past mistakes: `Ghost, what did you learn last time you recommended a pre-commit hook?`",
+			InputSchema: map[string]interface{}{
+				"type":     "object",
+				"required": []string{"slug"},
+				"properties": map[string]interface{}{
+					"slug": map[string]interface{}{"type": "string", "description": "Persona slug (e.g. 'ghost', 'mira-chen')."},
+				},
+			},
+		},
+		Tool{
+			Name:        "record_persona_reflection",
+			Description: "Ask a persona to reflect on one of its past recommendations that turned out wrong, and append the reflection to its journal. Server-side pipeline: loads the narada job to recover context + the persona's recommendation, loads the persona's existing journal for continuity, then calls Sonnet in the persona's voice to write a lesson-for-self. Owner-only. Used by /dobranoc after detecting a rollback of a commit tagged [narada:<id>].",
+			InputSchema: map[string]interface{}{
+				"type":     "object",
+				"required": []string{"narada_id", "persona_slug", "error_context"},
+				"properties": map[string]interface{}{
+					"narada_id":     map[string]interface{}{"type": "string", "description": "ID of the narada whose recommendation is being reflected on."},
+					"persona_slug":  map[string]interface{}{"type": "string", "description": "Slug of the persona reflecting (must be one of the personas that voted on that narada)."},
+					"error_context": map[string]interface{}{"type": "string", "description": "Human-authored description of what went wrong — e.g. 'commit fbc123 rollback po 2h — hook nie chronił bo CI go nie egzekwował'. Max 1000 chars."},
+				},
+			},
+		},
 	)
 	return tools
 }
@@ -818,6 +877,14 @@ func (h *Handler) handleToolsCall(w http.ResponseWriter, r *http.Request, req *R
 		h.toolUpsertSkill(w, r, req, params.Arguments)
 	case "delete_skill":
 		h.toolDeleteSkill(w, r, req, params.Arguments)
+	case "run_narada":
+		h.toolRunNarada(w, r, req, params.Arguments)
+	case "fetch_narada_result":
+		h.toolFetchNaradaResult(w, r, req, params.Arguments)
+	case "get_persona_journal":
+		h.toolGetPersonaJournal(w, r, req, params.Arguments)
+	case "record_persona_reflection":
+		h.toolRecordPersonaReflection(w, r, req, params.Arguments)
 	default:
 		writeError(w, req.ID, -32602, "unknown tool: "+params.Name)
 	}
@@ -1217,8 +1284,41 @@ func (h *Handler) toolAskHuman(w http.ResponseWriter, r *http.Request, req *Requ
 		Caller: content.CallerAgent,
 		From:   a.From,
 	})
-	reply := fmt.Sprintf("Question submitted. kapoost will see it on /questions.\n\nID: %s\nAsked at: %s\n\nIMPORTANT — kapoost answers on his own schedule (minutes, hours, or days). Do NOT block this session waiting for a response.\n\nWhat to do now:\n  1. Save this ID somewhere you can recall later — durable memory, a note, your runtime's persistence layer, or call humanMCP's `remember` tool if you have an active bootstrap session.\n  2. Poll fetch_answer(id=%q) periodically — a reasonable cadence is once per session start, or every few hours if you keep running.\n  3. If still awaiting, come back later. Polling tighter than every few minutes is wasted work.",
-		q.ID, q.AskedAt.Format("2 January 2006, 15:04 UTC"), q.ID)
+	reply := fmt.Sprintf(`Question submitted. kapoost will see it on /questions.
+
+ID: %s
+Asked at: %s
+
+IMPORTANT — kapoost answers on his own schedule (minutes, hours, or days).
+Do NOT block this session waiting. Arrange a durable wait instead.
+
+═══ HOW TO WAIT — pick ONE mechanism your runtime supports ═══
+
+(1) PERSIST THE ID so a future you can find it:
+    • humanMCP: call remember(key="pending_q_%s", value="<id>|<short question>")
+      — then recall(key="pending_q_*") on next session start.
+    • Claude Code: append a line to your project MEMORY.md, e.g.
+      "Pending humanMCP question: id=%s asked=%s — poll fetch_answer".
+    • Claude Agent SDK / API: store in Memory tool, KV, or a DB row.
+    • Any runtime: whatever file / note / journal survives session teardown.
+
+(2) SCHEDULE THE POLL — don't loop now, don't retry hot:
+    • Claude Code: use /schedule to create a cron routine that calls
+      fetch_answer(id=%q), or /loop with an interval of 1-6 hours.
+    • Standalone agents: register a cron / systemd timer that pings
+      fetch_answer and delivers the answer when it arrives.
+    • Session-based agents: poll ONCE on each new session start —
+      that is the natural cadence, no scheduling needed.
+
+(3) ON WAKE, call fetch_answer(id=%q):
+    • Still awaiting? Reschedule and go back to sleep.
+    • Answered? Act on it, then clear the persisted ID so you don't
+      re-check a resolved question.
+
+Rate limit: fetch_answer is capped at 30 polls per hour per IP.
+Anything tighter than every 5 minutes is wasted work and will backoff.`,
+		q.ID, q.AskedAt.Format("2 January 2006, 15:04 UTC"),
+		q.ID, q.ID, q.AskedAt.Format("2006-01-02"), q.ID, q.ID)
 	writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: reply}}})
 }
 

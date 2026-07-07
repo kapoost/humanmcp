@@ -45,6 +45,11 @@ type Config struct {
 	// Ed25519 signing keypair (base64 private key, hex public key)
 	SigningPrivateKey string `json:"signing_private_key"`
 	SigningPublicKey  string `json:"signing_public_key"`
+
+	// Claude API — used by narada worker to generate persona voices.
+	// Empty key falls back to a stub voice so the async plumbing still works
+	// (useful for local dev and CI).
+	ClaudeAPIKey string `json:"-"`
 }
 
 func Load() (*Config, error) {
@@ -91,6 +96,9 @@ func Load() (*Config, error) {
 	}
 	if v := os.Getenv("POET_SECRET"); v != "" {
 		cfg.PoetSecret = v
+	}
+	if v := os.Getenv("CLAUDE_API_KEY"); v != "" {
+		cfg.ClaudeAPIKey = v
 	}
 	if v := os.Getenv("POET_POOL"); v != "" {
 		if decoded, err := base64.StdEncoding.DecodeString(v); err == nil {

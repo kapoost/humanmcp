@@ -98,3 +98,25 @@ func TestQuestionIDIsUnique(t *testing.T) {
 		t.Errorf("IDs collide: %q == %q", q1.ID, q2.ID)
 	}
 }
+
+// TestQuestionIDCollisionSameText covers the case where the ID prefix and
+// the slug both match — same minute, same question text. Without collision
+// handling the second Create silently overwrote the first file, and the
+// dashboard showed one row for two ask_human calls.
+func TestQuestionIDCollisionSameText(t *testing.T) {
+	store := NewQuestionStore(filepath.Join(t.TempDir(), "content"))
+	q1, err := store.Create("a1", "", "test")
+	if err != nil {
+		t.Fatalf("Create #1: %v", err)
+	}
+	q2, err := store.Create("a2", "", "test")
+	if err != nil {
+		t.Fatalf("Create #2: %v", err)
+	}
+	if q1.ID == q2.ID {
+		t.Errorf("same-text IDs collide: %q == %q", q1.ID, q2.ID)
+	}
+	if got := len(store.List()); got != 2 {
+		t.Errorf("expected 2 questions on disk, got %d", got)
+	}
+}

@@ -143,7 +143,7 @@ func (s *QuestionStore) Create(from, context, question string) (Question, error)
 	defer s.mu.Unlock()
 	now := time.Now().UTC()
 	q := Question{
-		ID:       generateQuestionID(now, question),
+		ID:       s.uniqueID(now, question),
 		AskedAt:  now,
 		From:     strings.TrimSpace(from),
 		Context:  strings.TrimSpace(context),
@@ -158,9 +158,23 @@ func (s *QuestionStore) Create(from, context, question string) (Question, error)
 	return q, nil
 }
 
+// uniqueID picks an ID that doesn't clash with an existing question file.
+// Same-minute + same-slug collisions get a -2/-3/... suffix. Without this,
+// a second ask_human in the same minute with the same question text would
+// silently overwrite the first.
+func (s *QuestionStore) uniqueID(t time.Time, question string) string {
+	base := generateQuestionID(t, question)
+	id := base
+	for i := 2; ; i++ {
+		if _, err := os.Stat(filepath.Join(s.dir, id+".txt")); os.IsNotExist(err) {
+			return id
+		}
+		id = fmt.Sprintf("%s-%d", base, i)
+	}
+}
+
 // generateQuestionID produces a sortable, mostly-unique id like
-// "20260608-2147-czy-mozesz-pomoc". Same-minute collisions get a -2/-3
-// suffix only if a file already exists.
+// "20260608-2147-czy-mozesz-pomoc".
 func generateQuestionID(t time.Time, question string) string {
 	stamp := t.Format("20060102-1504")
 	slug := slugifyForID(question)
