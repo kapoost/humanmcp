@@ -224,7 +224,7 @@ func (h *Handler) toolRecordPersonaReflection(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	body, err := h.loadPersonaBody(a.PersonaSlug)
+	persona, err := h.loadPersona(a.PersonaSlug)
 	if err != nil {
 		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
 			Text: fmt.Sprintf("Load persona %s: %s", a.PersonaSlug, err.Error())}}})
@@ -240,11 +240,11 @@ func (h *Handler) toolRecordPersonaReflection(w http.ResponseWriter, r *http.Req
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	systemPrompt := buildReflectionSystemPrompt(body, h.journalStore, a.PersonaSlug)
+	systemPrompt := buildReflectionSystemPrompt(persona.Body, h.journalStore, a.PersonaSlug)
 	userPrompt := buildReflectionUserPrompt(job.Context, recommendation, a.ErrorContext)
 
 	res, err := h.llm.Complete(ctx, llm.CompleteRequest{
-		Model:     llm.ModelSonnet46,
+		Model:     modelForPersona(persona),
 		System:    systemPrompt,
 		User:      userPrompt,
 		MaxTokens: 512,
@@ -390,7 +390,7 @@ func (h *Handler) processNaradaJob(job content.RitualJob) {
 // back to a stub voice so the async plumbing keeps working in local dev
 // and during outages.
 func (h *Handler) generatePersonaVoice(slug, naradaContext string) (content.PersonaVoice, error) {
-	body, err := h.loadPersonaBody(slug)
+	persona, err := h.loadPersona(slug)
 	if err != nil {
 		return content.PersonaVoice{}, fmt.Errorf("load persona %s: %w", slug, err)
 	}
@@ -402,23 +402,24 @@ func (h *Handler) generatePersonaVoice(slug, naradaContext string) (content.Pers
 	defer cancel()
 
 	journalSummary := h.summariseJournal(ctx, slug, naradaContext)
-	systemPrompt := buildSystemPrompt(body, journalSummary)
+	systemPrompt := buildSystemPrompt(persona.Body, journalSummary)
 	userPrompt := buildUserPrompt(naradaContext)
+	model := modelForPersona(persona)
 
 	res, err := h.llm.Complete(ctx, llm.CompleteRequest{
-		Model:     llm.ModelSonnet46,
+		Model:     model,
 		System:    systemPrompt,
 		User:      userPrompt,
 		MaxTokens: 1024,
 	})
 	if err != nil {
-		log.Printf("[narada] sonnet failed for %s: %v — falling back to stub", slug, err)
+		log.Printf("[narada] %s failed for %s: %v — falling back to stub", model, slug, err)
 		return stubVoice(slug, naradaContext, err.Error()), nil
 	}
 	return content.PersonaVoice{
 		Slug:           slug,
 		Recommendation: res.Text,
-		ModelUsed:      llm.ModelSonnet46,
+		ModelUsed:      model,
 	}, nil
 }
 
@@ -488,21 +489,30 @@ func stubVoice(slug, naradaContext, reason string) content.PersonaVoice {
 	}
 }
 
-// loadPersonaBody reads the raw markdown for a persona, keeping frontmatter
-// intact — the persona's system prompt lives after the second `---`.
-func (h *Handler) loadPersonaBody(slug string) (string, error) {
+// loadPersona reads and parses a persona file into the full Persona struct,
+// giving callers access to the body plus frontmatter fields (Model, Tags, etc.).
+func (h *Handler) loadPersona(slug string) (Persona, error) {
 	path := filepath.Join(h.cfg.ContentDir, "personas", slug+".md")
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", err
+		return Persona{}, err
 	}
-	raw := string(data)
-	// Skip frontmatter — everything after the second "---".
-	parts := strings.SplitN(raw, "---", 3)
-	if len(parts) == 3 {
-		return strings.TrimSpace(parts[2]), nil
+	p := parsePersonaFile(string(data), slug)
+	return p, nil
+}
+
+// modelForPersona maps the persona's Model frontmatter to a concrete Anthropic
+// model id. Empty / unknown values fall back to Sonnet — safer default when
+// unsure, and matches Sprint 2 baseline behaviour.
+func modelForPersona(p Persona) string {
+	switch strings.ToLower(strings.TrimSpace(p.Model)) {
+	case "haiku", "haiku-4-5", "haiku4-5":
+		return llm.ModelHaiku45
+	case "sonnet", "sonnet-4-6", "sonnet4-6", "":
+		return llm.ModelSonnet46
+	default:
+		return llm.ModelSonnet46
 	}
-	return strings.TrimSpace(raw), nil
 }
 
 func oneLine(s string) string {

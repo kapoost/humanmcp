@@ -1,24 +1,18 @@
 #!/bin/sh
-# Sync default content to volume — user content dirs are preserve-only
-# (don't overwrite user edits), rituals/ is always refreshed because
-# ritual manifests are code-adjacent config, not user content.
-for dir in poems personas skills translations; do
+# Sync default content to volume. Files shipped in the image (/app/default-content)
+# are force-refreshed on every boot — this matches kapoost's git-based workflow
+# where persona/skill edits live in the repo and are expected to propagate. UI-
+# added content (files that exist only in /data/content, not in /app/default-content)
+# is unaffected because we only iterate default-content sources.
+#
+# Poems dir is preserve-only because there's no shipped defaults for it — poems
+# are user-authored via /new. The loop just makes sure the dir exists.
+for dir in personas skills translations rituals; do
   if [ -d "/app/default-content/$dir" ]; then
     mkdir -p "/data/content/$dir"
-    for f in /app/default-content/$dir/*; do
-      fname=$(basename "$f")
-      target="/data/content/$dir/$fname"
-      if [ ! -s "$target" ]; then
-        cp "$f" "$target"
-        echo "Copied $dir/$fname"
-      fi
-    done
+    cp -f /app/default-content/$dir/* /data/content/$dir/ 2>/dev/null && \
+      echo "Refreshed $dir from /app/default-content"
   fi
 done
-# Ritual manifests: force overwrite on every boot so shipped updates land.
-if [ -d "/app/default-content/rituals" ]; then
-  mkdir -p /data/content/rituals
-  cp /app/default-content/rituals/*.json /data/content/rituals/
-  echo "Refreshed rituals manifests"
-fi
+mkdir -p /data/content/poems
 exec ./humanmcp

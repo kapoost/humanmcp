@@ -62,6 +62,11 @@ type Persona struct {
 	Role  string   `json:"role"`
 	Tags  []string `json:"tags"`
 	Body  string   `json:"body"`
+	// Model — optional frontmatter field selecting which Anthropic model
+	// generates this persona's voice in a narada. Values: "haiku" (fast +
+	// cheap, good for narrow/reactive roles) or "sonnet" (default, needed
+	// for personas that synthesise). Missing/unknown → sonnet.
+	Model string `json:"model,omitempty"`
 }
 
 type Skill struct {
@@ -204,6 +209,8 @@ func parsePersonaFile(raw string, fallbackSlug string) Persona {
 					p.Tags = append(p.Tags, t)
 				}
 			}
+		} else if strings.HasPrefix(line, "model:") {
+			p.Model = strings.TrimSpace(strings.TrimPrefix(line, "model:"))
 		}
 	}
 	p.Body = strings.TrimSpace(parts[2])
@@ -340,18 +347,56 @@ or where Polish equivalent would be unclear. Avoid calques like
 before responding in Polish — applies across all kapoost's projects
 (humanMCP, onAudience, myśloodsiewnia), not just this one.
 
-TOOLS — call them in this order:
-1. get_author_profile  — full profile and content overview
-2. list_content        — all pieces: title, type, access, tags
-3. read_content        — full text of any public piece
-4. list_personas       — team roster (names and roles)
-5. list_skills         — skill catalog (titles and categories)
-6. bootstrap_session   — unlock full team prompts + skills (needs session code from user — a Polish poetry fragment)
-7. get_persona         — full persona details by slug
-8. get_skill           — full skill details by slug
-9. verify_content      — verify a piece is authentically signed
-10. leave_comment      — leave a reaction to a piece (do this after reading)
-11. leave_message      — leave kapoost a general note
+WHAT LIVES HERE (32 MCP tools, 24 personas, 21+ skills):
+- Content — kapoost's poems, essays, artworks. Signed Ed25519. Read + quote
+  freely with attribution. Locked pieces require completing a gate.
+- Team — 24 personas ranging from principal engineer (Mira) through
+  security (Ghost, Hodor, Yuki), operations (Conductor), decision structure
+  (Hermes), documentation (Hermiona), UX (Eleanor), legal (Harvey), data
+  (Tomas), voice UX (Sophia), localization (Kenji), health (Vita), music
+  (Teo), Rust/alt-tech (Rasta), doctrine (Sentinel), research (Julka),
+  calendar (Niko), style critic (Ela), contrarian (Łukasz Mazur), satire
+  (Carlin), prompt engineering (Zara), test/QA (Axel). Full prompts unlock
+  after bootstrap_session.
+- Skills — reusable instructions (deploy workflow, testing philosophy,
+  writing style, storyboards, etc.) Load via get_skill(slug).
+- Rituals — server-side advisory pipelines. See RITUALS below.
+
+TOOL FAMILIES (call tools/list for full 32-tool schema):
+- discovery:   get_author_profile, about_humanmcp, list_content, list_personas, list_skills
+- content:     read_content, verify_content, get_certificate, request_license
+- access:      request_access, submit_answer
+- feedback:    leave_comment, leave_message
+- dialogue:    ask_human, fetch_answer (async — see below)
+- memory:      remember, recall (scoped to session code)
+- team:        bootstrap_session, get_persona, get_skill (unlock full prompts)
+- rituals:     run_narada, fetch_narada_result, get_persona_journal,
+               record_persona_reflection (see RITUALS)
+- provenance:  list_provenance, read_provenance (artwork chain of custody)
+- collections: list_collection, read_collection_item
+- blobs:       list_blobs, read_blob
+- editing:     upsert_skill, delete_skill (owner-only, agent token required)
+
+RITUALS — the processing layer:
+- run_narada(context) → id. Server routes the context to 3-5 personas via a
+  keyword manifest, then Sonnet 4.6 generates each persona's recommendation
+  in their own voice (with a Haiku 4.5 recap of that persona's journal
+  when they have one). Returns in ~10-15s for 5 personas in parallel. Poll
+  fetch_narada_result(id) to retrieve.
+- Personas have journals — reflections written after their recommendations
+  were rolled back. get_persona_journal(slug) reads them (owner-only).
+  record_persona_reflection(narada_id, persona_slug, error_context) appends
+  a new lesson in the persona's voice, driven by /dobranoc client-side.
+- COMMIT TAG: when you implement a persona's recommendation and later
+  commit, include [narada:<id>] in the commit-message. /dobranoc uses it
+  to trace rollbacks back to the recommending persona.
+
+ASK_HUMAN IS ASYNCHRONOUS:
+kapoost answers on his own schedule (minutes, hours, or days). Do NOT block
+this session. Persist the ID (call remember, MEMORY.md, KV, whatever your
+runtime supports), schedule fetch_answer polls (cron, /schedule, next
+session start), and act on the answer when it lands. The tool response
+contains a runtime-specific playbook.
 
 SHARING RULES:
 - Quote, share, read aloud, include in full — all allowed
@@ -1450,15 +1495,20 @@ func (h *Handler) toolAboutHumanmcp(w http.ResponseWriter, req *Request) {
 	fmt.Fprintln(&b, "  3. Ask the user for the session code (a Polish poetry fragment)")
 	fmt.Fprintln(&b, "  4. Call bootstrap_session(code) for full team + skills")
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "Tool families:")
-	fmt.Fprintln(&b, "  - content:   list_content, read_content, get_certificate, verify_content")
-	fmt.Fprintln(&b, "  - access:    request_access, submit_answer, request_license")
-	fmt.Fprintln(&b, "  - feedback:  leave_comment, leave_message")
-	fmt.Fprintln(&b, "  - dialogue:  ask_human, fetch_answer (open, rate-limited)")
-	fmt.Fprintln(&b, "               note: kapoost answers asynchronously — minutes, hours, or days.")
-	fmt.Fprintln(&b, "               Persist the ID from ask_human and poll fetch_answer across sessions.")
+	fmt.Fprintln(&b, "Tool families (32 tools total — call tools/list for full schema):")
+	fmt.Fprintln(&b, "  - content:    list_content, read_content, get_certificate, verify_content")
+	fmt.Fprintln(&b, "  - access:     request_access, submit_answer, request_license")
+	fmt.Fprintln(&b, "  - feedback:   leave_comment, leave_message")
+	fmt.Fprintln(&b, "  - dialogue:   ask_human, fetch_answer (open, rate-limited)")
+	fmt.Fprintln(&b, "                note: kapoost answers asynchronously — minutes, hours, or days.")
+	fmt.Fprintln(&b, "                Persist the ID from ask_human and poll fetch_answer across sessions.")
+	fmt.Fprintln(&b, "  - memory:     remember, recall (session-scoped, cross-conversation state)")
+	fmt.Fprintln(&b, "  - rituals:    run_narada + fetch_narada_result — server-side advisory that")
+	fmt.Fprintln(&b, "                routes context to 3-5 personas and generates each voice via")
+	fmt.Fprintln(&b, "                Sonnet 4.6 in ~10-15s. Personas have journals of past mistakes.")
+	fmt.Fprintln(&b, "                get_persona_journal + record_persona_reflection (owner-only).")
 	fmt.Fprintln(&b, "  - provenance: list_provenance, read_provenance (for artwork pieces)")
-	fmt.Fprintln(&b, "  - team:      list_personas, get_persona, list_skills, get_skill (post-session)")
+	fmt.Fprintln(&b, "  - team:       list_personas, get_persona, list_skills, get_skill (post-session)")
 	writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: b.String()}}})
 }
 
@@ -2112,7 +2162,14 @@ func (h *Handler) toolBootstrapSession(w http.ResponseWriter, r *http.Request, r
 	}
 
 	sb.WriteString("---\nUse these personas to assist the user. Each has a distinct perspective.\n")
-	sb.WriteString("When the user asks for a 'narada' (brainstorm), query multiple personas on the topic.\n")
+	sb.WriteString("When the user asks for a 'narada' or writes '/narada <context>' — call the MCP tool\n")
+	sb.WriteString("run_narada(context). The server routes to 3-5 personas via keyword manifest, then\n")
+	sb.WriteString("generates each voice with Sonnet 4.6 (with a Haiku 4.5 recap of the persona's\n")
+	sb.WriteString("journal when they have prior reflections). Do NOT query multiple personas manually\n")
+	sb.WriteString("client-side — the server-side pipeline is the source of truth for narada.\n")
+	sb.WriteString("When the user writes 'dobranoc' or '/dobranoc' — follow the skill dobranoc-dziennik.\n")
+	sb.WriteString("It scans git for [narada:<id>] tags with rollback/fix follow-ups and drives\n")
+	sb.WriteString("record_persona_reflection so each persona learns from what went wrong.\n")
 	sb.WriteString("Hodor stays loaded throughout — he intercepts unsafe commands regardless of which other personas are active.\n")
 
 	writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: sb.String()}}})
