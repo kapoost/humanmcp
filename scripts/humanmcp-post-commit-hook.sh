@@ -51,9 +51,15 @@ if [ -n "$TAG" ]; then
     "$SHA" "$(esc "$REPO")" "$AT" "$NARADA_ID" "$(esc "$PERSONAS")" "$(esc "$SUBJECT")" >> "$LOG"
 fi
 
-# Rollback / fix signals
-ROLLBACK_PATTERN='^(Revert |Rollback |Undo |Fix |Poprawka |Wycofuj |Przywróć )|revert|rollback|undo|poprawka|wycofuj'
-if printf '%s' "$MSG" | grep -qiE "$ROLLBACK_PATTERN"; then
+# Rollback / fix signals — dopasowujemy TYLKO subject (pierwszą linijkę),
+# nie cały body. Wcześniejsza wersja łapała fałszywy alarm gdy słowa
+# "revert" / "rollback" / "poprawka" pojawiły się w opisie zmiany.
+# Wzorzec akceptuje konwencjonalny prefiks (feat/fix/chore) przed
+# słowem-kluczem — "fix(narada): ..." powinno wpaść jako rollback,
+# ale "feat(auth): describe revert flow" — nie.
+ROLLBACK_PATTERN='^(revert|rollback|undo|poprawka|wycofuj|przywróć)( |:|$)|^(feat|fix|chore|refactor|docs)(\([^)]*\))?: (revert|rollback|undo|poprawka|wycofuj|przywróć)( |$)|^fix( |:|\()|^this reverts commit'
+FIRST_LINE=$(printf '%s' "$MSG" | head -1)
+if printf '%s' "$FIRST_LINE" | grep -qiE "$ROLLBACK_PATTERN"; then
   # If git revert, the message typically contains "This reverts commit <sha>."
   REVERTED=$(printf '%s' "$MSG" | grep -oE 'This reverts commit [a-f0-9]+' | awk '{print $NF}' | head -1 || true)
   # Fallback: fix-style commits usually target the previous commit
