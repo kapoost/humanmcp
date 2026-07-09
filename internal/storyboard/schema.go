@@ -34,6 +34,13 @@ type SetupBlock struct {
 	Listings []map[string]interface{} `yaml:"listings"`
 	Pieces   []map[string]interface{} `yaml:"pieces"`
 
+	// Personas seeded as .md files under ContentDir/personas/. Each entry
+	// becomes one file with the frontmatter/body assembled from the map —
+	// exactly the shape `loadPersonasList` and `parsePersonaFile` read on
+	// prod. Lets a storyboard pin what /personas HTML renders without
+	// depending on whatever is bundled into the binary.
+	Personas []map[string]interface{} `yaml:"personas"`
+
 	// Events seeded into the stats store BEFORE assertions run. Lets a
 	// storyboard simulate prior reads / messages / agent calls and then
 	// assert what /mc renders. Recorded events are stamped with

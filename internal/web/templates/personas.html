@@ -12,6 +12,7 @@
 .pe-meta{font-size:.7rem;color:var(--muted);margin-top:.5rem;display:flex;gap:.75rem;flex-wrap:wrap;}
 .pe-slug{font-family:monospace;font-size:.72rem;background:var(--tag-bg);color:var(--tag-fg);padding:1px 6px;border-radius:3px;}
 .pe-by{font-size:.65rem;background:var(--accent-light);color:var(--accent);padding:1px 6px;border-radius:3px;border:1px solid var(--accent);}
+.pe-model{font-family:monospace;font-size:.68rem;color:var(--muted);background:var(--tag-bg);padding:1px 6px;border-radius:3px;border:1px solid var(--border);}
 </style>
 </head>
 <body>
@@ -32,6 +33,7 @@
     {{if .Prompt}}<div class="pe-prompt">{{.Prompt}}</div>{{end}}
     <div class="pe-meta">
       <span class="pe-slug">{{.Slug}}</span>
+      {{if .Model}}<span class="pe-model" title="LLM model tier">{{.Model}}</span>{{end}}
       {{if .Tags}}<span>{{join .Tags " · "}}</span>{{end}}
       {{if .UpdatedAt}}<span>updated {{formatDate .UpdatedAt}}</span>{{end}}
       {{if .UpdatedBy}}<span class="pe-by">{{.UpdatedBy}}</span>{{end}}

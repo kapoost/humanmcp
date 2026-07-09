@@ -1,0 +1,73 @@
+id: web/personas_html_renders_model
+version: "1.0.0"
+title: "GET /personas HTML surfaces per-persona model tier"
+category: web_personas
+summary: "Persona frontmatter carries `model: haiku|sonnet` (or a full model id) — the /personas dashboard must render it so the dashboard doesn't lie about which LLM voices each persona. Missing model → no badge, present model → visible badge."
+narrative: |
+  Commit d658c0c added `Persona.Model` to the MCP handler + parser so
+  the narada worker can pick Haiku for narrow/reactive roles and Sonnet
+  for personas that synthesise. But the /personas HTML page reads
+  through a SECOND parser (loadPersonasList in internal/web/handler.go)
+  and a template that neither knew about the field — so the dashboard
+  silently dropped it. From the outside:
+
+    curl -s /personas | grep -oE 'claude-(opus|sonnet|haiku)-[0-9.-]+'
+
+  came back empty even after every persona MD carried the field.
+
+  Regression class: dual parser drift. One handler picks up the new
+  field; the other quietly ignores it. This scenario pins both surfaces
+  — the parser must extract `model:`, and the template must render it.
+
+  Seeds two personas: one with `model: sonnet`, one without any model
+  field. Asserts the model badge appears for the first, not the second
+  — so a future refactor that hard-codes a default (or drops the
+  conditional in the template) fails loudly.
+
+kind: http
+
+setup:
+  personas:
+    - slug: storyboard-with-model
+      title: "Storyboard With Model"
+      role: "Test persona"
+      model: sonnet
+      body: "System prompt body for the model-tagged persona."
+    - slug: storyboard-no-model
+      title: "Storyboard No Model"
+      role: "Test persona"
+      body: "System prompt body without a model tier."
+
+assertions:
+  - name: "GET /personas surfaces the seeded model badge"
+    request:
+      method: GET
+      path: /personas
+    expect:
+      status: 200
+      body_contains:
+        - "Storyboard With Model"
+        - "Storyboard No Model"
+        - 'class="pe-model"'
+        - ">sonnet<"
+
+  - name: "persona without model does not emit a badge for it"
+    request:
+      method: GET
+      path: /personas
+    expect:
+      status: 200
+      # The template only emits pe-model when .Model is non-empty.
+      # This assertion catches a regression where a future change
+      # renders an empty badge or falls back to a default string for
+      # personas that omit the field.
+      body_does_not_contain:
+        - 'class="pe-model" title="LLM model tier"></span>'
+
+closes_failure_modes:
+  - "loadPersonasList silently drops the `model:` frontmatter field"
+  - "personas.html template renders without a model-tier badge"
+  - "future refactor introduces a default that hides which personas actually declared a tier"
+
+known_regressions_caught:
+  - "2026-07-09 — parser MCP had Persona.Model since d658c0c but web loadPersonasList and personas.html both ignored it; curl+grep returned empty from prod"

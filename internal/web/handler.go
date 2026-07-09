@@ -2634,7 +2634,7 @@ func (h *Handler) loadPersonasList() []map[string]interface{} {
 			continue
 		}
 		body := string(data)
-		var title, role, prompt string
+		var title, role, model, prompt string
 		var tags []string
 		if strings.HasPrefix(body, "---\n") {
 			end := strings.Index(body[4:], "\n---")
@@ -2653,6 +2653,8 @@ func (h *Handler) loadPersonasList() []map[string]interface{} {
 						title = v
 					case "role":
 						role = v
+					case "model":
+						model = v
 					case "tags":
 						v = strings.Trim(v, "[]")
 						for _, t := range strings.Split(v, ",") {
@@ -2672,6 +2674,7 @@ func (h *Handler) loadPersonasList() []map[string]interface{} {
 			"Slug":   slug,
 			"Name":   title,
 			"Role":   role,
+			"Model":  model,
 			"Tags":   tags,
 			"Prompt": prompt,
 		})

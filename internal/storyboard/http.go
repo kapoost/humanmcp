@@ -78,6 +78,11 @@ func runHTTP(t *testing.T, sb Storyboard) {
 			t.Fatalf("setup piece %v: %v", p, err)
 		}
 	}
+	for _, p := range sb.Setup.Personas {
+		if err := savePersona(contentDir, p); err != nil {
+			t.Fatalf("setup persona %v: %v", p, err)
+		}
+	}
 	if len(sb.Setup.Events) > 0 {
 		statStore := content.NewStatStore(contentDir)
 		for _, e := range sb.Setup.Events {
@@ -244,6 +249,47 @@ func savePiece(store *content.Store, fields map[string]interface{}, kp *content.
 		p.Signature = sig
 	}
 	return store.Save(p)
+}
+
+// savePersona writes a persona MD file matching the shape read by
+// loadPersonasList (web) and parsePersonaFile (mcp): YAML frontmatter
+// between --- markers followed by the prompt body. Only fields present in
+// the YAML map are emitted, keeping storyboards terse.
+func savePersona(contentDir string, fields map[string]interface{}) error {
+	slug := toStr(fields["slug"])
+	if slug == "" {
+		return nil
+	}
+	dir := contentDir + "/personas"
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	var b strings.Builder
+	b.WriteString("---\n")
+	b.WriteString("slug: " + slug + "\n")
+	if v := toStr(fields["title"]); v != "" {
+		b.WriteString("title: " + v + "\n")
+	}
+	if v := toStr(fields["role"]); v != "" {
+		b.WriteString("role: " + v + "\n")
+	}
+	if v := toStr(fields["model"]); v != "" {
+		b.WriteString("model: " + v + "\n")
+	}
+	if tags, ok := fields["tags"].([]interface{}); ok && len(tags) > 0 {
+		b.WriteString("tags: [")
+		for i, t := range tags {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString(toStr(t))
+		}
+		b.WriteString("]\n")
+	}
+	b.WriteString("---\n\n")
+	b.WriteString(toStr(fields["body"]))
+	b.WriteString("\n")
+	return os.WriteFile(dir+"/"+slug+".md", []byte(b.String()), 0o644)
 }
 
 func toStr(v interface{}) string {
