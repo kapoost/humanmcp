@@ -1,6 +1,7 @@
 package content
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -92,6 +93,95 @@ func TestPersonaJournalRequiresFields(t *testing.T) {
 	err = store.Append("ghost", PersonaJournalEntry{NaradaID: "nar-1"})
 	if err == nil {
 		t.Error("expected error for missing reflection")
+	}
+}
+
+func TestPersonaPatternsWriteRead(t *testing.T) {
+	store := NewPersonaJournalStore(filepath.Join(t.TempDir(), "content"))
+	err := store.WritePatterns("ghost", PersonaPatterns{
+		SynthesisedAt:      time.Date(2026, 7, 9, 8, 0, 0, 0, time.UTC),
+		EntriesAtSynthesis: 12,
+		Patterns:           "1. Over-trust preventive\n2. Miss deployment coordination",
+		Model:              "claude-sonnet-4-6",
+	})
+	if err != nil {
+		t.Fatalf("WritePatterns: %v", err)
+	}
+	got, err := store.ReadPatterns("ghost")
+	if err != nil {
+		t.Fatalf("ReadPatterns: %v", err)
+	}
+	if got.EntriesAtSynthesis != 12 || !strings.Contains(got.Patterns, "Over-trust") {
+		t.Errorf("bad round-trip: %+v", got)
+	}
+}
+
+func TestPersonaPatternsMissingReturnsZero(t *testing.T) {
+	store := NewPersonaJournalStore(filepath.Join(t.TempDir(), "content"))
+	got, err := store.ReadPatterns("nobody")
+	if err != nil {
+		t.Fatalf("missing patterns should not error: %v", err)
+	}
+	if got.Patterns != "" || got.EntriesAtSynthesis != 0 {
+		t.Errorf("expected zero-value, got %+v", got)
+	}
+}
+
+func TestNeedsSynthesisThreshold(t *testing.T) {
+	store := NewPersonaJournalStore(filepath.Join(t.TempDir(), "content"))
+	// No entries → no synthesis needed.
+	need, _, _ := store.NeedsSynthesis("mira")
+	if need {
+		t.Error("empty persona should not need synthesis")
+	}
+	// Add 4 entries (below threshold=5).
+	for i := 0; i < 4; i++ {
+		_ = store.Append("mira", PersonaJournalEntry{
+			At:         time.Date(2026, 7, i+1, 10, 0, 0, 0, time.UTC),
+			NaradaID:   fmt.Sprintf("nar-%d", i),
+			Reflection: "x",
+		})
+	}
+	need, count, _ := store.NeedsSynthesis("mira")
+	if need {
+		t.Errorf("4 entries below threshold should not trigger, got need=%v count=%d", need, count)
+	}
+	// 5th entry crosses the threshold.
+	_ = store.Append("mira", PersonaJournalEntry{
+		At:         time.Date(2026, 7, 5, 10, 0, 0, 0, time.UTC),
+		NaradaID:   "nar-5",
+		Reflection: "x",
+	})
+	need, count, _ = store.NeedsSynthesis("mira")
+	if !need || count != 5 {
+		t.Errorf("5 entries should trigger, got need=%v count=%d", need, count)
+	}
+	// After synthesis at 5 entries, need drops until 5 more arrive.
+	_ = store.WritePatterns("mira", PersonaPatterns{
+		SynthesisedAt:      time.Now().UTC(),
+		EntriesAtSynthesis: 5,
+		Patterns:           "1. Test pattern",
+	})
+	need, count, _ = store.NeedsSynthesis("mira")
+	if need || count != 0 {
+		t.Errorf("post-synthesis should not trigger, got need=%v count=%d", need, count)
+	}
+}
+
+func TestListSlugsWithJournal(t *testing.T) {
+	store := NewPersonaJournalStore(filepath.Join(t.TempDir(), "content"))
+	_ = store.Append("ghost", PersonaJournalEntry{NaradaID: "n1", Reflection: "r"})
+	_ = store.Append("mira", PersonaJournalEntry{NaradaID: "n2", Reflection: "r"})
+	// Write patterns for one — verifies the sidecar isn't listed as a journal.
+	_ = store.WritePatterns("ghost", PersonaPatterns{
+		EntriesAtSynthesis: 1, Patterns: "1. x",
+	})
+	got, err := store.ListSlugsWithJournal()
+	if err != nil {
+		t.Fatalf("ListSlugsWithJournal: %v", err)
+	}
+	if len(got) != 2 || got[0] != "ghost" || got[1] != "mira" {
+		t.Errorf("expected [ghost mira], got %v", got)
 	}
 }
 

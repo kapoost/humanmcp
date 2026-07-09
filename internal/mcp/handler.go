@@ -127,6 +127,7 @@ func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler
 	// Cleanup goroutines
 	go h.cleanupLoop()
 	go h.naradaWorkerLoop()
+	go h.patternSynthesisLoop()
 	return h
 }
 
@@ -850,6 +851,17 @@ func (h *Handler) buildTools() []Tool {
 				},
 			},
 		},
+		Tool{
+			Name:        "synthesise_persona_patterns",
+			Description: "Force a synthesis pass over one persona's journal — Sonnet reads the raw entries plus previous patterns and writes a fresh set of 3-5 durable behavioural patterns. Owner-only. The narada worker uses these compressed patterns (not the raw journal) when building the Haiku recap that primes each persona voice — so synthesis is what keeps the recap sharp as the journal grows. A background worker triggers this automatically every ~6h once a persona has accumulated at least 5 new entries since its last synthesis, but you can force a fresh pass any time (useful after a spike of reflections).",
+			InputSchema: map[string]interface{}{
+				"type":     "object",
+				"required": []string{"slug"},
+				"properties": map[string]interface{}{
+					"slug": map[string]interface{}{"type": "string", "description": "Persona slug whose journal should be re-synthesised."},
+				},
+			},
+		},
 	)
 	return tools
 }
@@ -930,6 +942,8 @@ func (h *Handler) handleToolsCall(w http.ResponseWriter, r *http.Request, req *R
 		h.toolGetPersonaJournal(w, r, req, params.Arguments)
 	case "record_persona_reflection":
 		h.toolRecordPersonaReflection(w, r, req, params.Arguments)
+	case "synthesise_persona_patterns":
+		h.toolSynthesisePersonaPatterns(w, r, req, params.Arguments)
 	default:
 		writeError(w, req.ID, -32602, "unknown tool: "+params.Name)
 	}
@@ -1495,7 +1509,7 @@ func (h *Handler) toolAboutHumanmcp(w http.ResponseWriter, req *Request) {
 	fmt.Fprintln(&b, "  3. Ask the user for the session code (a Polish poetry fragment)")
 	fmt.Fprintln(&b, "  4. Call bootstrap_session(code) for full team + skills")
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "Tool families (32 tools total — call tools/list for full schema):")
+	fmt.Fprintln(&b, "Tool families (33 tools total — call tools/list for full schema):")
 	fmt.Fprintln(&b, "  - content:    list_content, read_content, get_certificate, verify_content")
 	fmt.Fprintln(&b, "  - access:     request_access, submit_answer, request_license")
 	fmt.Fprintln(&b, "  - feedback:   leave_comment, leave_message")

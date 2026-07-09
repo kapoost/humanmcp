@@ -306,6 +306,153 @@ Napisz wniosek dla siebie do własnego dziennika. Pisz do siebie w pierwszej oso
 		naradaContext, recommendation, errorContext)
 }
 
+// toolSynthesisePersonaPatterns runs a forced Sonnet synthesis over the
+// persona's raw journal, replacing the previous pattern set. Owner-only —
+// synthesis is a paid operation and the resulting file is internal state,
+// not something an external caller should be able to churn.
+func (h *Handler) toolSynthesisePersonaPatterns(w http.ResponseWriter, r *http.Request, req *Request, args json.RawMessage) {
+	if !h.isOwnerRequest(r) {
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
+			Text: "Unauthorized — synthesise_persona_patterns requires an owner token."}}})
+		return
+	}
+	var a struct {
+		Slug string `json:"slug"`
+	}
+	json.Unmarshal(args, &a)
+	a.Slug = strings.TrimSpace(strings.ToLower(a.Slug))
+	if a.Slug == "" {
+		writeError(w, req.ID, -32602, "slug is required")
+		return
+	}
+	if !h.llm.Available() {
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
+			Text: "LLM unavailable (no API key). Synthesis skipped."}}})
+		return
+	}
+	pat, count, err := h.synthesisePersonaPatterns(a.Slug)
+	if err != nil {
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
+			Text: "Synthesis failed: " + err.Error()}}})
+		return
+	}
+	if count == 0 {
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
+			Text: fmt.Sprintf("Persona %q has no journal entries yet — nothing to synthesise.", a.Slug)}}})
+		return
+	}
+	writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
+		Text: fmt.Sprintf("Synthesised %d entries into new pattern set for %s (model: %s).\n\n%s",
+			count, a.Slug, pat.Model, pat.Patterns)}}})
+}
+
+// synthesisePersonaPatterns runs the actual LLM call. Returns the new
+// PersonaPatterns record on success; returns (zero, 0, nil) when the persona
+// has no journal entries yet so the caller can distinguish "nothing to do"
+// from "error".
+func (h *Handler) synthesisePersonaPatterns(slug string) (content.PersonaPatterns, int, error) {
+	entries, err := h.journalStore.List(slug)
+	if err != nil {
+		return content.PersonaPatterns{}, 0, err
+	}
+	if len(entries) == 0 {
+		return content.PersonaPatterns{}, 0, nil
+	}
+	persona, err := h.loadPersona(slug)
+	if err != nil {
+		return content.PersonaPatterns{}, 0, err
+	}
+	previous, _ := h.journalStore.ReadPatterns(slug)
+
+	var journal strings.Builder
+	journal.WriteString("Twoje wpisy do dziennika (najnowsze najpierw):\n\n")
+	for i, e := range entries {
+		fmt.Fprintf(&journal, "### Wpis %d — %s (%s)\n", i+1, e.At.Format("2006-01-02"), e.NaradaID)
+		if s := oneLine(e.Context); s != "" {
+			fmt.Fprintf(&journal, "Kontekst: %s\n", s)
+		}
+		if s := oneLine(e.Recommendation); s != "" {
+			fmt.Fprintf(&journal, "Rekomendacja: %s\n", s)
+		}
+		if s := oneLine(e.ErrorSignal); s != "" {
+			fmt.Fprintf(&journal, "Sygnał błędu: %s\n", s)
+		}
+		fmt.Fprintf(&journal, "Wniosek: %s\n\n", strings.TrimSpace(e.Reflection))
+	}
+	if previous.Patterns != "" {
+		fmt.Fprintf(&journal, "\n---\n\nPoprzednia synteza wzorców (na %d wpisach, %s):\n\n%s\n",
+			previous.EntriesAtSynthesis, previous.SynthesisedAt.Format("2006-01-02"), previous.Patterns)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	res, err := h.llm.Complete(ctx, llm.CompleteRequest{
+		Model: llm.ModelSonnet46,
+		System: fmt.Sprintf(`%s
+
+Jesteś teraz w trybie autorefleksji nad własnym dziennikiem pomyłek. Twoim zadaniem jest wyciągnąć 3-5 TRWAŁYCH wzorców — nie pojedynczych incydentów, tylko powtarzających się nawyków, ślepych punktów lub błędnych założeń, które widać przez wiele wpisów. Pisz w drugiej osobie, konkretnie, po polsku, w swoim charakterystycznym rytmie. Format: numerowana lista, każdy wzorzec zaczyna się od pogrubionej etykiety (2-4 słowa), po niej myślnik i 1-2 zdania opisu z konkretem, na co uważać. Jeśli poprzednia synteza wciąż jest aktualna dla części wzorców — zachowaj je, ale przeformułuj żeby były świeże po najnowszych wpisach. Bez dydaktyzmu, bez ogólników.`, persona.Body),
+		User:      journal.String(),
+		MaxTokens: 800,
+	})
+	if err != nil {
+		return content.PersonaPatterns{}, len(entries), err
+	}
+	patterns := content.PersonaPatterns{
+		SynthesisedAt:      time.Now().UTC(),
+		EntriesAtSynthesis: len(entries),
+		Patterns:           strings.TrimSpace(res.Text),
+		Model:              llm.ModelSonnet46,
+	}
+	if err := h.journalStore.WritePatterns(slug, patterns); err != nil {
+		return content.PersonaPatterns{}, len(entries), err
+	}
+	log.Printf("[patterns] synthesised %s: %d entries → %d chars of patterns", slug, len(entries), len(patterns.Patterns))
+	return patterns, len(entries), nil
+}
+
+// patternSynthesisLoop scans persona journals every 6h and synthesises those
+// that crossed the entries-since-last-synthesis threshold. The narada Haiku
+// recap prefers the pattern file over the raw journal, so keeping patterns
+// fresh directly improves persona voice quality without touching the hot
+// narada path.
+func (h *Handler) patternSynthesisLoop() {
+	// Small delay at startup so the very first tick doesn't collide with
+	// naradaWorkerLoop hammering the LLM at boot.
+	time.Sleep(30 * time.Second)
+	ticker := time.NewTicker(6 * time.Hour)
+	defer ticker.Stop()
+	h.runOneSynthesisPass()
+	for range ticker.C {
+		h.runOneSynthesisPass()
+	}
+}
+
+func (h *Handler) runOneSynthesisPass() {
+	if !h.llm.Available() {
+		return
+	}
+	slugs, err := h.journalStore.ListSlugsWithJournal()
+	if err != nil {
+		log.Printf("[patterns] list slugs: %v", err)
+		return
+	}
+	for _, slug := range slugs {
+		need, newCount, err := h.journalStore.NeedsSynthesis(slug)
+		if err != nil {
+			log.Printf("[patterns] needs-check %s: %v", slug, err)
+			continue
+		}
+		if !need {
+			continue
+		}
+		log.Printf("[patterns] scheduling synthesis for %s (%d new entries)", slug, newCount)
+		if _, _, err := h.synthesisePersonaPatterns(slug); err != nil {
+			log.Printf("[patterns] synthesis %s: %v", slug, err)
+		}
+	}
+}
+
 // naradaWorkerLoop drains the pending narada queue. Runs one job per tick to
 // keep the worker predictable and easy to debug. Sprint 1: stub — every
 // persona returns a placeholder. Sprint 2: swap the stub for a real LLM
@@ -424,10 +571,43 @@ func (h *Handler) generatePersonaVoice(slug, naradaContext string) (content.Pers
 }
 
 // summariseJournal returns a short recap of the persona's past reflections,
-// focused on lessons that might apply to the current narada context. Returns
-// empty string on any error or when the journal is empty — the persona
-// simply speaks without the recap in those cases.
+// focused on lessons that might apply to the current narada context. Prefers
+// the synthesised pattern file over raw journal entries — patterns are the
+// compressed, curated view; the raw journal is only used as a fallback for
+// personas whose pattern set is missing or stale (fewer than a full pattern
+// cycle's worth of entries).
 func (h *Handler) summariseJournal(ctx context.Context, slug, naradaContext string) string {
+	patterns, _ := h.journalStore.ReadPatterns(slug)
+	if strings.TrimSpace(patterns.Patterns) != "" {
+		return h.summariseFromPatterns(ctx, slug, naradaContext, patterns)
+	}
+	return h.summariseFromRawJournal(ctx, slug, naradaContext)
+}
+
+// summariseFromPatterns builds the narada recap from the compressed patterns
+// file. Patterns are already durable and context-agnostic, so Haiku's job
+// here is just to select which patterns are most relevant to the current
+// narada context (rather than distilling them from scratch each time).
+func (h *Handler) summariseFromPatterns(ctx context.Context, slug, naradaContext string, patterns content.PersonaPatterns) string {
+	res, err := h.llm.Complete(ctx, llm.CompleteRequest{
+		Model: llm.ModelHaiku45,
+		System: "Jesteś assistentem, który wybiera 2-4 najbardziej trafne wzorce z dziennika persony pod kątem konkretnej narady. Pisz do tej persony w drugiej osobie, konkretnie, po polsku. Zachowaj oryginalne sformułowania — nie parafrazuj wzorców, tylko wskaż te, które pasują do sytuacji, i połącz je krótkim komentarzem 1-2 zdaniami.",
+		User: fmt.Sprintf("Kontekst nowej narady:\n%s\n\nTwoje utrwalone wzorce (synteza z %d wpisów, %s):\n\n%s\n\nWskaż 2-4 z nich, które są najbardziej relewantne dla tej narady, i zwięźle dopowiedz, na co masz uważać.",
+			naradaContext, patterns.EntriesAtSynthesis, patterns.SynthesisedAt.Format("2006-01-02"), patterns.Patterns),
+		MaxTokens: 400,
+	})
+	if err != nil {
+		log.Printf("[narada] haiku pattern selection failed for %s: %v", slug, err)
+		return ""
+	}
+	return strings.TrimSpace(res.Text)
+}
+
+// summariseFromRawJournal is the pre-patterns Sprint-2 path. Kept for
+// personas whose journal is small enough that the periodic synthesis worker
+// hasn't run yet — under the synthesis threshold, raw entries are still the
+// best signal.
+func (h *Handler) summariseFromRawJournal(ctx context.Context, slug, naradaContext string) string {
 	entries, err := h.journalStore.List(slug)
 	if err != nil || len(entries) == 0 {
 		return ""
