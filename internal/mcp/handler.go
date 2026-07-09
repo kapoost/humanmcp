@@ -1873,9 +1873,21 @@ func (h *Handler) toolRequestLicense(w http.ResponseWriter, req *Request, args j
 	p, err := h.store.Get(a.Slug, false)
 	if err != nil { writeError(w, req.ID, -32602, "not found: "+a.Slug); return }
 
-	// Log the usage declaration
+	// Log the usage declaration — TWO events:
+	//   EventAccess feeds the interest/funnel counters (same shape as
+	//   read/list gates) so request_license shows up in InterestBySlug
+	//   next to the piece.
+	//   EventLicense is the audit-trail counter that drives /mc's
+	//   `licenses` big-stat + rolling window rows. Kept separate from
+	//   access so the funnel column stays honest (interest ≠ licence).
 	h.statStore.Record(content.Event{
 		Type:   content.EventAccess,
+		Caller: content.CallerAgent,
+		Slug:   a.Slug,
+		From:   a.CallerID,
+	})
+	h.statStore.Record(content.Event{
+		Type:   content.EventLicense,
 		Caller: content.CallerAgent,
 		Slug:   a.Slug,
 		From:   a.CallerID,

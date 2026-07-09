@@ -1,0 +1,89 @@
+id: web/mc_licenses_counter_reflects_grants
+version: "1.0.0"
+title: "/mc licenses stat counts request_license grants (not zero-value phantom)"
+category: mc_dashboard
+summary: "toolRequestLicense records EventLicense in the stats ndjson, Compute() aggregates it into Stats.TotalLicenses + WindowStats.Licenses, and mc.html surfaces those numbers as the big `licenses` stat plus the `lic` column in the trend table. Prior to 2026-07-09 the fields existed but were never populated — hardcoded 0 for every window."
+narrative: |
+  Owner audit on 2026-07-09 flagged that /mc's `licenses` stat always
+  read 0 despite four historical request_license calls in the audit
+  trail. Root cause was a four-layer counter drop:
+
+    - stats.go had no EventLicense type; toolRequestLicense recorded
+      EventAccess (feeding the interest funnel, not a license counter)
+    - WindowStats had no Licenses field, yet mc.html read `.Licenses`
+      on all four rows (silently rendered zero-value)
+    - Stats.TotalLicenses field existed on the wire type but was
+      never touched by Compute()
+    - buildEnrichedStats declared `TotalLicenses int` on
+      enrichedStats but never assigned it in the constructor or in
+      the toPS window shim
+
+  This scenario exercises the whole chain end-to-end:
+    1. Seed a piece.
+    2. Fire request_license with a valid caller_id (post-2026-07-09
+       audit contract).
+    3. Verify the response comes back with LICENSE TERMS (positive
+       path still intact).
+    4. As owner, GET /mc — assert the licenses big-stat renders 1,
+       proving the event landed in the log AND every layer picks it
+       up.
+
+  Regression risk this catches: any future counter-adds that forget to
+  wire one of the four layers will make this scenario fail — either
+  Compute() drops the event, or buildEnrichedStats drops the field,
+  or the template stops rendering, or the MCP handler stops emitting.
+  Missing wire = zero on the dashboard.
+
+kind: http
+
+setup:
+  pieces:
+    - slug: mc-license-counter-target
+      title: "MC license counter target"
+      body: "Piece body used by the /mc licenses-counter storyboard."
+      access: public
+      signed: true
+
+assertions:
+  - name: "baseline: /mc licenses stat starts at 0"
+    request:
+      method: GET
+      path: /mc
+      owner: true
+    expect:
+      status: 200
+      body_contains:
+        - '<div class="mc-stat-num">0</div><div class="mc-stat-label">licenses</div>'
+
+  - name: "fire request_license with valid caller_id"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"request_license","arguments":{"slug":"mc-license-counter-target","intended_use":"quote in essay","caller_id":"storyboard-agent"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "LICENSE TERMS"
+        - "MC license counter target"
+
+  - name: "after grant: /mc licenses stat reflects 1"
+    request:
+      method: GET
+      path: /mc
+      owner: true
+    expect:
+      status: 200
+      body_contains:
+        - '<div class="mc-stat-num">1</div><div class="mc-stat-label">licenses</div>'
+
+closes_failure_modes:
+  - "toolRequestLicense stops emitting EventLicense — counter freezes at 0"
+  - "stats.Compute() drops the EventLicense case in a refactor"
+  - "WindowStats.Licenses field goes missing and template silently renders 0"
+  - "enrichedStats.TotalLicenses reverts to unpopulated"
+  - "mc.html removes the `licenses` stat but callers still expect it"
+
+known_regressions_caught:
+  - "2026-07-09 — historical: fields wired but no event type; all four rows showed 0 permanently"

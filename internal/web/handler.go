@@ -2315,6 +2315,7 @@ func (h *Handler) buildEnrichedStats(stats *content.Stats, pieceCount, listingCo
 		SkillCount:    len(h.loadSkills()),
 		PersonaCount:  h.countPersonas(),
 		TotalListings: listingCount,
+		TotalLicenses: stats.TotalLicenses,
 		VaultOnline:   true,
 		Uptime:        formatUptime(time.Since(h.startedAt)),
 		ToolCalls:     stats.AgentCalls,
@@ -2330,6 +2331,7 @@ func (h *Handler) buildEnrichedStats(stats *content.Stats, pieceCount, listingCo
 				Humans:   ws.Humans,
 				Searches: ws.Searches,
 				Messages: ws.Messages,
+				Licenses: ws.Licenses,
 			}
 		}
 		es.Today = toPS(w.Today)

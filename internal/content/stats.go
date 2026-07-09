@@ -23,6 +23,7 @@ const (
 	EventProfile    EventType = "profile"
 	EventAccess     EventType = "access"
 	EventSearch     EventType = "search"
+	EventLicense    EventType = "license"
 )
 
 type CallerType string
@@ -60,6 +61,7 @@ type Stats struct {
 	TotalComments int `json:"total_comments"`
 	TotalUnlocks  int `json:"total_unlocks"`
 	TotalInterest int `json:"total_interest"`
+	TotalLicenses int `json:"total_licenses"`
 	AgentCalls    int `json:"agent_calls"`
 	HumanVisits   int `json:"human_visits"`
 	UniqueVisitors int `json:"unique_visitors"`
@@ -264,6 +266,8 @@ func (ss *StatStore) Compute() (*Stats, error) {
 				f[0]++
 				s.ChallengeFunnel[e.Slug] = f
 			}
+		case EventLicense:
+			s.TotalLicenses++
 		}
 	}
 
@@ -306,6 +310,7 @@ type WindowStats struct {
 	Humans   int
 	Searches int
 	Messages int
+	Licenses int
 }
 
 // Windows is a set of rolling time buckets computed from the event log.
@@ -362,6 +367,9 @@ func (ss *StatStore) ComputeWindows(now time.Time) (*Windows, error) {
 		}
 		if e.Type == EventSearch {
 			ws.Searches++
+		}
+		if e.Type == EventLicense {
+			ws.Licenses++
 		}
 	}
 
