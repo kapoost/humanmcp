@@ -564,14 +564,14 @@ func (h *Handler) buildTools() []Tool {
 			Name:        "request_license",
 			Description: "Declare intended use of a piece and get license terms. Logs usage intent. Required before commercial use. Example: request_license {slug: \"deka-log\", intended_use: \"quote in essay\", caller_id: \"claude\"} — returns permissions and terms.",
 			InputSchema: map[string]interface{}{
-				"type": "object", "required": []string{"slug", "intended_use"},
+				"type": "object", "required": []string{"slug", "intended_use", "caller_id"},
 				"properties": map[string]interface{}{
 					"slug": map[string]interface{}{"type": "string"},
 					"intended_use": map[string]interface{}{
 						"type": "string",
 						"description": "How you intend to use this content: read, quote, train, publish, commercial, adapt, distribute",
 					},
-					"caller_id": map[string]interface{}{"type": "string", "description": "Your agent/human identifier"},
+					"caller_id": map[string]interface{}{"type": "string", "description": "Your agent/human identifier — required for audit trail"},
 				},
 			},
 		},
@@ -1863,8 +1863,11 @@ func (h *Handler) toolRequestLicense(w http.ResponseWriter, req *Request, args j
 		CallerID    string `json:"caller_id"`
 	}
 	json.Unmarshal(args, &a)
-	if a.Slug == "" || a.IntendedUse == "" {
-		writeError(w, req.ID, -32602, "slug and intended_use required")
+	a.Slug = strings.TrimSpace(a.Slug)
+	a.IntendedUse = strings.TrimSpace(a.IntendedUse)
+	a.CallerID = strings.TrimSpace(a.CallerID)
+	if a.Slug == "" || a.IntendedUse == "" || a.CallerID == "" {
+		writeError(w, req.ID, -32602, "slug, intended_use and caller_id required")
 		return
 	}
 	p, err := h.store.Get(a.Slug, false)

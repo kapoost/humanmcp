@@ -1,0 +1,90 @@
+id: mcp/request_license_requires_caller_id
+version: "1.0.0"
+title: "request_license rejects empty/missing caller_id to preserve audit trail"
+category: mcp_licensing
+summary: "The license request is stored as an inbox message. Without a caller_id the audit trail is unattributable (`caller=` blank in the msg body). This scenario pins that caller_id is now required alongside slug and intended_use."
+narrative: |
+  Prior to this change toolRequestLicense (internal/mcp/handler.go:1859)
+  only required `slug` and `intended_use`. A missing or whitespace-only
+  `caller_id` silently produced an inbox line like:
+
+    [license request] use=quote in essay caller=
+
+  — the license terms still went back to the caller, but the audit
+  trail on the owner's dashboard had no way to identify who asked.
+  Reviewed on 2026-07-09 while auditing the 4 historical license
+  requests: request #4 (2026-07-08 20:15 UTC) had exactly this shape.
+
+  New contract:
+    - slug required (unchanged)
+    - intended_use required (unchanged)
+    - caller_id required (NEW) — whitespace-only rejected
+    - JSON-RPC error -32602 when any of the three is missing
+
+  Positive path still works: valid caller_id → license terms in the
+  response and a fully-attributed audit message on disk.
+
+kind: http
+
+setup:
+  pieces:
+    - slug: audit-trail-target
+      title: "Audit trail target"
+      body: "Piece body for storyboard."
+      access: public
+      signed: true
+
+assertions:
+  - name: "missing caller_id → -32602"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"request_license","arguments":{"slug":"audit-trail-target","intended_use":"quote in essay"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - '"code":-32602'
+        - "caller_id required"
+      body_does_not_contain:
+        - "LICENSE TERMS"
+
+  - name: "whitespace-only caller_id → -32602"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"request_license","arguments":{"slug":"audit-trail-target","intended_use":"quote in essay","caller_id":"   "}}}'
+    expect:
+      status: 200
+      body_contains:
+        - '"code":-32602'
+        - "caller_id required"
+      body_does_not_contain:
+        - "LICENSE TERMS"
+
+  - name: "valid caller_id → license terms returned"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"request_license","arguments":{"slug":"audit-trail-target","intended_use":"quote in essay","caller_id":"storyboard-agent"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "LICENSE TERMS"
+        - "Audit trail target"
+        - "STATUS"
+      body_does_not_contain:
+        - '"code":-32602'
+
+closes_failure_modes:
+  - "caller_id becomes optional again in a refactor and audit-trail messages land with `caller=`"
+  - "whitespace-only caller_id passes validation and produces a functionally-anonymous audit row"
+  - "positive path breaks — request_license refuses a well-formed call"
+
+known_regressions_caught:
+  - "2026-07-09 — audit surfaced one historical request (id 1783541703205371867) with empty caller field; contract tightened to make that shape impossible"
