@@ -37,6 +37,7 @@ type Handler struct {
 	signingKey        *content.KeyPair
 	tmpl              *template.Template
 	startedAt         time.Time
+	mcpToolCount      int
 
 	// IP-based sliding-window rate limiter for the anonymous /contact form.
 	// Generous limit so a real human refining their message isn't blocked,
@@ -2748,7 +2749,17 @@ func (h *Handler) handleGallery(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/images", http.StatusFound)
 }
 
-// /llms.txt — plain text catalogue for AI agents
+// SetMCPToolCount records how many MCP tools the sibling handler
+// exposes. Wired from main.go after both handlers are constructed so
+// /llms.txt can render an accurate count in its intro paragraph
+// without importing the mcp package (which would introduce a new
+// production dependency between the two subsystems).
+func (h *Handler) SetMCPToolCount(n int) { h.mcpToolCount = n }
+
+// /llms.txt — plain text catalogue for AI agents. Format follows
+// https://llmstxt.org: H1 title, blockquote description, optional
+// detail paragraphs, then H2 sections of markdown link lists. When
+// /data/llms.txt exists it overrides the auto-generated body.
 func (h *Handler) handleLLMSTxt(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	dataDir := filepath.Dir(h.cfg.ContentDir)
@@ -2758,17 +2769,68 @@ func (h *Handler) handleLLMSTxt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "# %s\n\n%s\n\n", h.cfg.AuthorName, h.cfg.AuthorBio)
-	fmt.Fprintf(&b, "> Personal humanMCP server. Connect via https://%s/mcp\n\n", h.cfg.Domain)
+	// H1 + blockquote description per spec. AuthorBio is the
+	// project-scale description; MCP endpoint + tool count go in a
+	// detail paragraph immediately after so agents that only read
+	// the header still see the endpoint.
+	fmt.Fprintf(&b, "# %s\n\n", h.cfg.AuthorName)
+	fmt.Fprintf(&b, "> %s\n\n", h.cfg.AuthorBio)
+	if h.mcpToolCount > 0 {
+		fmt.Fprintf(&b, "Personal humanMCP server. MCP endpoint: https://%s/mcp — %d JSON-RPC tools for dialogue, memory, content, feedback, licensing, team, rituals.\n\n", h.cfg.Domain, h.mcpToolCount)
+	} else {
+		fmt.Fprintf(&b, "Personal humanMCP server. MCP endpoint: https://%s/mcp — JSON-RPC tools for dialogue, memory, content, feedback, licensing, team, rituals.\n\n", h.cfg.Domain)
+	}
+
+	// Pieces — only public + time-unlocked. Locked / members / private
+	// items must not surface in a plaintext agent catalogue.
 	fmt.Fprintln(&b, "## Pieces")
 	fmt.Fprintln(&b)
 	for _, p := range h.store.List(false) {
+		if !p.IsUnlocked() {
+			continue
+		}
 		fmt.Fprintf(&b, "- [%s](https://%s/p/%s)", p.Title, h.cfg.Domain, p.Slug)
 		if p.Description != "" {
 			fmt.Fprintf(&b, ": %s", p.Description)
 		}
 		fmt.Fprintln(&b)
 	}
+	fmt.Fprintln(&b)
+
+	// Personas hub — no per-slug HTML page exists, so link the hub
+	// and tell agents which MCP tool returns the individual prompt.
+	personaCount := h.countPersonas()
+	if personaCount > 0 {
+		fmt.Fprintln(&b, "## Personas")
+		fmt.Fprintln(&b)
+		fmt.Fprintf(&b, "- [Team roster](https://%s/personas): %d expert personas an agent can adopt. Use `get_persona` via MCP for the full system prompt of a specific slug.\n", h.cfg.Domain, personaCount)
+		fmt.Fprintln(&b)
+	}
+
+	// Skills hub — same pattern.
+	skillCount := len(h.loadSkills())
+	if skillCount > 0 {
+		fmt.Fprintln(&b, "## Skills")
+		fmt.Fprintln(&b)
+		fmt.Fprintf(&b, "- [Skill library](https://%s/skills): %d skills across categories. Use `get_skill` via MCP for full instructions of a specific slug.\n", h.cfg.Domain, skillCount)
+		fmt.Fprintln(&b)
+	}
+
+	// MCP entry points.
+	fmt.Fprintln(&b, "## MCP endpoint")
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "- [MCP server](https://%s/mcp): JSON-RPC 2.0 over Streamable HTTP. Bootstrap with `bootstrap_session` to unlock members-tier content.\n", h.cfg.Domain)
+	fmt.Fprintf(&b, "- [For agents](https://%s/for-agents): integration guide + tool reference for humans reviewing agent behaviour.\n", h.cfg.Domain)
+	fmt.Fprintln(&b)
+
+	// Optional — lower priority. Per spec agents may skip this
+	// section if context is tight.
+	fmt.Fprintln(&b, "## Optional")
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "- [Collection](https://%s/collection): curated non-owner artwork with provenance metadata.\n", h.cfg.Domain)
+	fmt.Fprintf(&b, "- [Agent Card](https://%s/.well-known/agent.json): A2A discovery document.\n", h.cfg.Domain)
+	fmt.Fprintf(&b, "- [RSS](https://%s/rss.xml): piece publication feed.\n", h.cfg.Domain)
+	fmt.Fprintf(&b, "- [Sitemap](https://%s/sitemap.xml): full URL inventory for crawlers.\n", h.cfg.Domain)
 	w.Write([]byte(b.String()))
 }
 

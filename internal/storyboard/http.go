@@ -64,6 +64,9 @@ func runHTTP(t *testing.T, sb Storyboard) {
 	mcpHandler := mcp.NewHandler(cfg, store, a)
 	mux.Handle("/mcp", mcpHandler)
 	mux.Handle("/mcp/", mcpHandler)
+	// Wire the MCP tool count into the web handler so /llms.txt can
+	// render the same number as prod.
+	h.SetMCPToolCount(len(mcpHandler.ToolNames()))
 	h.RegisterRoutes(mux)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)

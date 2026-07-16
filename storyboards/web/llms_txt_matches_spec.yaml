@@ -1,0 +1,135 @@
+id: web/llms_txt_matches_spec
+version: "1.0.0"
+title: "/llms.txt follows the llmstxt.org spec (H1 + blockquote + sections)"
+category: web_agent_discovery
+summary: "Auto-generated /llms.txt must (a) put the description in the H1's blockquote per spec, (b) filter out locked pieces from the public catalogue, (c) surface Personas / Skills / MCP endpoint / Optional sections so agents can navigate the site — not just poems."
+narrative: |
+  Prior to 2026-07-16 /llms.txt shipped with three defects flagged by
+  a spec audit against https://llmstxt.org:
+
+    1. Description was a plain paragraph, blockquote was used for the
+       MCP connection URL. Spec order is: H1 → blockquote (short
+       description) → optional detail paragraphs → H2 sections.
+    2. Locked / members-only / private pieces were listed. `kapoost —
+       private contact` is behind a challenge gate but appeared in the
+       plain-text catalogue anyway.
+    3. Only `## Pieces` was rendered. Nothing about the 24 personas,
+       29+ skills, MCP endpoint, or discovery URLs — leaving agents to
+       find those out-of-band.
+
+  This scenario pins the shape post-fix:
+    - Blockquote contains AuthorBio (the description).
+    - Detail paragraph mentions the MCP endpoint URL + tool count.
+    - `## Pieces` lists ONLY unlocked pieces (public + time-unlocked).
+    - `## Personas`, `## Skills` sections list hub links with counts.
+    - `## MCP endpoint`, `## Optional` sections give agents the rest.
+
+  Regression class: content that shouldn't leak (locked pieces
+  surfacing in a plain-text catalogue is a mild but real access-tier
+  drift). The scenario seeds one public piece + one locked piece and
+  asserts only the public one appears.
+
+kind: http
+
+setup:
+  personas:
+    - slug: llms-storyboard-persona
+      title: "Llms Storyboard Persona"
+      role: "Test persona"
+      body: "System prompt body."
+  pieces:
+    - slug: llms-public-target
+      title: "Llms public target"
+      body: "Public poem body."
+      access: public
+      signed: true
+    - slug: llms-locked-target
+      title: "Llms locked target"
+      body: "Locked poem body."
+      access: members
+      signed: true
+
+assertions:
+  - name: "H1 comes first, blockquote directly after"
+    request:
+      method: GET
+      path: /llms.txt
+    expect:
+      status: 200
+      body_contains:
+        - "# Storyboard\n\n> "
+
+  - name: "MCP endpoint URL + tool count appear as detail paragraph"
+    request:
+      method: GET
+      path: /llms.txt
+    expect:
+      status: 200
+      body_contains:
+        - "Personal humanMCP server. MCP endpoint:"
+        - "/mcp"
+        - "JSON-RPC tools"
+
+  - name: "Pieces section lists the public piece"
+    request:
+      method: GET
+      path: /llms.txt
+    expect:
+      status: 200
+      body_contains:
+        - "## Pieces"
+        - "Llms public target"
+        - "/p/llms-public-target"
+
+  - name: "Locked piece is NOT listed in the public catalogue"
+    request:
+      method: GET
+      path: /llms.txt
+    expect:
+      status: 200
+      body_does_not_contain:
+        - "Llms locked target"
+        - "/p/llms-locked-target"
+
+  - name: "Personas section renders with a hub link + count"
+    request:
+      method: GET
+      path: /llms.txt
+    expect:
+      status: 200
+      body_contains:
+        - "## Personas"
+        - "/personas"
+        - "get_persona"
+
+  - name: "MCP endpoint section links /mcp + /for-agents"
+    request:
+      method: GET
+      path: /llms.txt
+    expect:
+      status: 200
+      body_contains:
+        - "## MCP endpoint"
+        - "/for-agents"
+        - "bootstrap_session"
+
+  - name: "Optional section carries discovery + feeds"
+    request:
+      method: GET
+      path: /llms.txt
+    expect:
+      status: 200
+      body_contains:
+        - "## Optional"
+        - "/.well-known/agent.json"
+        - "/rss.xml"
+        - "/sitemap.xml"
+
+closes_failure_modes:
+  - "Locked / members / private pieces surface in the public plain-text catalogue"
+  - "Description order regresses to plain-paragraph-first, breaking parsers that expect blockquote"
+  - "Sections drop off — agents lose the /personas or /skills hub link"
+  - "MCP endpoint URL disappears from the intro — agents can't discover the JSON-RPC surface without reading HTML"
+
+known_regressions_caught:
+  - "2026-07-16 — spec audit: llms.txt had swapped description order, listed the locked private-contact piece, and only surfaced ## Pieces"
