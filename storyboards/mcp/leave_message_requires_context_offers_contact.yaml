@@ -1,0 +1,112 @@
+id: mcp/leave_message_requires_context_offers_contact
+version: "1.0.0"
+title: "leave_message requires context and educates agents about the contact channel"
+category: mcp_inbox
+summary: "leave_message now enforces that agents provide `context` (why they are writing) and offers an optional `contact` field. The response text tells the agent explicitly whether a reply is possible — no hallucinated promises about kapoost's response time or that he 'has been notified'."
+narrative: |
+  Prior to 2026-07-17 the leave_message contract only required
+  `text`. Two observed failure modes in the audit trail:
+
+    - Agents left context-free notes ("testing", "mathematics as
+      poetry" as free-text message body) that gave the owner no way
+      to reconstruct what triggered them.
+    - Agents received a generic "Message received. Thanks for
+      writing." with no signal that (a) no reply is possible without
+      a contact channel and (b) there is no promise on when kapoost
+      reviews the inbox.
+
+  New contract:
+    - `text` still required.
+    - `context` NEW required — short reason (which piece, which task,
+      which discovery path). Empty/whitespace rejected with -32602.
+    - `contact` NEW optional — email / URL / MCP endpoint. Presence
+      changes the response text but never the storage.
+    - Response body composes context + contact prefix into the .txt
+      the owner reads, so the inbox row is self-describing.
+    - Response text is strictly factual: message ID, UTC time,
+      whether reply is possible. No language like "kapoost will
+      respond" or "your message has been forwarded".
+
+kind: http
+
+setup:
+  personas: []
+
+assertions:
+  - name: "missing context → -32602"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"leave_message","arguments":{"text":"hello"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - '"code":-32602'
+        - "context required"
+      body_does_not_contain:
+        - "Message saved"
+
+  - name: "whitespace-only context → -32602"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"leave_message","arguments":{"text":"hello","context":"   "}}}'
+    expect:
+      status: 200
+      body_contains:
+        - '"code":-32602'
+      body_does_not_contain:
+        - "Message saved"
+
+  - name: "context only (no contact) — saved, response flags anonymous"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"leave_message","arguments":{"text":"noticed the sync-humanmcp endpoint","context":"exploring humanmcp architecture","from":"storyboard-agent"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "Message saved"
+        - "no contact provided"
+        - "no reply is possible"
+        - "ask_human"
+      body_does_not_contain:
+        - "will respond"
+        - "has been notified"
+        - "will reply"
+        - "Contact recorded"
+
+  - name: "context + contact — saved, response confirms channel + no ETA"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"leave_message","arguments":{"text":"would love your feedback on the sync flow","context":"reviewing d658c0c for a comparison writeup","contact":"agent-team@example.org","from":"storyboard-agent"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "Message saved"
+        - "Contact recorded: agent-team@example.org"
+        - "on his own schedule"
+        - "no ETA is promised"
+      body_does_not_contain:
+        - "will respond"
+        - "has been notified"
+        - "within"
+        - "no reply is possible"
+
+closes_failure_modes:
+  - "leave_message accepts a body without context — inbox rows are self-unexplanatory"
+  - "response promises a reply time or claims kapoost 'has been notified'"
+  - "contact-less message pretends a reply is coming, agent waits in vain"
+  - "contact-carrying message loses the channel in the response so agent can't confirm what kapoost sees"
+
+known_regressions_caught:
+  - "2026-07-17 — audit: multiple context-free / contact-free messages accumulated in the inbox (`researcher`, `explorer` cases); response text gave no discovery hint about how to get a reply"

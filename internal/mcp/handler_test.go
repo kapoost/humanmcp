@@ -287,25 +287,27 @@ func TestLeaveCommentMissingFields(t *testing.T) {
 func TestLeaveMessage(t *testing.T) {
 	h, _ := newTestHandler(t)
 	text := tool(t, h, "leave_message", map[string]interface{}{
-		"text": "Great server!", "from": "tester",
+		"text": "Great server!", "context": "browsing pieces", "from": "tester",
 	})
-	if !bytes.Contains([]byte(text), []byte("received")) { t.Error("should confirm receipt") }
+	if !bytes.Contains([]byte(text), []byte("saved")) { t.Error("should confirm receipt") }
 }
 
 func TestLeaveMessageAllowsLinks(t *testing.T) {
 	h, _ := newTestHandler(t)
 	text := tool(t, h, "leave_message", map[string]interface{}{
-		"text": "see https://kapoost.github.io/humanmcp for the landing page",
+		"text":    "see https://kapoost.github.io/humanmcp for the landing page",
+		"context": "sharing a link to the landing page",
 	})
-	if !bytes.Contains([]byte(text), []byte("received")) { t.Error("links should now be allowed in messages") }
+	if !bytes.Contains([]byte(text), []byte("saved")) { t.Error("links should now be allowed in messages") }
 }
 
 func TestLeaveMessageRejectsHTML(t *testing.T) {
 	h, _ := newTestHandler(t)
 	text := tool(t, h, "leave_message", map[string]interface{}{
-		"text": "<script>alert(1)</script>",
+		"text":    "<script>alert(1)</script>",
+		"context": "attempting to inject html",
 	})
-	if bytes.Contains([]byte(text), []byte("received")) { t.Error("HTML should be rejected") }
+	if bytes.Contains([]byte(text), []byte("saved")) { t.Error("HTML should be rejected") }
 }
 
 // --- verify_content ---
@@ -485,7 +487,7 @@ func TestAccessRecordsInterest(t *testing.T) {
 
 func TestMessageRecordedInStats(t *testing.T) {
 	h, _ := newTestHandler(t)
-	tool(t, h, "leave_message", map[string]interface{}{"text": "Hello!", "from": "tester"})
+	tool(t, h, "leave_message", map[string]interface{}{"text": "Hello!", "context": "smoke test", "from": "tester"})
 	stats, _ := h.statStore.Compute()
 	if stats.TotalMessages != 1 { t.Errorf("message not recorded, got %d", stats.TotalMessages) }
 }

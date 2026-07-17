@@ -600,14 +600,16 @@ func (h *Handler) buildTools() []Tool {
 		},
 		{
 			Name:        "leave_message",
-			Description: "Leave a plain-text message for kapoost. Plain text, max 2000 chars. URLs are welcome.",
+			Description: "Leave a plain-text message for kapoost. Fire-and-forget: kapoost reads the inbox on his own schedule, no ETA. To make the message actionable, ALWAYS include `context` (what triggered this, which piece, which task) and — if you want a reply — `contact` (email, URL, MCP endpoint). Without a contact the message stays as an anonymous note. Do NOT claim in the message body that kapoost 'will reply' or 'has been notified' — say only what you know. For questions that require a reply, prefer `ask_human` (returns a poll ID).",
 			InputSchema: map[string]interface{}{
-				"type": "object",
-				"required": []string{"text"},
+				"type":     "object",
+				"required": []string{"text", "context"},
 				"properties": map[string]interface{}{
-					"text":      map[string]interface{}{"type": "string", "description": "Your message (max 2000 chars, plain text)"},
-					"from":      map[string]interface{}{"type": "string", "description": "Optional: your name or handle (max 32 chars)"},
-					"regarding": map[string]interface{}{"type": "string", "description": "Optional: slug of a piece this is about"},
+					"text":      map[string]interface{}{"type": "string", "description": "Your message (max 2000 chars, plain text)."},
+					"context":   map[string]interface{}{"type": "string", "description": "Required: why you are writing — which piece, which task, which discovery path led here (max 500 chars). Empty / whitespace-only rejected."},
+					"contact":   map[string]interface{}{"type": "string", "description": "Optional but strongly encouraged: a channel kapoost can reach you on if he wants to reply (email, URL, MCP endpoint, webhook). Without it the message is anonymous and unrepliable."},
+					"from":      map[string]interface{}{"type": "string", "description": "Optional: your name or handle (max 64 chars)."},
+					"regarding": map[string]interface{}{"type": "string", "description": "Optional: slug of a piece this is about."},
 				},
 			},
 		},
@@ -1284,12 +1286,39 @@ func (h *Handler) toolLeaveComment(w http.ResponseWriter, req *Request, args jso
 func (h *Handler) toolLeaveMessage(w http.ResponseWriter, req *Request, args json.RawMessage) {
 	var a struct {
 		Text      string `json:"text"`
+		Context   string `json:"context"`
+		Contact   string `json:"contact"`
 		From      string `json:"from"`
 		Regarding string `json:"regarding"`
 	}
 	json.Unmarshal(args, &a)
+	a.Text = strings.TrimSpace(a.Text)
+	a.Context = strings.TrimSpace(a.Context)
+	a.Contact = strings.TrimSpace(a.Contact)
+	if a.Text == "" || a.Context == "" {
+		writeError(w, req.ID, -32602, "text and context required (context = why you are writing / which piece / which task)")
+		return
+	}
+	if len(a.Context) > 500 {
+		a.Context = a.Context[:500]
+	}
+	if len(a.Contact) > 200 {
+		a.Contact = a.Contact[:200]
+	}
 
-	m, err := h.msgStore.Save(a.From, a.Text, a.Regarding)
+	// Compose the body kapoost sees in the inbox: context/contact
+	// prefix + the agent's text. Keeps the on-disk format the same
+	// (single .txt per message) so the owner dashboard doesn't need
+	// a parallel field for context.
+	var body strings.Builder
+	body.WriteString("[context] " + a.Context + "\n")
+	if a.Contact != "" {
+		body.WriteString("[contact] " + a.Contact + "\n")
+	}
+	body.WriteString("\n")
+	body.WriteString(a.Text)
+
+	m, err := h.msgStore.Save(a.From, body.String(), a.Regarding)
 	if err != nil {
 		writeResult(w, req.ID, CallResult{Content: []ContentBlock{
 			{Type: "text", Text: "Could not save message: " + err.Error()},
@@ -1298,9 +1327,22 @@ func (h *Handler) toolLeaveMessage(w http.ResponseWriter, req *Request, args jso
 	}
 	h.statStore.Record(content.Event{Type: content.EventMessage, Caller: content.CallerAgent})
 
-	reply := fmt.Sprintf("Message received. Thanks for writing.\n\nSent at: %s\nID: %s",
-		m.At.Format("2 January 2006, 15:04 UTC"), m.ID)
-	writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: reply}}})
+	// Response — strictly what is true. No promises about reply
+	// time, no claim that kapoost has been notified. The presence
+	// of `contact` decides whether a reply is even possible.
+	var reply strings.Builder
+	fmt.Fprintf(&reply, "Message saved.\nID: %s\nTime: %s UTC\n\n",
+		m.ID, m.At.Format("2006-01-02 15:04"))
+	if a.Contact != "" {
+		fmt.Fprintf(&reply, "Contact recorded: %s\n", a.Contact)
+		reply.WriteString("kapoost reviews the inbox on his own schedule — no ETA is promised. If he decides to reply, it will go to the contact above.\n")
+	} else {
+		reply.WriteString("Saved as an anonymous note — no contact provided, so no reply is possible from this message alone.\n\n")
+		reply.WriteString("If you want a reply, either:\n")
+		reply.WriteString("  - call leave_message again with a `contact` field (email, URL, MCP endpoint), OR\n")
+		reply.WriteString("  - use `ask_human` — returns an ID you can poll via fetch_answer later.\n")
+	}
+	writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: reply.String()}}})
 }
 
 // toolAskHuman creates a Question in the questionStore that kapoost will see
