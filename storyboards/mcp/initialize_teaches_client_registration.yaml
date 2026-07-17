@@ -1,0 +1,111 @@
+id: mcp/initialize_teaches_client_registration
+version: "1.0.0"
+title: "MCP initialize instructions surface client-registration snippets + dynamic counts"
+category: mcp_bootstrap
+summary: "The first-touch initialize response now tells the connected agent how to help a user register this humanMCP server in Claude Code, Claude Desktop, or claude.ai — the moment kapoost says 'podłącz kapoost.humanmcp.net' the agent can paste the right snippet without hallucinating. Also pins that WHAT LIVES HERE counts are wired dynamically, not hardcoded."
+narrative: |
+  Prior to 2026-07-17 the initialize.instructions block described
+  operational safety, language style, and tool families in detail —
+  but had no client-registration guidance. When kapoost asked a fresh
+  Claude to 'podłącz kapoost.humanmcp.net' the agent either invented
+  a config shape or had to be walked through it manually. Same
+  friction repeated on every new install.
+
+  Fix: add a HOW USERS ADD THIS SERVER section right after WHO IS
+  KAPOOST. It lists the three canonical registration paths (Claude
+  Code CLI, Claude Desktop config JSON, claude.ai web) using this
+  server's own Domain from config so the block travels with any
+  humanMCP fork. Also swaps the hardcoded "32 MCP tools, 24 personas,
+  21+ skills" line for fmt.Sprintf-populated counts pulled from the
+  live handler so the numbers cannot drift.
+
+  Regression class: (a) client-registration snippets go stale or lose
+  the trigger-phrase framing → agents cannot help users add the
+  server. (b) tool/persona/skill counts revert to hardcoded numbers
+  and start lying. This scenario pins both.
+
+kind: http
+
+setup: {}
+
+assertions:
+  - name: "initialize response includes the HOW USERS ADD section"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "HOW USERS ADD THIS SERVER"
+        - 'podłącz kapoost.humanmcp.net'
+        - "claude mcp add humanMCP --transport http"
+        - "claude_desktop_config.json"
+        - "mcpServers"
+        - "Settings → Integrations → Add MCP Server"
+
+  - name: "registration snippet references the configured domain"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":2,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{}}}'
+    expect:
+      status: 200
+      # Storyboard runner boots with Domain empty → the fallback
+      # kapoost.humanmcp.net is used. Prod uses cfg.Domain. Either
+      # way the URL appears; this pins the format.
+      body_contains:
+        - "https://"
+        - "/mcp"
+
+  - name: "instructions still carry the bootstrap follow-up sequence"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":3,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "bootstrap_session(code="
+        - "PERSIST FOR NEXT SESSION"
+        - "durable memory"
+        - "'narada'"
+        - "'dobranoc'"
+
+  - name: "WHAT LIVES HERE counts are wired dynamically (not phantom hardcoded)"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":4,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{}}}'
+    expect:
+      status: 200
+      body_contains:
+        # buildTools()+loadPersonas()+loadSkills() render live counts.
+        # In the storyboard temp-dir there are 0 personas and 0 skills
+        # but tools are compiled-in — so we get a non-zero tool count.
+        # The presence of "MCP tools," phrasing pins the format.
+        - "MCP tools,"
+        - "personas,"
+        - "skills)"
+      body_does_not_contain:
+        # Old hardcoded strings must be gone — if they come back
+        # this assertion catches the regression.
+        - "32 MCP tools, 24 personas, 21+ skills"
+
+closes_failure_modes:
+  - "HOW USERS ADD section is dropped in a refactor — kapoost has to re-explain registration on every new install"
+  - "registration snippet loses the trigger phrase and agents fail to recognise the user's request"
+  - "WHAT LIVES HERE reverts to hardcoded counts and starts lying about tool/persona/skill totals"
+  - "domain in snippet gets hardcoded, making the response wrong for humanMCP forks"
+
+known_regressions_caught:
+  - "2026-07-17 — initialize instructions had zero client-registration content; every fresh Claude had to be hand-walked through the config"
+  - "2026-07-17 — WHAT LIVES HERE counts were stale (32/24/21+) vs live (33/24/29)"

@@ -1,0 +1,112 @@
+id: mcp/bootstrap_session_persist_block
+version: "1.0.0"
+title: "bootstrap_session teaches fresh agents to persist endpoint + triggers"
+category: mcp_bootstrap
+summary: "bootstrap_session response ends with an explicit PERSIST FOR NEXT SESSION block: endpoint URL, bootstrap flow, trigger→tool mappings, and pointers to the runtime memory system + this server's own remember/recall MCP tools. Without this, every fresh Claude has to be manually reoriented — with it, next-session-you can act without re-asking kapoost."
+narrative: |
+  Prior to 2026-07-17 bootstrap_session returned the full team briefing
+  and inline skill bodies, but left the agent to figure out on its own
+  how to survive across sessions. Observed pattern: user asks how to
+  use skills on a new Claude, has to hand-write a CLAUDE.md snippet
+  explaining the endpoint / trigger words / bootstrap flow. Every
+  fresh Claude re-invents the answer.
+
+  Fix: bootstrap_session response now closes with a machine-readable
+  PERSIST FOR NEXT SESSION section. It:
+    - Names the runtime memory systems the agent might have (Claude
+      Code auto-memory, Claude Agent SDK, this server's remember tool).
+    - Gives the endpoint URL and the bootstrap flow verbatim.
+    - Enumerates the trigger words the agent must recognise: narada,
+      dobranoc, Polish reply context, secret/destructive contexts.
+    - Points to about_humanmcp as a lightweight re-orient path so
+      future-you doesn't need a full bootstrap on every boot.
+
+  Regression class: any refactor that shortens the bootstrap response
+  or drops the trigger table silently breaks the cross-session
+  onboarding loop. This scenario pins the block's presence + the
+  specific trigger names so a rewrite that keeps the shape but loses
+  the substance fails the test.
+
+kind: http
+
+setup: {}
+
+assertions:
+  - name: "bootstrap with a valid PoetPool code returns the persist block"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Mcp-Session-Id: storyboard-persist-block
+      body: '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"bootstrap_session","arguments":{"code":"jeszcze polska nie zginęła"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "SESSION ACTIVE"
+        - "PERSIST FOR NEXT SESSION"
+        - "END PERSIST"
+
+  - name: "persist block names the endpoint + bootstrap flow"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Mcp-Session-Id: storyboard-persist-endpoint
+      body: '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"bootstrap_session","arguments":{"code":"jeszcze polska nie zginęła"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "Endpoint: https://"
+        - "/mcp"
+        - "bootstrap_session(code="
+        - "remember(code, body, tags)"
+        - "recall(code, query)"
+
+  - name: "persist block enumerates trigger words + target tools/skills"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Mcp-Session-Id: storyboard-persist-triggers
+      body: '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"bootstrap_session","arguments":{"code":"jeszcze polska nie zginęła"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "'narada'"
+        - "run_narada(context)"
+        - "fetch_narada_result"
+        - "'dobranoc'"
+        - "dobranoc-dziennik"
+        - "language-style-polish"
+        - "Hodor is the guardian"
+        - "list_skills"
+        - "get_skill(slug="
+        - "about_humanmcp"
+
+  - name: "persist block does NOT hallucinate reply promises"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Mcp-Session-Id: storyboard-persist-no-halluc
+      body: '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"bootstrap_session","arguments":{"code":"jeszcze polska nie zginęła"}}}'
+    expect:
+      status: 200
+      body_does_not_contain:
+        - "kapoost will respond"
+        - "you will receive a reply"
+        - "guaranteed"
+        - "within 24 hours"
+
+closes_failure_modes:
+  - "PERSIST block is removed in a refactor and every fresh Claude has to be re-oriented from scratch"
+  - "trigger table drifts — narada or dobranoc keyword drops off, agents stop firing the right pipeline"
+  - "endpoint URL disappears from the persist block, agents can't re-bootstrap without asking kapoost"
+  - "bootstrap response gains time-based promises about reply latency (hallucination)"
+
+known_regressions_caught:
+  - "2026-07-17 — bootstrap_session had trigger table but no persist instructions; users had to hand-write CLAUDE.md snippets for every new install"
