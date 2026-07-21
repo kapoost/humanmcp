@@ -2649,7 +2649,6 @@ func (h *Handler) toolSuggestSkills(w http.ResponseWriter, req *Request, args js
 
 	// Resolve groups → concrete slugs via skill catalogue.
 	skills := h.loadSkills()
-	// Preserve insertion order via a slice + seen set — first hit wins.
 	type suggestion struct {
 		Slug        string
 		Group       string
@@ -2657,16 +2656,51 @@ func (h *Handler) toolSuggestSkills(w http.ResponseWriter, req *Request, args js
 	}
 	seen := map[string]struct{}{}
 	var out []suggestion
-	// Iterate groups in deterministic order (alpha) so tests are stable.
-	groupNames := make([]string, 0, len(groupReasons))
-	for g := range groupReasons {
-		groupNames = append(groupNames, g)
+
+	// Priority order — project-specific (git-origin driven) first so
+	// scaffolding a humanmcp / adcp repo actually gets those skills
+	// into the top slots before generic 'dev' / 'always' eat the cap.
+	// Prior iteration was alphabetical (2026-07-21 prod verify: a
+	// humanmcp repo got 5×always + 3×dev, zero humanmcp skills through
+	// the cap). Per-group budget keeps the mix balanced.
+	priorityOrder := []string{
+		// project — highest specificity, driven by git origin
+		"humanmcp", "adcp", "bookkido", "mysloodsiewnia", "onaudience",
+		"mx5", "s2000",
+		// always — guardian + style baseline every session should have
+		"always",
+		// cross-cutting engineering / safety / protocol signals
+		"engineering", "safety", "mcp", "ritual", "writing",
+		// dev is broadest, fills residual slots last
+		"dev",
 	}
-	sort.Strings(groupNames)
+	// Any matched group not in priorityOrder falls to the tail in
+	// alphabetical order so future tags are not silently dropped.
+	inPriority := map[string]struct{}{}
+	for _, g := range priorityOrder {
+		inPriority[g] = struct{}{}
+	}
+	extras := make([]string, 0)
+	for g := range groupReasons {
+		if _, known := inPriority[g]; !known {
+			extras = append(extras, g)
+		}
+	}
+	sort.Strings(extras)
+	orderedGroups := append(append([]string{}, priorityOrder...), extras...)
+
 	const maxSuggested = 8
-	for _, g := range groupNames {
+	const perGroupCap = 3
+	for _, g := range orderedGroups {
+		if _, matched := groupReasons[g]; !matched {
+			continue
+		}
+		groupTaken := 0
 		for _, s := range skills {
 			if len(out) >= maxSuggested {
+				break
+			}
+			if groupTaken >= perGroupCap {
 				break
 			}
 			if _, dup := seen[s.Slug]; dup {
@@ -2676,6 +2710,7 @@ func (h *Handler) toolSuggestSkills(w http.ResponseWriter, req *Request, args js
 				continue
 			}
 			seen[s.Slug] = struct{}{}
+			groupTaken++
 			out = append(out, suggestion{
 				Slug:        s.Slug,
 				Group:       g,
@@ -2684,6 +2719,14 @@ func (h *Handler) toolSuggestSkills(w http.ResponseWriter, req *Request, args js
 		}
 		if len(out) >= maxSuggested {
 			break
+		}
+	}
+	// groupNames used below for the "Matched groups:" header — keep
+	// them in the same priority order for readability.
+	groupNames := make([]string, 0, len(groupReasons))
+	for _, g := range orderedGroups {
+		if _, matched := groupReasons[g]; matched {
+			groupNames = append(groupNames, g)
 		}
 	}
 

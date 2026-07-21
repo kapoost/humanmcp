@@ -208,6 +208,35 @@ assertions:
         - "dev"
         - "git origin matches adcp"
 
+  - name: "suggest_skills: humanmcp repo lands humanmcp skill in top-8 (project priority)"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Authorization: "Bearer storyboard-test-token"
+      body: '{"jsonrpc":"2.0","id":15,"method":"tools/call","params":{"name":"upsert_skill","arguments":{"slug":"sg-hmcp-arch","category":"tech","title":"HMCP Arch","body":"Arch body.","tags":["humanmcp"]}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "sg-hmcp-arch"
+
+  - name: "suggest_skills: project-tagged skill appears before generic dev fills the cap"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":16,"method":"tools/call","params":{"name":"suggest_skills","arguments":{"files":["go.mod","package.json","pyproject.toml","Dockerfile","storyboards/",".env"],"languages":["go","typescript","python"],"git_origin":"github.com/kapoost/humanmcp-server"}}}'
+    expect:
+      status: 200
+      body_contains:
+        # sg-hmcp-arch is tagged humanmcp — with project priority + per-
+        # group cap it must land in the top-8 even when dev/always/etc.
+        # are also matching. Prior alpha-sort iteration failed this.
+        - "sg-hmcp-arch"
+        - "via humanmcp"
+
   - name: "suggest_skills: cap at 8 announced in the response"
     request:
       method: POST
