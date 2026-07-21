@@ -2,5 +2,8 @@
   "slug": "a2a-resources-roadmap",
   "category": "tech",
   "title": "A2A — zasoby i roadmapa",
-  "body": "Agent-to-Agent (A2A) to protokół Google konkurujący z MCP.\n\nStan w humanMCP:\n- humanMCP implementuje MCP: JSON-RPC 2.0, transport streamable-http\n- A2A NIE jest zaimplementowane, nie ma planów wsparcia\n\nZasoby MCP:\n- Specyfikacja: modelcontextprotocol.io\n- Registry: registry.modelcontextprotocol.io\n- humanMCP ID: io.github.kapoost/humanmcp\n- Transport: streamable-http (nie SSE — deprecated)\n\nRóżnice: MCP = narzędzia/zasoby dla agentów, A2A = komunikacja agent-agent. humanMCP skupia się na MCP.\n\nZASADA: Nigdy nie halucinuj. Jeśli nie wiesz — powiedz nie wiem."
+  "body": "Agent-to-Agent (A2A) to protokół Google konkurujący z MCP.\n\nStan w humanMCP:\n- humanMCP implementuje MCP: JSON-RPC 2.0, transport streamable-http\n- A2A NIE jest zaimplementowane, nie ma planów wsparcia\n\nZasoby MCP:\n- Specyfikacja: modelcontextprotocol.io\n- Registry: registry.modelcontextprotocol.io\n- humanMCP ID: io.github.kapoost/humanmcp\n- Transport: streamable-http (nie SSE — deprecated)\n\nRóżnice: MCP = narzędzia/zasoby dla agentów, A2A = komunikacja agent-agent. humanMCP skupia się na MCP.\n\nZASADA: Nigdy nie halucinuj. Jeśli nie wiesz — powiedz nie wiem.",
+  "tags": [
+    "mcp"
+  ]
 }

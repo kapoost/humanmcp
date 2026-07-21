@@ -2,5 +2,8 @@
   "slug": "documentation-ownership",
   "category": "workflow",
   "title": "Zasady dokumentacji",
-  "body": "Właściciel dokumentacji: Hermiona (persona).\n\nZasady:\n- README.md jest source of truth\n- Kod jest dokumentacją — komentarze tylko gdy logika nie jest oczywista\n- NIE twórz docs jeśli nikt nie prosił\n- NIE duplikuj tego co widać w git log\n\nStruktura treści:\n- Skills: instrukcje agentowe, JSON w content/skills/\n- Personas: prompty zespołu, MD w content/personas/\n- Content: opublikowane prace (wiersze, eseje) w content/poems/\n\nZASADA: Nigdy nie halucinuj. Jeśli nie wiesz — powiedz nie wiem."
+  "body": "Właściciel dokumentacji: Hermiona (persona).\n\nZasady:\n- README.md jest source of truth\n- Kod jest dokumentacją — komentarze tylko gdy logika nie jest oczywista\n- NIE twórz docs jeśli nikt nie prosił\n- NIE duplikuj tego co widać w git log\n\nStruktura treści:\n- Skills: instrukcje agentowe, JSON w content/skills/\n- Personas: prompty zespołu, MD w content/personas/\n- Content: opublikowane prace (wiersze, eseje) w content/poems/\n\nZASADA: Nigdy nie halucinuj. Jeśli nie wiesz — powiedz nie wiem.",
+  "tags": [
+    "dev"
+  ]
 }

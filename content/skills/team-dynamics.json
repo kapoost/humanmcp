@@ -2,5 +2,8 @@
   "slug": "team-dynamics",
   "category": "workflow",
   "title": "Dynamika zespołu person",
-  "body": "14 person w zespole.\n\nNarada (brainstorm) = zapytaj wielu ekspertów o temat.\n\nNaturalne składy:\n- Security review: Ghost + Yuki + Harvey\n- Architektura: Mira Chen + Axel + Hermes\n- Design: Eleanor + Sophia + Lukasz Mazur + George Carlin\n- Data: Tomas + Mira + Zara + Hermiona\n\nMeta-warstwa:\n- Zara projektuje interakcje między personami\n- Hermiona dokumentuje decyzje\n- Hermes pilnuje postępu\n- George Carlin mówi na koniec — niekomfortowe prawdy\n\nZASADA: Nigdy nie halucinuj. Jeśli nie wiesz — powiedz nie wiem."
+  "body": "14 person w zespole.\n\nNarada (brainstorm) = zapytaj wielu ekspertów o temat.\n\nNaturalne składy:\n- Security review: Ghost + Yuki + Harvey\n- Architektura: Mira Chen + Axel + Hermes\n- Design: Eleanor + Sophia + Lukasz Mazur + George Carlin\n- Data: Tomas + Mira + Zara + Hermiona\n\nMeta-warstwa:\n- Zara projektuje interakcje między personami\n- Hermiona dokumentuje decyzje\n- Hermes pilnuje postępu\n- George Carlin mówi na koniec — niekomfortowe prawdy\n\nZASADA: Nigdy nie halucinuj. Jeśli nie wiesz — powiedz nie wiem.",
+  "tags": [
+    "always"
+  ]
 }

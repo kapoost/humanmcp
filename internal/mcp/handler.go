@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -70,12 +71,13 @@ type Persona struct {
 }
 
 type Skill struct {
-	Slug      string `json:"slug"`
-	Category  string `json:"category"`
-	Title     string `json:"title"`
-	Body      string `json:"body"`
-	UpdatedAt string `json:"updated_at,omitempty"`
-	UpdatedBy string `json:"updated_by,omitempty"`
+	Slug      string   `json:"slug"`
+	Category  string   `json:"category"`
+	Title     string   `json:"title"`
+	Body      string   `json:"body"`
+	Tags      []string `json:"tags,omitempty"`
+	UpdatedAt string   `json:"updated_at,omitempty"`
+	UpdatedBy string   `json:"updated_by,omitempty"`
 }
 
 type Handler struct {
@@ -390,7 +392,7 @@ WHAT LIVES HERE (%d MCP tools, %d personas, %d skills):
   writing style, storyboards, etc.) Load via get_skill(slug).
 - Rituals — server-side advisory pipelines. See RITUALS below.
 
-TOOL FAMILIES (call tools/list for full 32-tool schema):
+TOOL FAMILIES (call tools/list for full tool schema):
 - discovery:   get_author_profile, about_humanmcp, list_content, list_personas, list_skills
 - content:     read_content, verify_content, get_certificate, request_license
 - access:      request_access, submit_answer
@@ -398,12 +400,31 @@ TOOL FAMILIES (call tools/list for full 32-tool schema):
 - dialogue:    ask_human, fetch_answer (async — see below)
 - memory:      remember, recall (scoped to session code)
 - team:        bootstrap_session, get_persona, get_skill (unlock full prompts)
+- groups:      list_skill_groups, load_skill_group, suggest_skills — bulk
+               skill fetch by tag (humanmcp, adcp, dev, safety, …) and
+               deterministic repo-manifest → skill mapping. See SKILL
+               GROUPS below.
 - rituals:     run_narada, fetch_narada_result, get_persona_journal,
                record_persona_reflection (see RITUALS)
 - provenance:  list_provenance, read_provenance (artwork chain of custody)
 - collections: list_collection, read_collection_item
 - blobs:       list_blobs, read_blob
 - editing:     upsert_skill, delete_skill (owner-only, agent token required)
+
+SKILL GROUPS — bulk loading by tag:
+Skills carry group tags (e.g. tags: [humanmcp, dev]). Two commands
+you must recognise in the user's messages:
+  - "załaduj skille z projektu X" / "load project X skills" /
+    "load skill group X"  → call load_skill_group(name="X"). Returns
+    concatenated bodies of every skill tagged with X. Empty group
+    returns a hint listing available tags.
+  - "jakie mam grupy skilli?" / "what skill groups exist?"
+    → call list_skill_groups. Returns tag → [slug1, slug2] index.
+For a fresh project workspace, call suggest_skills(files=[...],
+languages=[...], git_origin=...) — it maps the manifest to matched
+groups (dev, humanmcp, adcp, …) and returns up to 8 suggested slugs
+with per-skill explanations. Deterministic (no LLM classify), so the
+same repo always suggests the same set.
 
 RITUALS — the processing layer:
 - run_narada(context) → id. Server routes the context to 3-5 personas via a
@@ -794,7 +815,7 @@ func (h *Handler) buildTools() []Tool {
 		},
 		Tool{
 			Name:        "list_skills",
-			Description: "List the author's skills — instructions for how to work with them. Filter by category (e.g. tech, writing, workflow).",
+			Description: "List the author's skills — instructions for how to work with them. Filter by category (e.g. tech, writing, workflow) OR by group tag (e.g. humanmcp, adcp, dev).",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -802,6 +823,41 @@ func (h *Handler) buildTools() []Tool {
 						"type":        "string",
 						"description": "Filter by category. Empty = all.",
 					},
+					"tag": map[string]interface{}{
+						"type":        "string",
+						"description": "Filter by group tag (e.g. humanmcp, dev, adcp). Case-insensitive. Empty = all.",
+					},
+				},
+			},
+		},
+		Tool{
+			Name:        "list_skill_groups",
+			Description: "List distinct group tags across all skills, with the count of skills per group. Use before load_skill_group to discover which groups exist (humanmcp, adcp, dev, safety, etc.).",
+			InputSchema: map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+		},
+		Tool{
+			Name:        "load_skill_group",
+			Description: "Return full bodies of every skill tagged with the given group name, concatenated. Use when the user says 'załaduj skille z projektu X' / 'load project X skills' / 'load skill group X'. Full bodies only after bootstrap_session (public-suffixed skills bypass). If the group is empty, response lists available groups as a hint.",
+			InputSchema: map[string]interface{}{
+				"type":     "object",
+				"required": []string{"name"},
+				"properties": map[string]interface{}{
+					"name": map[string]interface{}{"type": "string", "description": "Group tag name (case-insensitive). Discover via list_skill_groups."},
+				},
+			},
+		},
+		Tool{
+			Name:        "suggest_skills",
+			Description: "Deterministic mapping from a repo manifest (files present + languages + git origin URL) to a suggested skill set. Backend for the 'skill curator' role — no LLM classification, only signal matching. Use when scaffolding a new project workspace. Returns matched groups, suggested slugs (capped at 8 per Axel + Conductor's narada), and per-skill explanation.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"files":      map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "Manifest / lockfile / directory names present in the repo (e.g. go.mod, package.json, storyboards/, Dockerfile)."},
+					"languages":  map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "Programming languages detected (e.g. go, typescript, python)."},
+					"git_origin": map[string]interface{}{"type": "string", "description": "Git remote origin URL if known. Used to match owner/repo patterns to project groups."},
 				},
 			},
 		},
@@ -830,6 +886,7 @@ func (h *Handler) buildTools() []Tool {
 					"category": map[string]interface{}{"type": "string"},
 					"title":    map[string]interface{}{"type": "string"},
 					"body":     map[string]interface{}{"type": "string", "description": "Markdown instructions"},
+					"tags":     map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "Optional group tags (e.g. [humanmcp, dev, safety]) for load_skill_group filtering."},
 				},
 			},
 		},
@@ -968,6 +1025,12 @@ func (h *Handler) handleToolsCall(w http.ResponseWriter, r *http.Request, req *R
 		h.toolGetPersona(w, r, req, params.Arguments)
 	case "list_skills":
 		h.toolListSkills(w, req, params.Arguments)
+	case "list_skill_groups":
+		h.toolListSkillGroups(w, req)
+	case "load_skill_group":
+		h.toolLoadSkillGroup(w, r, req, params.Arguments)
+	case "suggest_skills":
+		h.toolSuggestSkills(w, req, params.Arguments)
 	case "get_skill":
 		h.toolGetSkill(w, r, req, params.Arguments)
 	case "upsert_skill":
@@ -2300,6 +2363,7 @@ func (h *Handler) toolBootstrapSession(w http.ResponseWriter, r *http.Request, r
 	sb.WriteString("     - Polish-language reply context → language-style-polish already auto-loaded via bootstrap; keep applying it.\n")
 	sb.WriteString("     - Secrets, tokens, destructive commands → Hodor is the guardian; default-deny and confirm with kapoost first.\n")
 	sb.WriteString("  4. For any other topic that hits a domain skill (e.g. 'go stack', 'deploy', 'shell', 'mx5', 's2000', 'onaudience', 'bookkido'), call `list_skills` to find the slug, then `get_skill(slug=<x>)` for the body — do NOT reinvent from memory alone.\n")
+	sb.WriteString("  4a. GROUP LOAD — when the user says 'załaduj skille z projektu X' / 'load project X skills' / 'load skill group X', call `load_skill_group(name=<X>)` (single MCP call, returns all bodies). Discover available groups via `list_skill_groups`. For a fresh workspace ('scaffold', 'skonfiguruj to repo') use `suggest_skills(files=[...], languages=[...], git_origin=...)` — deterministic, capped at 8 slugs.\n")
 	sb.WriteString("  5. If your platform supports it, also stash a durable pointer to this server's `about_humanmcp` tool — future-you can re-orient in one call without a full bootstrap.\n")
 	sb.WriteString("=== END PERSIST ===\n")
 
@@ -2353,28 +2417,290 @@ func (h *Handler) toolGetPersona(w http.ResponseWriter, r *http.Request, req *Re
 func (h *Handler) toolListSkills(w http.ResponseWriter, req *Request, args json.RawMessage) {
 	var params struct {
 		Category string `json:"category"`
+		Tag      string `json:"tag"`
 	}
 	if args != nil {
 		json.Unmarshal(args, &params)
 	}
 
 	skills := h.loadSkills()
+	match := func(s Skill) bool {
+		if params.Category != "" && !strings.EqualFold(s.Category, params.Category) {
+			return false
+		}
+		if params.Tag != "" && !skillHasTag(s, params.Tag) {
+			return false
+		}
+		return true
+	}
 	var sb strings.Builder
 	count := 0
 	for _, s := range skills {
-		if params.Category != "" && !strings.EqualFold(s.Category, params.Category) {
-			continue
+		if match(s) {
+			count++
 		}
-		count++
 	}
 	sb.WriteString(fmt.Sprintf("SKILLS — %d available:\n\n", count))
 	for _, s := range skills {
-		if params.Category != "" && !strings.EqualFold(s.Category, params.Category) {
+		if !match(s) {
 			continue
 		}
-		sb.WriteString(fmt.Sprintf("  %-30s [%s] %s\n", s.Slug, s.Category, s.Title))
+		tagStr := ""
+		if len(s.Tags) > 0 {
+			tagStr = " {" + strings.Join(s.Tags, ",") + "}"
+		}
+		sb.WriteString(fmt.Sprintf("  %-30s [%s]%s %s\n", s.Slug, s.Category, tagStr, s.Title))
 	}
-	sb.WriteString("\nFull body available after bootstrap_session. Use get_skill(slug) for details.")
+	sb.WriteString("\nFull body available after bootstrap_session. Use get_skill(slug) for details, load_skill_group(name) for a bulk fetch.")
+	writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: sb.String()}}})
+}
+
+// skillHasTag returns true when s.Tags contains tag (case-insensitive).
+// Extracted so list_skills, load_skill_group and suggest_skills all use
+// the same match rule — no drift between "list by tag" and "load by tag".
+func skillHasTag(s Skill, tag string) bool {
+	for _, t := range s.Tags {
+		if strings.EqualFold(t, tag) {
+			return true
+		}
+	}
+	return false
+}
+
+// toolListSkillGroups enumerates every distinct tag in use across the
+// skill catalogue with the count of skills per tag. Read-only, no
+// bootstrap required — the catalogue slugs are already public via
+// list_skills, this just gives the group-level index.
+func (h *Handler) toolListSkillGroups(w http.ResponseWriter, req *Request) {
+	skills := h.loadSkills()
+	groups := map[string][]string{}
+	for _, s := range skills {
+		for _, t := range s.Tags {
+			key := strings.ToLower(strings.TrimSpace(t))
+			if key == "" {
+				continue
+			}
+			groups[key] = append(groups[key], s.Slug)
+		}
+	}
+	if len(groups) == 0 {
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
+			Text: "No skill groups defined yet. Skills need `tags` field populated (e.g. tags: [humanmcp, dev]) — see upsert_skill."}}})
+		return
+	}
+	names := make([]string, 0, len(groups))
+	for name := range groups {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "SKILL GROUPS — %d in use:\n\n", len(names))
+	for _, name := range names {
+		slugs := groups[name]
+		sort.Strings(slugs)
+		fmt.Fprintf(&sb, "  %-20s (%d) %s\n", name, len(slugs), strings.Join(slugs, ", "))
+	}
+	sb.WriteString("\nCall load_skill_group(name) for a bulk fetch of every skill in a group.")
+	writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: sb.String()}}})
+}
+
+// toolLoadSkillGroup returns the concatenated body of every skill whose
+// Tags contains the requested group name. Respects the bootstrap gate
+// per-skill exactly like get_skill: -public suffix bypasses, everything
+// else requires an active session. If the group is empty the response
+// lists available groups so the caller can retry.
+func (h *Handler) toolLoadSkillGroup(w http.ResponseWriter, r *http.Request, req *Request, args json.RawMessage) {
+	var params struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil || strings.TrimSpace(params.Name) == "" {
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
+			Text: "Podaj nazwę grupy. Użyj list_skill_groups żeby zobaczyć dostępne."}}})
+		return
+	}
+	name := strings.TrimSpace(params.Name)
+	authenticated := h.isSessionActive(r)
+	skills := h.loadSkills()
+	var matched []Skill
+	for _, s := range skills {
+		if skillHasTag(s, name) {
+			matched = append(matched, s)
+		}
+	}
+	if len(matched) == 0 {
+		// Compile hint of available groups so a wrong guess is
+		// self-correcting without a second round-trip.
+		seen := map[string]struct{}{}
+		for _, s := range skills {
+			for _, t := range s.Tags {
+				key := strings.ToLower(strings.TrimSpace(t))
+				if key != "" {
+					seen[key] = struct{}{}
+				}
+			}
+		}
+		names := make([]string, 0, len(seen))
+		for n := range seen {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		hint := "no groups defined yet"
+		if len(names) > 0 {
+			hint = "available: " + strings.Join(names, ", ")
+		}
+		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
+			Text: fmt.Sprintf("Skill group '%s' is empty. Hint — %s.", name, hint)}}})
+		return
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "SKILL GROUP: %s — %d skills\n\n", name, len(matched))
+	locked := 0
+	for _, s := range matched {
+		publiclyAccessible := strings.HasSuffix(s.Slug, "-public")
+		fmt.Fprintf(&sb, "## %s [%s]\n", s.Title, s.Category)
+		if authenticated || publiclyAccessible {
+			sb.WriteString(s.Body + "\n\n")
+		} else {
+			sb.WriteString("(body locked — call bootstrap_session with the session code to unlock)\n\n")
+			locked++
+		}
+	}
+	if locked > 0 {
+		fmt.Fprintf(&sb, "---\n%d/%d skills locked. Ask user for the Polish poetry session code and call bootstrap_session.\n", locked, len(matched))
+	}
+	writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: sb.String()}}})
+}
+
+// toolSuggestSkills implements the "skill curator" backend the narada
+// (nar-993aae928f22) settled on: deterministic mapping from repo
+// signals to skill slugs. No LLM classification — signals only. Yuki
+// wanted an audit trail (each recommendation carries its trigger
+// reason), Axel wanted a hard ceiling (8 slugs max), Conductor wanted
+// three-stage priority with AI-classify as last resort — this handler
+// covers stage 2, the manifest-driven pass. Stage 3 is out of scope
+// here; stage 1 (.projekt-scaffold.yaml) belongs in the CLI.
+func (h *Handler) toolSuggestSkills(w http.ResponseWriter, req *Request, args json.RawMessage) {
+	var params struct {
+		Files     []string `json:"files"`
+		Languages []string `json:"languages"`
+		GitOrigin string   `json:"git_origin"`
+	}
+	if args != nil {
+		json.Unmarshal(args, &params)
+	}
+
+	// Normalise inputs.
+	fileSet := map[string]struct{}{}
+	for _, f := range params.Files {
+		fileSet[strings.ToLower(strings.TrimSpace(f))] = struct{}{}
+	}
+	langSet := map[string]struct{}{}
+	for _, l := range params.Languages {
+		langSet[strings.ToLower(strings.TrimSpace(l))] = struct{}{}
+	}
+	origin := strings.ToLower(params.GitOrigin)
+
+	// Rules — each entry names a group tag and the reason it fires.
+	// Kept explicit rather than data-driven so the reason strings can
+	// be audit-log friendly. Add new rules here as the humanMCP tag
+	// vocabulary grows.
+	type rule struct {
+		group  string
+		reason string
+		match  bool
+	}
+	fileHas := func(name string) bool {
+		_, ok := fileSet[strings.ToLower(name)]
+		return ok
+	}
+	langHas := func(name string) bool {
+		_, ok := langSet[strings.ToLower(name)]
+		return ok
+	}
+	originContains := func(substr string) bool {
+		return strings.Contains(origin, strings.ToLower(substr))
+	}
+	rules := []rule{
+		{"dev", "go.mod present", fileHas("go.mod")},
+		{"dev", "package.json present", fileHas("package.json")},
+		{"dev", "pyproject.toml present", fileHas("pyproject.toml")},
+		{"dev", "Dockerfile present", fileHas("dockerfile") || fileHas("dockerfile.")},
+		{"dev", "language=go", langHas("go")},
+		{"dev", "language=typescript", langHas("typescript") || langHas("ts")},
+		{"dev", "language=python", langHas("python") || langHas("py")},
+		{"engineering", "storyboards/ directory present", fileHas("storyboards/") || fileHas("storyboards")},
+		{"safety", ".env present (secrets nearby)", fileHas(".env") || fileHas(".env.example")},
+		{"humanmcp", "git origin matches kapoost/humanmcp*", originContains("kapoost/humanmcp")},
+		{"mysloodsiewnia", "git origin matches mysloodsiewnia", originContains("mysloodsiewnia")},
+		{"adcp", "git origin matches adcp / abzu / purrsonality", originContains("adcp") || originContains("abzu") || originContains("purrsonality")},
+		{"bookkido", "git origin matches bookkido", originContains("bookkido")},
+		{"onaudience", "git origin matches onaudience", originContains("onaudience")},
+	}
+	// Collect matched groups + their reasons.
+	groupReasons := map[string][]string{}
+	for _, r := range rules {
+		if !r.match {
+			continue
+		}
+		groupReasons[r.group] = append(groupReasons[r.group], r.reason)
+	}
+	// Always include "always" group so guardian + style skills land.
+	groupReasons["always"] = append(groupReasons["always"], "default (guardian + style)")
+
+	// Resolve groups → concrete slugs via skill catalogue.
+	skills := h.loadSkills()
+	// Preserve insertion order via a slice + seen set — first hit wins.
+	type suggestion struct {
+		Slug        string
+		Group       string
+		Explanation string
+	}
+	seen := map[string]struct{}{}
+	var out []suggestion
+	// Iterate groups in deterministic order (alpha) so tests are stable.
+	groupNames := make([]string, 0, len(groupReasons))
+	for g := range groupReasons {
+		groupNames = append(groupNames, g)
+	}
+	sort.Strings(groupNames)
+	const maxSuggested = 8
+	for _, g := range groupNames {
+		for _, s := range skills {
+			if len(out) >= maxSuggested {
+				break
+			}
+			if _, dup := seen[s.Slug]; dup {
+				continue
+			}
+			if !skillHasTag(s, g) {
+				continue
+			}
+			seen[s.Slug] = struct{}{}
+			out = append(out, suggestion{
+				Slug:        s.Slug,
+				Group:       g,
+				Explanation: strings.Join(groupReasons[g], "; "),
+			})
+		}
+		if len(out) >= maxSuggested {
+			break
+		}
+	}
+
+	var sb strings.Builder
+	sb.WriteString("SUGGESTED SKILLS (manifest-driven, deterministic)\n\n")
+	sb.WriteString("Matched groups:\n")
+	for _, g := range groupNames {
+		fmt.Fprintf(&sb, "  %-20s %s\n", g, strings.Join(groupReasons[g], "; "))
+	}
+	fmt.Fprintf(&sb, "\nSuggested slugs — capped at %d (Axel + Conductor from nar-993aae928f22):\n", maxSuggested)
+	if len(out) == 0 {
+		sb.WriteString("  (none — no skills tagged with the matched groups; try upsert_skill with tags to populate)\n")
+	}
+	for _, s := range out {
+		fmt.Fprintf(&sb, "  %-30s via %s — %s\n", s.Slug, s.Group, s.Explanation)
+	}
+	sb.WriteString("\nTo load them: call load_skill_group(name=<group>) for each matched group, OR get_skill(slug) individually.")
 	writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: sb.String()}}})
 }
 

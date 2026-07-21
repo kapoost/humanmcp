@@ -2,5 +2,9 @@
   "slug": "mcp-clients",
   "category": "tech",
   "title": "Klienci MCP — kompatybilność",
-  "body": "Przetestowani klienci:\n- Claude Desktop: claude_desktop_config.json\n- Claude Code: ~/.claude/settings.json\n- Cursor: .cursor/mcp.json\n\nKonfiguracja połączenia:\n{\"type\":\"http\",\"url\":\"https://kapoost-humanmcp.fly.dev/mcp\"}\n\nProtokół: streamable-http (JSON-RPC 2.0 over HTTP POST). CORS włączony. Brak SSE (deprecated).\n\nRPG client: przeglądarkowy interfejs jRPG (github.com/kapoost/humanmcp-rpg). Działa z dowolną instancją humanMCP.\n\nZASADA: Nigdy nie halucinuj. Jeśli nie wiesz — powiedz nie wiem."
+  "body": "Przetestowani klienci:\n- Claude Desktop: claude_desktop_config.json\n- Claude Code: ~/.claude/settings.json\n- Cursor: .cursor/mcp.json\n\nKonfiguracja połączenia:\n{\"type\":\"http\",\"url\":\"https://kapoost-humanmcp.fly.dev/mcp\"}\n\nProtokół: streamable-http (JSON-RPC 2.0 over HTTP POST). CORS włączony. Brak SSE (deprecated).\n\nRPG client: przeglądarkowy interfejs jRPG (github.com/kapoost/humanmcp-rpg). Działa z dowolną instancją humanMCP.\n\nZASADA: Nigdy nie halucinuj. Jeśli nie wiesz — powiedz nie wiem.",
+  "tags": [
+    "mcp",
+    "dev"
+  ]
 }

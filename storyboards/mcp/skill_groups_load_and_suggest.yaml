@@ -1,0 +1,246 @@
+id: mcp/skill_groups_load_and_suggest
+version: "1.0.0"
+title: "list_skill_groups / load_skill_group / suggest_skills — group-based skill fetch (narada nar-993aae928f22)"
+category: mcp_skills
+summary: "Adds a group-tag layer on top of the flat skill catalogue. Skills carry `tags: []` (already in schema, now populated). list_skill_groups indexes them, load_skill_group returns concatenated bodies for a group name, suggest_skills maps a repo manifest to a deterministic skill set — the 'Skill Curator' backend the narada landed on."
+narrative: |
+  Prior to 2026-07-21 humanmcp shipped 30 skills as a flat list.
+  Fresh agents got the whole set dumped in bootstrap; users could
+  only fetch one at a time via get_skill(slug). The user's request
+  ("chcę wydawać polecenia typu: załaduj skille z projektu adcp")
+  needed a group layer.
+
+  Narada nar-993aae928f22 (5 personas: yuki, mira, maruda, conductor,
+  axel) converged on:
+    - reuse existing `tags: []` field (no schema drift)
+    - deterministic manifest-based mapping first, AI-classify only as
+      last resort — this scenario covers the deterministic pass only
+    - cap suggestions at 8 slugs (context pollution risk)
+    - Skill Curator = backend logic, not a persona with its own voice
+    - audit trail: each suggestion carries the reason it fired
+
+  This scenario pins the whole surface — three tools, one shared
+  match function (skillHasTag), backfilled tags on the 29 default
+  skills. Sabotage-verified: dropping the tag match in
+  load_skill_group turns a targeted fetch into 0-results.
+
+kind: http
+
+setup:
+  personas: []
+
+assertions:
+  - name: "list_skill_groups: no skills seeded → helpful hint"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_skill_groups","arguments":{}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "No skill groups defined yet"
+
+  - name: "load_skill_group with empty catalogue returns hint"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"load_skill_group","arguments":{"name":"humanmcp"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "empty"
+        - "no groups defined yet"
+
+  - name: "upsert_skill accepts tags array and persists it"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Authorization: "Bearer storyboard-test-token"
+      body: '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"upsert_skill","arguments":{"slug":"sg-alpha","category":"tech","title":"Alpha","body":"Alpha body.","tags":["humanmcp","dev"]}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "sg-alpha"
+        - "saved"
+
+  - name: "second skill, different group"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Authorization: "Bearer storyboard-test-token"
+      body: '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"upsert_skill","arguments":{"slug":"sg-beta","category":"tech","title":"Beta","body":"Beta body.","tags":["adcp"]}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "sg-beta"
+        - "saved"
+
+  - name: "public-suffixed skill (bypasses bootstrap gate)"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Authorization: "Bearer storyboard-test-token"
+      body: '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"upsert_skill","arguments":{"slug":"sg-safety-public","category":"safety","title":"Safety Public","body":"Public safety body.","tags":["always","safety"]}}}'
+    expect:
+      status: 200
+
+  - name: "list_skill_groups now surfaces the three seeded groups with counts"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"list_skill_groups","arguments":{}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "SKILL GROUPS"
+        - "adcp"
+        - "always"
+        - "dev"
+        - "humanmcp"
+        - "safety"
+        - "sg-alpha"
+        - "sg-beta"
+        - "sg-safety-public"
+
+  - name: "load_skill_group(humanmcp) returns tagged body BUT gated"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"load_skill_group","arguments":{"name":"humanmcp"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "SKILL GROUP: humanmcp"
+        - "Alpha"
+        - "body locked"
+      body_does_not_contain:
+        - "Alpha body."
+
+  - name: "load_skill_group(adcp) — matches sg-beta, still gated"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"load_skill_group","arguments":{"name":"adcp"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "SKILL GROUP: adcp"
+        - "1 skills"
+        - "Beta"
+        - "body locked"
+
+  - name: "public-suffixed skill body flows without bootstrap"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"load_skill_group","arguments":{"name":"safety"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "SKILL GROUP: safety"
+        - "Public safety body."
+      body_does_not_contain:
+        - "1/1 skills locked"
+
+  - name: "load_skill_group with wrong name returns hint listing real groups"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"load_skill_group","arguments":{"name":"typo-not-a-group"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "empty"
+        - "available:"
+        - "humanmcp"
+
+  - name: "suggest_skills: Go repo with git origin matches humanmcp+dev"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"suggest_skills","arguments":{"files":["go.mod","storyboards/"],"languages":["go"],"git_origin":"https://github.com/kapoost/humanmcp-server"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "SUGGESTED SKILLS"
+        - "Matched groups"
+        - "humanmcp"
+        - "dev"
+        - "engineering"
+        - "go.mod present"
+        - "storyboards/ directory present"
+        - "git origin matches kapoost/humanmcp"
+
+  - name: "suggest_skills: adcp origin routes to adcp group"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"suggest_skills","arguments":{"files":["package.json"],"languages":["typescript"],"git_origin":"github.com/kapoost/adcp-client"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "SUGGESTED SKILLS"
+        - "adcp"
+        - "dev"
+        - "git origin matches adcp"
+
+  - name: "suggest_skills: cap at 8 announced in the response"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"suggest_skills","arguments":{"files":["go.mod","package.json","pyproject.toml","Dockerfile","storyboards/",".env"],"languages":["go","typescript","python"]}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "capped at 8"
+
+  - name: "list_skills accepts tag filter"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":14,"method":"tools/call","params":{"name":"list_skills","arguments":{"tag":"adcp"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "SKILLS — 1 available"
+        - "sg-beta"
+      body_does_not_contain:
+        - "sg-alpha"
+
+closes_failure_modes:
+  - "load_skill_group returns unrelated skills because tag match is missing / case-sensitive drift"
+  - "suggest_skills forgets the 8-slug cap and pushes 20+ bodies into the fresh session"
+  - "public-suffixed skills stop bypassing the bootstrap gate under load_skill_group"
+  - "empty-group response drops the available-groups hint and forces a blind retry"
+  - "upsert_skill silently drops the tags array"
+
+known_regressions_caught:
+  - "2026-07-21 — narada nar-993aae928f22 recommended this shape; scenario pins the whole surface before the first CLI (projekt-scaffold) starts consuming these tools"

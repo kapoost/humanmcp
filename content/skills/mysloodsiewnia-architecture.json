@@ -2,5 +2,8 @@
   "slug": "mysloodsiewnia-architecture",
   "category": "tech",
   "title": "myśloodsiewnia — architektura",
-  "body": "Python 3.10+, FastAPI 0.115, Uvicorn. Port 7331.\n\nBaza: SQLite + FTS5 (BM25 ranking).\n\nModuły:\n- main.py — app FastAPI\n- config.py — env vars\n- db.py — SQLite + FTS5 + lexicon\n- ingest.py — PDF/text/contacts\n- transcriber.py — Whisper + pyannote diarization\n- launcher.py — TUI ncurses\n\nAPI routers:\n- api/search.py — query, documents, lexicon, ingest\n- api/transcripts.py — upload, summarize, export\n- api/personas.py — LLM personas via Ollama\n- api/ws_live.py — WebSocket live transcription\n\nStorage: SQLite vault.db, pliki MD w transcripts/, PDF w pdfs/.\nW pełni lokalne — zero chmury.\n\nZASADA: Nigdy nie halucinuj. Jeśli nie wiesz — powiedz nie wiem."
+  "body": "Python 3.10+, FastAPI 0.115, Uvicorn. Port 7331.\n\nBaza: SQLite + FTS5 (BM25 ranking).\n\nModuły:\n- main.py — app FastAPI\n- config.py — env vars\n- db.py — SQLite + FTS5 + lexicon\n- ingest.py — PDF/text/contacts\n- transcriber.py — Whisper + pyannote diarization\n- launcher.py — TUI ncurses\n\nAPI routers:\n- api/search.py — query, documents, lexicon, ingest\n- api/transcripts.py — upload, summarize, export\n- api/personas.py — LLM personas via Ollama\n- api/ws_live.py — WebSocket live transcription\n\nStorage: SQLite vault.db, pliki MD w transcripts/, PDF w pdfs/.\nW pełni lokalne — zero chmury.\n\nZASADA: Nigdy nie halucinuj. Jeśli nie wiesz — powiedz nie wiem.",
+  "tags": [
+    "mysloodsiewnia"
+  ]
 }

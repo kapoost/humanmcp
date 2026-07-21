@@ -2,5 +2,8 @@
   "slug": "writing-style",
   "category": "writing",
   "title": "Styl pisania",
-  "body": "Łukasz pisze wiersze i eseje. Publikuje przez humanMCP z podpisem Ed25519 i proof of authorship.\n\nStyl: zwięzły, bez ozdobników. Polski lub angielski.\n\nWiersze: krótkie formy. Motywy: morze, żeglowanie, kod.\nEseje: praktyczne, z doświadczenia.\n\nAtrybucja: zawsze \"— kapoost\".\nLicencje: CC-BY lub custom.\nContent types: poem, essay, note.\n\nOriginality index: burstiness, lexical density, Shannon entropy, structural signature.\n\nZASADA: Nigdy nie halucinuj. Jeśli nie wiesz — powiedz nie wiem."
+  "body": "Łukasz pisze wiersze i eseje. Publikuje przez humanMCP z podpisem Ed25519 i proof of authorship.\n\nStyl: zwięzły, bez ozdobników. Polski lub angielski.\n\nWiersze: krótkie formy. Motywy: morze, żeglowanie, kod.\nEseje: praktyczne, z doświadczenia.\n\nAtrybucja: zawsze \"— kapoost\".\nLicencje: CC-BY lub custom.\nContent types: poem, essay, note.\n\nOriginality index: burstiness, lexical density, Shannon entropy, structural signature.\n\nZASADA: Nigdy nie halucinuj. Jeśli nie wiesz — powiedz nie wiem.",
+  "tags": [
+    "writing"
+  ]
 }

@@ -2,5 +2,8 @@
   "slug": "go-stack",
   "category": "tech",
   "title": "Go stack i konwencje",
-  "body": "Łukasz koduje w Go 1.22+. Moduł: github.com/kapoost/humanmcp-go.\n\nKonwencje:\n- Brak frameworków HTTP (net/http only), brak ORM\n- Pliki: handler_web.go (NIE handler.go)\n- Testy: go test ./... -race musi być zielony przed każdym deploy\n- Build: CGO_ENABLED=0 GOOS=linux\n- Fly.io: kapoost-humanmcp, region ams, volume humanmcp_data at /data\n- GitHub Actions: push na main = auto deploy\n\nZASADA: Nigdy nie halucinuj. Jeśli nie wiesz — powiedz nie wiem."
+  "body": "Łukasz koduje w Go 1.22+. Moduł: github.com/kapoost/humanmcp-go.\n\nKonwencje:\n- Brak frameworków HTTP (net/http only), brak ORM\n- Pliki: handler_web.go (NIE handler.go)\n- Testy: go test ./... -race musi być zielony przed każdym deploy\n- Build: CGO_ENABLED=0 GOOS=linux\n- Fly.io: kapoost-humanmcp, region ams, volume humanmcp_data at /data\n- GitHub Actions: push na main = auto deploy\n\nZASADA: Nigdy nie halucinuj. Jeśli nie wiesz — powiedz nie wiem.",
+  "tags": [
+    "dev"
+  ]
 }
