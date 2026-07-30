@@ -28,6 +28,9 @@ type Source interface {
 	Store() *content.Store
 	StatStore() *content.StatStore
 	ProvenanceStore() *content.ProvenanceStore
+	CollectionStore() *content.CollectionStore
+	BlobStore() *content.BlobStore
+	IsSessionActiveByHeaders(http.Header) bool
 }
 
 // New wires an SDK server + StreamableHTTPHandler for path-based mounting.
@@ -53,6 +56,19 @@ func New(cfg *config.Config, src Source) http.Handler {
 	// provenance
 	registerListProvenance(server, src)
 	registerReadProvenance(server, src)
+
+	// collections
+	registerListCollection(server, src)
+	registerReadCollectionItem(server, src)
+
+	// blobs
+	registerListBlobs(server, src)
+	registerReadBlob(server, src)
+
+	// skill groups
+	registerListSkillGroups(server, src)
+	registerLoadSkillGroup(server, src)
+	registerSuggestSkills(server, src)
 
 	return sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server {
 		return server

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kapoost/humanmcp-go/internal/auth"
 	"github.com/kapoost/humanmcp-go/internal/config"
@@ -39,6 +40,30 @@ func TestV2ParityWithLegacy(t *testing.T) {
 		t.Fatalf("store load: %v", err)
 	}
 	legacy := mcp.NewHandler(cfg, store, auth.New("testtoken"))
+
+	// Seed a public collection item + a public blob so list_collection,
+	// read_collection_item, list_blobs, read_blob exercise populated paths.
+	if _, err := legacy.CollectionStore().Save(content.CollectionItem{
+		Slug:            "test-drawing",
+		Title:           "Test Drawing",
+		OriginalCreator: "Some Artist",
+		Year:            1970,
+		Access:          "public",
+		AddedAt:         time.Date(2025, 5, 1, 0, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("seed collection: %v", err)
+	}
+	if err := legacy.BlobStore().Save(&content.Blob{
+		Slug:      "test-contact",
+		Title:     "Test Contact",
+		BlobType:  content.BlobContact,
+		Access:    content.AccessPublic,
+		TextData:  `{"email":"test@example.com"}`,
+		Published: time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("seed blob: %v", err)
+	}
+
 	v2h := v2.New(cfg, legacy)
 
 	cases := []struct {
@@ -64,6 +89,28 @@ func TestV2ParityWithLegacy(t *testing.T) {
 		{"get_certificate_missing", "get_certificate", map[string]any{"slug": "nope"}},
 		{"list_provenance_missing", "list_provenance", map[string]any{"slug": "nope"}},
 		{"read_provenance_missing", "read_provenance", map[string]any{"slug": "a", "id": "b"}},
+
+		{"list_collection", "list_collection", nil},
+		{"read_collection_item_public", "read_collection_item", map[string]any{"slug": "test-drawing"}},
+		{"read_collection_item_missing", "read_collection_item", map[string]any{"slug": "nope"}},
+
+		{"list_blobs", "list_blobs", nil},
+		{"list_blobs_type_filter", "list_blobs", map[string]any{"blob_type": "contact"}},
+		{"list_blobs_type_none", "list_blobs", map[string]any{"blob_type": "vector"}},
+		{"read_blob_public", "read_blob", map[string]any{"slug": "test-contact"}},
+		{"read_blob_missing", "read_blob", map[string]any{"slug": "nope"}},
+
+		{"list_skill_groups", "list_skill_groups", nil},
+		{"load_skill_group_test", "load_skill_group", map[string]any{"name": "test"}},
+		{"load_skill_group_empty", "load_skill_group", map[string]any{"name": "nonexistent"}},
+		{"load_skill_group_missing_arg", "load_skill_group", map[string]any{}},
+
+		{"suggest_skills_humanmcp", "suggest_skills", map[string]any{
+			"files":      []string{"go.mod", "Dockerfile"},
+			"languages":  []string{"go"},
+			"git_origin": "github.com/kapoost/humanmcp",
+		}},
+		{"suggest_skills_empty", "suggest_skills", map[string]any{}},
 	}
 
 	for _, c := range cases {

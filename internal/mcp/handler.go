@@ -137,10 +137,28 @@ func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler
 // to reach shared state without duplicating store construction.
 // Owner-only stores (message, question, memory, journal) intentionally
 // omitted; add them family-by-family as those tools migrate.
-func (h *Handler) Config() *config.Config          { return h.cfg }
-func (h *Handler) Store() *content.Store           { return h.store }
-func (h *Handler) StatStore() *content.StatStore   { return h.statStore }
+func (h *Handler) Config() *config.Config                    { return h.cfg }
+func (h *Handler) Store() *content.Store                     { return h.store }
+func (h *Handler) StatStore() *content.StatStore             { return h.statStore }
 func (h *Handler) ProvenanceStore() *content.ProvenanceStore { return h.provenanceStore }
+func (h *Handler) CollectionStore() *content.CollectionStore { return h.collectionStore }
+func (h *Handler) BlobStore() *content.BlobStore             { return h.blobStore }
+
+// IsSessionActiveByHeaders is a header-only variant of isSessionActive
+// for callers (v2 SDK handler) that only expose http.Header, not the
+// full *http.Request. On 2026-07-28 stateless servers Mcp-Session-Id
+// is stripped by the SDK, so this returns false until v2 grows its
+// own session-activation channel.
+func (h *Handler) IsSessionActiveByHeaders(hdr http.Header) bool {
+	sid := hdr.Get("Mcp-Session-Id")
+	if sid == "" {
+		return false
+	}
+	h.mu.Lock()
+	expiry, ok := h.sessions[sid]
+	h.mu.Unlock()
+	return ok && time.Now().Before(expiry)
+}
 
 func (h *Handler) cleanupLoop() {
 	ticker := time.NewTicker(5 * time.Minute)
