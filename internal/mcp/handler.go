@@ -133,6 +133,15 @@ func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler
 	return h
 }
 
+// Store accessors — narrow surface for the v2 handler (internal/mcp/v2)
+// to reach shared state without duplicating store construction.
+// Owner-only stores (message, question, memory, journal) intentionally
+// omitted; add them family-by-family as those tools migrate.
+func (h *Handler) Config() *config.Config          { return h.cfg }
+func (h *Handler) Store() *content.Store           { return h.store }
+func (h *Handler) StatStore() *content.StatStore   { return h.statStore }
+func (h *Handler) ProvenanceStore() *content.ProvenanceStore { return h.provenanceStore }
+
 func (h *Handler) cleanupLoop() {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
