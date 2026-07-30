@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -111,12 +112,35 @@ func TestV2ParityWithLegacy(t *testing.T) {
 			"git_origin": "github.com/kapoost/humanmcp",
 		}},
 		{"suggest_skills_empty", "suggest_skills", map[string]any{}},
+
+		{"request_access_public", "request_access", map[string]any{"slug": "public"}},
+		{"request_access_locked_challenge", "request_access", map[string]any{"slug": "locked"}},
+		{"request_access_missing", "request_access", map[string]any{"slug": "nope"}},
+
+		{"submit_answer_wrong", "submit_answer", map[string]any{"slug": "locked", "answer": "five"}},
+		{"submit_answer_right", "submit_answer", map[string]any{"slug": "locked", "answer": "four"}},
+
+		{"leave_comment", "leave_comment", map[string]any{"slug": "public", "text": "beautiful", "from": "parity_test"}},
+		{"leave_message_with_contact", "leave_message", map[string]any{
+			"text": "I would like to reprint one poem.", "context": "requesting reprint permission",
+			"contact": "test@example.com", "from": "parity_test",
+		}},
+		{"leave_message_anonymous", "leave_message", map[string]any{
+			"text": "no reply needed.", "context": "one-way note",
+		}},
+
+		{"request_license_ccby", "request_license", map[string]any{
+			"slug": "public", "intended_use": "share on my blog", "caller_id": "test-agent",
+		}},
+		{"request_license_commercial_intent", "request_license", map[string]any{
+			"slug": "public", "intended_use": "commercial training corpus", "caller_id": "corp-x",
+		}},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			v1Text := callLegacy(t, legacy, c.tool, c.args)
-			v2Text := callV2(t, v2h, c.tool, c.args)
+			v1Text := normalizeVolatile(callLegacy(t, legacy, c.tool, c.args))
+			v2Text := normalizeVolatile(callV2(t, v2h, c.tool, c.args))
 			if v1Text != v2Text {
 				t.Errorf("parity drift on %s:\n--- v1 ---\n%s\n--- v2 ---\n%s", c.tool, v1Text, v2Text)
 			}
@@ -166,6 +190,23 @@ func callV2(t *testing.T, h http.Handler, tool string, args map[string]any) stri
 	}
 	raw = strings.TrimSpace(raw)
 	return extractText(t, "v2", raw)
+}
+
+// normalizeVolatile strips fields that MUST differ between the v1 and v2
+// calls: MessageStore assigns a nanosecond ID and captures time.Now()
+// per invocation, so leave_comment/leave_message/request_license bodies
+// always drift on those exact bytes. Everything structural is preserved.
+var (
+	nanoIDRE      = regexp.MustCompile(`\b\d{16,}\b`)
+	humanTimeRE   = regexp.MustCompile(`\d{1,2} [A-Z][a-z]+ \d{4}, \d{2}:\d{2} UTC`)
+	machineTimeRE = regexp.MustCompile(`\d{4}-\d{2}-\d{2} \d{2}:\d{2}`)
+)
+
+func normalizeVolatile(s string) string {
+	s = nanoIDRE.ReplaceAllString(s, "<ID>")
+	s = humanTimeRE.ReplaceAllString(s, "<TIME>")
+	s = machineTimeRE.ReplaceAllString(s, "<TIME>")
+	return s
 }
 
 func extractText(t *testing.T, tag, body string) string {

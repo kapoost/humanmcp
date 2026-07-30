@@ -143,6 +143,7 @@ func (h *Handler) StatStore() *content.StatStore             { return h.statStor
 func (h *Handler) ProvenanceStore() *content.ProvenanceStore { return h.provenanceStore }
 func (h *Handler) CollectionStore() *content.CollectionStore { return h.collectionStore }
 func (h *Handler) BlobStore() *content.BlobStore             { return h.blobStore }
+func (h *Handler) MsgStore() *content.MessageStore           { return h.msgStore }
 
 // IsSessionActiveByHeaders is a header-only variant of isSessionActive
 // for callers (v2 SDK handler) that only expose http.Header, not the

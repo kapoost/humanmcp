@@ -30,6 +30,7 @@ type Source interface {
 	ProvenanceStore() *content.ProvenanceStore
 	CollectionStore() *content.CollectionStore
 	BlobStore() *content.BlobStore
+	MsgStore() *content.MessageStore
 	IsSessionActiveByHeaders(http.Header) bool
 }
 
@@ -69,6 +70,15 @@ func New(cfg *config.Config, src Source) http.Handler {
 	registerListSkillGroups(server, src)
 	registerLoadSkillGroup(server, src)
 	registerSuggestSkills(server, src)
+
+	// feedback
+	registerLeaveComment(server, src)
+	registerLeaveMessage(server, src)
+
+	// access
+	registerRequestAccess(server, src)
+	registerSubmitAnswer(server, src)
+	registerRequestLicense(server, src)
 
 	return sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server {
 		return server
