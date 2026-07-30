@@ -146,6 +146,25 @@ func (h *Handler) BlobStore() *content.BlobStore             { return h.blobStor
 func (h *Handler) MsgStore() *content.MessageStore           { return h.msgStore }
 func (h *Handler) MemoryStore() *content.MemoryStore         { return h.memoryStore }
 
+// ValidateSessionCode exposes the poetry-fragment / session-secret validator
+// so the v2 SDK-based bootstrap_session can gate the same way as v1.
+func (h *Handler) ValidateSessionCode(code string) bool { return h.validateSession(code) }
+
+// ClientIPFromHeaders mirrors clientIP but reads from a raw http.Header —
+// SDK tool handlers only receive req.Extra.Header, not the full request.
+func (h *Handler) ClientIPFromHeaders(hdr http.Header) string {
+	if ip := hdr.Get("Fly-Client-IP"); ip != "" {
+		return ip
+	}
+	if ip := hdr.Get("X-Forwarded-For"); ip != "" {
+		return strings.SplitN(ip, ",", 2)[0]
+	}
+	return ""
+}
+
+// CheckBootstrapRateLimit exposes checkRateLimit for v2. Same 5/min/IP budget.
+func (h *Handler) CheckBootstrapRateLimit(ip string) bool { return h.checkRateLimit(ip) }
+
 // IsOwnerRequestByHeaders is a header-only variant of isOwnerRequest
 // for the v2 SDK handler. Accepts any of the three configured tokens
 // (edit, agent, session) in the standard Authorization: Bearer form.

@@ -155,6 +155,20 @@ func TestV2ParityWithLegacy(t *testing.T) {
 		{"delete_skill_anonymous", "delete_skill", map[string]any{"slug": "test-skill"}, nil},
 		{"delete_skill_missing_owner", "delete_skill", map[string]any{"slug": "nonexistent"},
 			map[string]string{"Authorization": "Bearer testtoken"}},
+
+		// team — bootstrap validates code, get_persona/get_skill session-gated.
+		// Test config has no POET_POOL and no SESSION_SECRET, so every code
+		// fails validation → deterministic "niepoprawne hasło" branch.
+		{"bootstrap_session_missing_code", "bootstrap_session", map[string]any{}, nil},
+		{"bootstrap_session_wrong_code", "bootstrap_session", map[string]any{"code": "not a real fragment"}, nil},
+
+		{"get_persona_hodor", "get_persona", map[string]any{"slug": "hodor"}, nil},
+		{"get_persona_missing_slug", "get_persona", map[string]any{}, nil},
+		{"get_persona_not_found", "get_persona", map[string]any{"slug": "nobody"}, nil},
+
+		{"get_skill_test_gated", "get_skill", map[string]any{"slug": "test-skill"}, nil},
+		{"get_skill_missing_slug", "get_skill", map[string]any{}, nil},
+		{"get_skill_not_found", "get_skill", map[string]any{"slug": "nope"}, nil},
 	}
 
 	for _, c := range cases {

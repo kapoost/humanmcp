@@ -34,6 +34,9 @@ type Source interface {
 	MemoryStore() *content.MemoryStore
 	IsSessionActiveByHeaders(http.Header) bool
 	IsOwnerRequestByHeaders(http.Header) bool
+	ValidateSessionCode(string) bool
+	ClientIPFromHeaders(http.Header) string
+	CheckBootstrapRateLimit(string) bool
 }
 
 // New wires an SDK server + StreamableHTTPHandler for path-based mounting.
@@ -89,6 +92,11 @@ func New(cfg *config.Config, src Source) http.Handler {
 	// editing (owner-only)
 	registerUpsertSkill(server, src)
 	registerDeleteSkill(server, src)
+
+	// team
+	registerBootstrapSession(server, src)
+	registerGetPersona(server, src)
+	registerGetSkill(server, src)
 
 	return sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server {
 		return server
