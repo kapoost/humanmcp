@@ -146,6 +146,25 @@ func (h *Handler) BlobStore() *content.BlobStore             { return h.blobStor
 func (h *Handler) MsgStore() *content.MessageStore           { return h.msgStore }
 func (h *Handler) MemoryStore() *content.MemoryStore         { return h.memoryStore }
 
+// Store accessors for the ritual + dialogue families.
+func (h *Handler) QuestionStore() *content.QuestionStore              { return h.questionStore }
+func (h *Handler) RitualStore() *content.RitualStore                  { return h.ritualStore }
+func (h *Handler) PersonaJournalStore() *content.PersonaJournalStore  { return h.journalStore }
+func (h *Handler) LLMAvailable() bool                                 { return h.llm.Available() }
+
+// Rate-limit passthroughs — v2 hits the same per-IP buckets as v1 so
+// abusive callers can't dodge quotas by picking the new endpoint.
+func (h *Handler) CheckAskHumanRateLimit(ip string) bool { return h.checkAskHumanRateLimit(ip) }
+func (h *Handler) CheckFetchAnswerRateLimit(ip string) bool {
+	return h.checkFetchAnswerRateLimit(ip)
+}
+func (h *Handler) CheckNaradaRateLimit(ip string) bool {
+	return h.checkBucketRate(ip, h.naradaLog, time.Hour, 5)
+}
+func (h *Handler) CheckNaradaFetchRateLimit(ip string) bool {
+	return h.checkBucketRate(ip, h.naradaFetchLog, time.Hour, 60)
+}
+
 // ValidateSessionCode exposes the poetry-fragment / session-secret validator
 // so the v2 SDK-based bootstrap_session can gate the same way as v1.
 func (h *Handler) ValidateSessionCode(code string) bool { return h.validateSession(code) }

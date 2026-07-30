@@ -704,3 +704,82 @@ func oneLine(s string) string {
 	}
 	return s
 }
+
+// ── Business methods exposed for the v2 SDK handler ──────────────────────────
+// These wrap the private tool logic so v2 can trigger the same rituals
+// without owning the ritualStore construction or the LLM plumbing.
+
+// CreateNaradaJob routes context to the configured personas and creates a
+// pending RitualJob picked up by naradaWorkerLoop. Returns the job plus the
+// selected personas list so v2 can format the same "Narada started" reply.
+func (h *Handler) CreateNaradaJob(ctxText, from string) (content.RitualJob, []string, error) {
+	manifest, err := content.LoadRitualManifest(h.cfg.ContentDir, "narada")
+	if err != nil {
+		return content.RitualJob{}, nil, fmt.Errorf("Could not load narada manifest: %w", err)
+	}
+	personas := manifest.RoutePersonas(ctxText)
+	if len(personas) == 0 {
+		return content.RitualJob{}, nil, fmt.Errorf("Narada router returned no personas — check content/rituals/narada.json defaults.")
+	}
+	job, err := h.ritualStore.Create("narada", ctxText, personas)
+	if err != nil {
+		return content.RitualJob{}, nil, fmt.Errorf("Could not create narada job: %w", err)
+	}
+	return job, personas, nil
+}
+
+// WriteReflection runs the LLM reflection pipeline on a persona voice from
+// a completed narada, appends the result to the persona journal, and
+// returns the reflection text so v2 can include it in the reply.
+func (h *Handler) WriteReflection(naradaID, personaSlug, errorContext string) (string, error) {
+	job, err := h.ritualStore.Get(naradaID)
+	if err != nil {
+		return "", fmt.Errorf("narada not found: %w", err)
+	}
+	var recommendation string
+	for _, v := range job.Voices {
+		if v.Slug == personaSlug {
+			recommendation = v.Recommendation
+			break
+		}
+	}
+	if recommendation == "" {
+		return "", fmt.Errorf("persona %q did not speak on narada %q — cannot reflect", personaSlug, naradaID)
+	}
+	persona, err := h.loadPersona(personaSlug)
+	if err != nil {
+		return "", fmt.Errorf("load persona %s: %w", personaSlug, err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	systemPrompt := buildReflectionSystemPrompt(persona.Body, h.journalStore, personaSlug)
+	userPrompt := buildReflectionUserPrompt(job.Context, recommendation, errorContext)
+	res, err := h.llm.Complete(ctx, llm.CompleteRequest{
+		Model:     modelForPersona(persona),
+		System:    systemPrompt,
+		User:      userPrompt,
+		MaxTokens: 512,
+	})
+	if err != nil {
+		return "", fmt.Errorf("llm error: %w", err)
+	}
+	entry := content.PersonaJournalEntry{
+		At:             time.Now().UTC(),
+		NaradaID:       naradaID,
+		Context:        oneLine(job.Context),
+		Recommendation: oneLine(recommendation),
+		ErrorSignal:    oneLine(errorContext),
+		Reflection:     res.Text,
+	}
+	if err := h.journalStore.Append(personaSlug, entry); err != nil {
+		return "", fmt.Errorf("journal append failed: %w", err)
+	}
+	return res.Text, nil
+}
+
+// SynthesisePersonaPatternsBySlug is the public wrapper for the private
+// synthesisePersonaPatterns method — v2 owner-only tool triggers this.
+func (h *Handler) SynthesisePersonaPatternsBySlug(slug string) (content.PersonaPatterns, int, error) {
+	return h.synthesisePersonaPatterns(slug)
+}

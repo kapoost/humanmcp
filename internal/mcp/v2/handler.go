@@ -37,6 +37,19 @@ type Source interface {
 	ValidateSessionCode(string) bool
 	ClientIPFromHeaders(http.Header) string
 	CheckBootstrapRateLimit(string) bool
+
+	// rituals + dialogue
+	QuestionStore() *content.QuestionStore
+	RitualStore() *content.RitualStore
+	PersonaJournalStore() *content.PersonaJournalStore
+	LLMAvailable() bool
+	CheckAskHumanRateLimit(string) bool
+	CheckFetchAnswerRateLimit(string) bool
+	CheckNaradaRateLimit(string) bool
+	CheckNaradaFetchRateLimit(string) bool
+	CreateNaradaJob(context, from string) (content.RitualJob, []string, error)
+	WriteReflection(naradaID, personaSlug, errorContext string) (string, error)
+	SynthesisePersonaPatternsBySlug(slug string) (content.PersonaPatterns, int, error)
 }
 
 // New wires an SDK server + StreamableHTTPHandler for path-based mounting.
@@ -97,6 +110,17 @@ func New(cfg *config.Config, src Source) http.Handler {
 	registerBootstrapSession(server, src)
 	registerGetPersona(server, src)
 	registerGetSkill(server, src)
+
+	// dialogue
+	registerAskHuman(server, src)
+	registerFetchAnswer(server, src)
+
+	// rituals
+	registerRunNarada(server, src)
+	registerFetchNaradaResult(server, src)
+	registerGetPersonaJournal(server, src)
+	registerRecordPersonaReflection(server, src)
+	registerSynthesisePersonaPatterns(server, src)
 
 	return sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server {
 		return server

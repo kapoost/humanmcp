@@ -169,6 +169,47 @@ func TestV2ParityWithLegacy(t *testing.T) {
 		{"get_skill_test_gated", "get_skill", map[string]any{"slug": "test-skill"}, nil},
 		{"get_skill_missing_slug", "get_skill", map[string]any{}, nil},
 		{"get_skill_not_found", "get_skill", map[string]any{"slug": "nope"}, nil},
+
+		// dialogue — ask_human creates a Question, fetch_answer polls.
+		// Both hit real stores; the reply body is nondeterministic on ID +
+		// timestamp so normalizeVolatile takes care of it. fetch_answer with
+		// a missing ID exercises the "no question" branch.
+		{"ask_human", "ask_human", map[string]any{
+			"question": "co byś zrobił w tej sytuacji?", "context": "parity_test", "from": "test-agent",
+		}, nil},
+		{"fetch_answer_missing_id", "fetch_answer", map[string]any{"id": "nope"}, nil},
+
+		// rituals — narada manifest is optional; v1 and v2 both surface the
+		// same "manifest not found" text so this drives the error branch.
+		// LLM-dependent tools (record_persona_reflection, synthesise_*) test
+		// only the "no API key" branch since the test config leaves ClaudeAPIKey
+		// empty.
+		{"run_narada_no_context", "run_narada", map[string]any{}, nil},
+		{"run_narada_no_manifest", "run_narada", map[string]any{"context": "test context"}, nil},
+
+		{"fetch_narada_missing_id", "fetch_narada_result", map[string]any{}, nil},
+		{"fetch_narada_not_found", "fetch_narada_result", map[string]any{"id": "nonexistent"}, nil},
+
+		{"journal_anonymous", "get_persona_journal", map[string]any{"slug": "hodor"}, nil},
+		{"journal_owner_empty", "get_persona_journal", map[string]any{"slug": "hodor"},
+			map[string]string{"Authorization": "Bearer testtoken"}},
+		{"journal_missing_slug", "get_persona_journal", map[string]any{},
+			map[string]string{"Authorization": "Bearer testtoken"}},
+
+		{"reflection_anonymous", "record_persona_reflection", map[string]any{
+			"narada_id": "x", "persona_slug": "hodor", "error_context": "y",
+		}, nil},
+		{"reflection_missing_args", "record_persona_reflection", map[string]any{},
+			map[string]string{"Authorization": "Bearer testtoken"}},
+		{"reflection_no_llm", "record_persona_reflection", map[string]any{
+			"narada_id": "x", "persona_slug": "hodor", "error_context": "y",
+		}, map[string]string{"Authorization": "Bearer testtoken"}},
+
+		{"synthesise_anonymous", "synthesise_persona_patterns", map[string]any{"slug": "hodor"}, nil},
+		{"synthesise_missing_slug", "synthesise_persona_patterns", map[string]any{},
+			map[string]string{"Authorization": "Bearer testtoken"}},
+		{"synthesise_no_llm", "synthesise_persona_patterns", map[string]any{"slug": "hodor"},
+			map[string]string{"Authorization": "Bearer testtoken"}},
 	}
 
 	for _, c := range cases {
@@ -240,12 +281,21 @@ var (
 	nanoIDRE      = regexp.MustCompile(`\b\d{16,}\b`)
 	humanTimeRE   = regexp.MustCompile(`\d{1,2} [A-Z][a-z]+ \d{4}, \d{2}:\d{2} UTC`)
 	machineTimeRE = regexp.MustCompile(`\d{4}-\d{2}-\d{2} \d{2}:\d{2}`)
+	// QuestionStore.uniqueID: YYYYMMDD-HHMM-<slug-of-question>. Between the
+	// v1 and v2 calls the minute can roll over, giving different HHMM and
+	// therefore different IDs — mask so structural drift still fails.
+	questionIDRE = regexp.MustCompile(`\d{8}-\d{4}-[a-z0-9-]+`)
+	// Bare date "asked=2026-07-30" in ask_human's reply — same day OK, but
+	// safest to normalise since a midnight-boundary run would drift.
+	bareDateRE = regexp.MustCompile(`\b\d{4}-\d{2}-\d{2}\b`)
 )
 
 func normalizeVolatile(s string) string {
 	s = nanoIDRE.ReplaceAllString(s, "<ID>")
 	s = humanTimeRE.ReplaceAllString(s, "<TIME>")
 	s = machineTimeRE.ReplaceAllString(s, "<TIME>")
+	s = questionIDRE.ReplaceAllString(s, "<QID>")
+	s = bareDateRE.ReplaceAllString(s, "<DATE>")
 	return s
 }
 
