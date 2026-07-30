@@ -68,79 +68,99 @@ func TestV2ParityWithLegacy(t *testing.T) {
 	v2h := v2.New(cfg, legacy)
 
 	cases := []struct {
-		name string
-		tool string
-		args map[string]any
+		name    string
+		tool    string
+		args    map[string]any
+		headers map[string]string // extra HTTP headers (e.g. Authorization for owner-mode)
 	}{
-		{"about_humanmcp", "about_humanmcp", nil},
-		{"get_author_profile", "get_author_profile", nil},
-		{"list_content_all", "list_content", nil},
-		{"list_content_poem", "list_content", map[string]any{"type": "poem"}},
-		{"list_content_tag_sea", "list_content", map[string]any{"tag": "sea"}},
-		{"list_content_none", "list_content", map[string]any{"type": "nonexistent"}},
-		{"list_personas", "list_personas", nil},
-		{"list_skills", "list_skills", nil},
-		{"list_skills_tag_test", "list_skills", map[string]any{"tag": "test"}},
-		{"read_content_public", "read_content", map[string]any{"slug": "public"}},
-		{"read_content_locked", "read_content", map[string]any{"slug": "locked"}},
-		{"read_content_missing", "read_content", map[string]any{"slug": "nope"}},
-		{"verify_content_public", "verify_content", map[string]any{"slug": "public"}},
-		{"verify_content_missing", "verify_content", map[string]any{"slug": "nope"}},
-		{"get_certificate_public", "get_certificate", map[string]any{"slug": "public"}},
-		{"get_certificate_missing", "get_certificate", map[string]any{"slug": "nope"}},
-		{"list_provenance_missing", "list_provenance", map[string]any{"slug": "nope"}},
-		{"read_provenance_missing", "read_provenance", map[string]any{"slug": "a", "id": "b"}},
+		{"about_humanmcp", "about_humanmcp", nil, nil},
+		{"get_author_profile", "get_author_profile", nil, nil},
+		{"list_content_all", "list_content", nil, nil},
+		{"list_content_poem", "list_content", map[string]any{"type": "poem"}, nil},
+		{"list_content_tag_sea", "list_content", map[string]any{"tag": "sea"}, nil},
+		{"list_content_none", "list_content", map[string]any{"type": "nonexistent"}, nil},
+		{"list_personas", "list_personas", nil, nil},
+		{"list_skills", "list_skills", nil, nil},
+		{"list_skills_tag_test", "list_skills", map[string]any{"tag": "test"}, nil},
+		{"read_content_public", "read_content", map[string]any{"slug": "public"}, nil},
+		{"read_content_locked", "read_content", map[string]any{"slug": "locked"}, nil},
+		{"read_content_missing", "read_content", map[string]any{"slug": "nope"}, nil},
+		{"verify_content_public", "verify_content", map[string]any{"slug": "public"}, nil},
+		{"verify_content_missing", "verify_content", map[string]any{"slug": "nope"}, nil},
+		{"get_certificate_public", "get_certificate", map[string]any{"slug": "public"}, nil},
+		{"get_certificate_missing", "get_certificate", map[string]any{"slug": "nope"}, nil},
+		{"list_provenance_missing", "list_provenance", map[string]any{"slug": "nope"}, nil},
+		{"read_provenance_missing", "read_provenance", map[string]any{"slug": "a", "id": "b"}, nil},
 
-		{"list_collection", "list_collection", nil},
-		{"read_collection_item_public", "read_collection_item", map[string]any{"slug": "test-drawing"}},
-		{"read_collection_item_missing", "read_collection_item", map[string]any{"slug": "nope"}},
+		{"list_collection", "list_collection", nil, nil},
+		{"read_collection_item_public", "read_collection_item", map[string]any{"slug": "test-drawing"}, nil},
+		{"read_collection_item_missing", "read_collection_item", map[string]any{"slug": "nope"}, nil},
 
-		{"list_blobs", "list_blobs", nil},
-		{"list_blobs_type_filter", "list_blobs", map[string]any{"blob_type": "contact"}},
-		{"list_blobs_type_none", "list_blobs", map[string]any{"blob_type": "vector"}},
-		{"read_blob_public", "read_blob", map[string]any{"slug": "test-contact"}},
-		{"read_blob_missing", "read_blob", map[string]any{"slug": "nope"}},
+		{"list_blobs", "list_blobs", nil, nil},
+		{"list_blobs_type_filter", "list_blobs", map[string]any{"blob_type": "contact"}, nil},
+		{"list_blobs_type_none", "list_blobs", map[string]any{"blob_type": "vector"}, nil},
+		{"read_blob_public", "read_blob", map[string]any{"slug": "test-contact"}, nil},
+		{"read_blob_missing", "read_blob", map[string]any{"slug": "nope"}, nil},
 
-		{"list_skill_groups", "list_skill_groups", nil},
-		{"load_skill_group_test", "load_skill_group", map[string]any{"name": "test"}},
-		{"load_skill_group_empty", "load_skill_group", map[string]any{"name": "nonexistent"}},
-		{"load_skill_group_missing_arg", "load_skill_group", map[string]any{}},
+		{"list_skill_groups", "list_skill_groups", nil, nil},
+		{"load_skill_group_test", "load_skill_group", map[string]any{"name": "test"}, nil},
+		{"load_skill_group_empty", "load_skill_group", map[string]any{"name": "nonexistent"}, nil},
+		{"load_skill_group_missing_arg", "load_skill_group", map[string]any{}, nil},
 
 		{"suggest_skills_humanmcp", "suggest_skills", map[string]any{
 			"files":      []string{"go.mod", "Dockerfile"},
 			"languages":  []string{"go"},
 			"git_origin": "github.com/kapoost/humanmcp",
-		}},
-		{"suggest_skills_empty", "suggest_skills", map[string]any{}},
+		}, nil},
+		{"suggest_skills_empty", "suggest_skills", map[string]any{}, nil},
 
-		{"request_access_public", "request_access", map[string]any{"slug": "public"}},
-		{"request_access_locked_challenge", "request_access", map[string]any{"slug": "locked"}},
-		{"request_access_missing", "request_access", map[string]any{"slug": "nope"}},
+		{"request_access_public", "request_access", map[string]any{"slug": "public"}, nil},
+		{"request_access_locked_challenge", "request_access", map[string]any{"slug": "locked"}, nil},
+		{"request_access_missing", "request_access", map[string]any{"slug": "nope"}, nil},
 
-		{"submit_answer_wrong", "submit_answer", map[string]any{"slug": "locked", "answer": "five"}},
-		{"submit_answer_right", "submit_answer", map[string]any{"slug": "locked", "answer": "four"}},
+		{"submit_answer_wrong", "submit_answer", map[string]any{"slug": "locked", "answer": "five"}, nil},
+		{"submit_answer_right", "submit_answer", map[string]any{"slug": "locked", "answer": "four"}, nil},
 
-		{"leave_comment", "leave_comment", map[string]any{"slug": "public", "text": "beautiful", "from": "parity_test"}},
+		{"leave_comment", "leave_comment", map[string]any{"slug": "public", "text": "beautiful", "from": "parity_test"}, nil},
 		{"leave_message_with_contact", "leave_message", map[string]any{
 			"text": "I would like to reprint one poem.", "context": "requesting reprint permission",
 			"contact": "test@example.com", "from": "parity_test",
-		}},
+		}, nil},
 		{"leave_message_anonymous", "leave_message", map[string]any{
 			"text": "no reply needed.", "context": "one-way note",
-		}},
+		}, nil},
 
 		{"request_license_ccby", "request_license", map[string]any{
 			"slug": "public", "intended_use": "share on my blog", "caller_id": "test-agent",
-		}},
+		}, nil},
 		{"request_license_commercial_intent", "request_license", map[string]any{
 			"slug": "public", "intended_use": "commercial training corpus", "caller_id": "corp-x",
-		}},
+		}, nil},
+
+		// memory — session-gated. Both v1 (no Mcp-Session-Id in tests) and v2
+		// (stateless SDK strips it anyway) reject as anonymous. Recall-with-code
+		// exists just to lock the "requires session" text; the "found N mems"
+		// branch stays untested until bootstrap_session redesign lands.
+		{"remember_anonymous", "remember", map[string]any{"text": "note", "code": "abc"}, nil},
+		{"recall_anonymous", "recall", map[string]any{"code": "abc"}, nil},
+
+		// editing — owner-gated by Authorization: Bearer testtoken. Also test
+		// anonymous rejection path so both success + failure branches parity.
+		{"upsert_skill_anonymous", "upsert_skill", map[string]any{
+			"slug": "new-skill", "category": "tech", "title": "New", "body": "body",
+		}, nil},
+		{"upsert_skill_owner", "upsert_skill", map[string]any{
+			"slug": "v2-created", "category": "tech", "title": "V2 Created", "body": "hello",
+		}, map[string]string{"Authorization": "Bearer testtoken"}},
+		{"delete_skill_anonymous", "delete_skill", map[string]any{"slug": "test-skill"}, nil},
+		{"delete_skill_missing_owner", "delete_skill", map[string]any{"slug": "nonexistent"},
+			map[string]string{"Authorization": "Bearer testtoken"}},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			v1Text := normalizeVolatile(callLegacy(t, legacy, c.tool, c.args))
-			v2Text := normalizeVolatile(callV2(t, v2h, c.tool, c.args))
+			v1Text := normalizeVolatile(callLegacy(t, legacy, c.tool, c.args, c.headers))
+			v2Text := normalizeVolatile(callV2(t, v2h, c.tool, c.args, c.headers))
 			if v1Text != v2Text {
 				t.Errorf("parity drift on %s:\n--- v1 ---\n%s\n--- v2 ---\n%s", c.tool, v1Text, v2Text)
 			}
@@ -148,7 +168,7 @@ func TestV2ParityWithLegacy(t *testing.T) {
 	}
 }
 
-func callLegacy(t *testing.T, h http.Handler, tool string, args map[string]any) string {
+func callLegacy(t *testing.T, h http.Handler, tool string, args map[string]any, headers map[string]string) string {
 	t.Helper()
 	body, _ := json.Marshal(map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
@@ -156,12 +176,15 @@ func callLegacy(t *testing.T, h http.Handler, tool string, args map[string]any) 
 	})
 	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	return extractText(t, "v1", rec.Body.String())
 }
 
-func callV2(t *testing.T, h http.Handler, tool string, args map[string]any) string {
+func callV2(t *testing.T, h http.Handler, tool string, args map[string]any, headers map[string]string) string {
 	t.Helper()
 	params := map[string]any{
 		"name": tool, "arguments": args,
@@ -180,6 +203,9 @@ func callV2(t *testing.T, h http.Handler, tool string, args map[string]any) stri
 	req.Header.Set("MCP-Protocol-Version", "2026-07-28")
 	req.Header.Set("Mcp-Method", "tools/call")
 	req.Header.Set("Mcp-Name", tool)
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	// Streamable HTTP returns text/event-stream by default. Peel the

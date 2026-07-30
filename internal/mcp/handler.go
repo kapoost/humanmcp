@@ -144,6 +144,28 @@ func (h *Handler) ProvenanceStore() *content.ProvenanceStore { return h.provenan
 func (h *Handler) CollectionStore() *content.CollectionStore { return h.collectionStore }
 func (h *Handler) BlobStore() *content.BlobStore             { return h.blobStore }
 func (h *Handler) MsgStore() *content.MessageStore           { return h.msgStore }
+func (h *Handler) MemoryStore() *content.MemoryStore         { return h.memoryStore }
+
+// IsOwnerRequestByHeaders is a header-only variant of isOwnerRequest
+// for the v2 SDK handler. Accepts any of the three configured tokens
+// (edit, agent, session) in the standard Authorization: Bearer form.
+func (h *Handler) IsOwnerRequestByHeaders(hdr http.Header) bool {
+	auth := hdr.Get("Authorization")
+	if !strings.HasPrefix(auth, "Bearer ") {
+		return false
+	}
+	token := strings.TrimPrefix(auth, "Bearer ")
+	if h.cfg.EditToken != "" && token == h.cfg.EditToken {
+		return true
+	}
+	if h.cfg.AgentToken != "" && token == h.cfg.AgentToken {
+		return true
+	}
+	if h.cfg.SessionSecret != "" && token == h.cfg.SessionSecret {
+		return true
+	}
+	return false
+}
 
 // IsSessionActiveByHeaders is a header-only variant of isSessionActive
 // for callers (v2 SDK handler) that only expose http.Header, not the

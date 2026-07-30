@@ -31,7 +31,9 @@ type Source interface {
 	CollectionStore() *content.CollectionStore
 	BlobStore() *content.BlobStore
 	MsgStore() *content.MessageStore
+	MemoryStore() *content.MemoryStore
 	IsSessionActiveByHeaders(http.Header) bool
+	IsOwnerRequestByHeaders(http.Header) bool
 }
 
 // New wires an SDK server + StreamableHTTPHandler for path-based mounting.
@@ -79,6 +81,14 @@ func New(cfg *config.Config, src Source) http.Handler {
 	registerRequestAccess(server, src)
 	registerSubmitAnswer(server, src)
 	registerRequestLicense(server, src)
+
+	// memory
+	registerRemember(server, src)
+	registerRecall(server, src)
+
+	// editing (owner-only)
+	registerUpsertSkill(server, src)
+	registerDeleteSkill(server, src)
 
 	return sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server {
 		return server
