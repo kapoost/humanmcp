@@ -11,6 +11,7 @@ import (
 	"github.com/kapoost/humanmcp-go/internal/config"
 	"github.com/kapoost/humanmcp-go/internal/content"
 	"github.com/kapoost/humanmcp-go/internal/mcp"
+	mcpv2 "github.com/kapoost/humanmcp-go/internal/mcp/v2"
 	"github.com/kapoost/humanmcp-go/internal/web"
 )
 
@@ -41,8 +42,14 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	// MCP endpoint
+	// MCP endpoint (legacy, protocolVersion 2024-11-05)
 	mux.Handle("/mcp", corsMiddleware(mcpHandler))
+
+	// MCP v2 (protocolVersion 2026-07-28, stateless Streamable HTTP via go-sdk).
+	// Mounted before the /mcp/ catch-all so the v2 path wins.
+	v2Handler := mcpv2.New(cfg, mcpHandler)
+	mux.Handle("/mcp/v2", corsMiddleware(v2Handler))
+	mux.Handle("/mcp/v2/", corsMiddleware(v2Handler))
 	mux.Handle("/mcp/", corsMiddleware(mcpHandler))
 
 	// Web UI + REST API
@@ -54,6 +61,7 @@ func main() {
 	log.Printf("  domain:  %s", cfg.Domain)
 	log.Printf("  content: %s", cfg.ContentDir)
 	log.Printf("  mcp:     http://%s/mcp", addr)
+	log.Printf("  mcp v2:  http://%s/mcp/v2 (protocol 2026-07-28, stateless)", addr)
 
 	if err := http.ListenAndServe(addr, secureMiddleware(mux)); err != nil {
 		log.Fatalf("server: %v", err)
@@ -81,7 +89,7 @@ func secureMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		// Cache: MCP endpoints never cache, HTML pages short TTL
-		if r.URL.Path == "/mcp" || strings.HasPrefix(r.URL.Path, "/api/") {
+		if r.URL.Path == "/mcp" || strings.HasPrefix(r.URL.Path, "/mcp/") || strings.HasPrefix(r.URL.Path, "/api/") {
 			w.Header().Set("Cache-Control", "no-store")
 		}
 		next.ServeHTTP(w, r)

@@ -164,7 +164,7 @@ func (h *Handler) cleanupLoop() {
 	}
 }
 
-func (h *Handler) loadPersonas() []Persona {
+func (h *Handler) LoadPersonas() []Persona {
 	dir := filepath.Join(h.cfg.ContentDir, "personas")
 	var out []Persona
 	entries, err := os.ReadDir(dir)
@@ -220,7 +220,7 @@ func parsePersonaFile(raw string, fallbackSlug string) Persona {
 	return p
 }
 
-func (h *Handler) loadSkills() []Skill {
+func (h *Handler) LoadSkills() []Skill {
 	dir := filepath.Join(h.cfg.ContentDir, "skills")
 	var out []Skill
 	entries, err := os.ReadDir(dir)
@@ -288,10 +288,6 @@ func normalizePoem(s string) string {
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path == "/mcp/sse" {
-		h.handleSSE(w, r)
-		return
-	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -316,8 +312,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleInitialize(w http.ResponseWriter, req *Request) {
 	toolCount := len(h.buildTools())
-	personaCount := len(h.loadPersonas())
-	skillCount := len(h.loadSkills())
+	personaCount := len(h.LoadPersonas())
+	skillCount := len(h.LoadSkills())
 	domain := h.cfg.Domain
 	if domain == "" {
 		domain = "kapoost.humanmcp.net"
@@ -466,7 +462,7 @@ kapoost writes in the dark. Comments are the only light.`,
 		},
 		"serverInfo": map[string]string{
 			"name":    "humanMCP — kapoost",
-			"version": "0.1.0",
+			"version": "0.2.0-dev",
 		},
 		"instructions": instructions,
 	})
@@ -2100,30 +2096,6 @@ func (h *Handler) toolRequestLicense(w http.ResponseWriter, req *Request, args j
 	writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text", Text: sb.String()}}})
 }
 
-func (h *Handler) handleSSE(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	fmt.Fprintf(w, "data: {\"type\":\"endpoint\",\"url\":\"https://%s/mcp\"}\n\n", h.cfg.Domain)
-	if f, ok := w.(http.Flusher); ok {
-		f.Flush()
-	}
-	ticker := time.NewTicker(15 * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-r.Context().Done():
-			return
-		case <-ticker.C:
-			fmt.Fprintf(w, ": ping\n\n")
-			if f, ok := w.(http.Flusher); ok {
-				f.Flush()
-			}
-		}
-	}
-}
-
 func writeResult(w http.ResponseWriter, id interface{}, result interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(Response{JSONRPC: "2.0", ID: id, Result: result})
@@ -2260,8 +2232,8 @@ func (h *Handler) toolBootstrapSession(w http.ResponseWriter, r *http.Request, r
 	}
 
 	// Return full team briefing
-	personas := h.loadPersonas()
-	skills := h.loadSkills()
+	personas := h.LoadPersonas()
+	skills := h.LoadSkills()
 	var sb strings.Builder
 	sb.WriteString("SESSION ACTIVE — full access granted.\n\n")
 
@@ -2371,7 +2343,7 @@ func (h *Handler) toolBootstrapSession(w http.ResponseWriter, r *http.Request, r
 }
 
 func (h *Handler) toolListPersonas(w http.ResponseWriter, req *Request) {
-	personas := h.loadPersonas()
+	personas := h.LoadPersonas()
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("TEAM — %d personas available:\n\n", len(personas)))
 	for _, p := range personas {
@@ -2391,7 +2363,7 @@ func (h *Handler) toolGetPersona(w http.ResponseWriter, r *http.Request, req *Re
 	}
 
 	authenticated := h.isSessionActive(r)
-	personas := h.loadPersonas()
+	personas := h.LoadPersonas()
 	for _, p := range personas {
 		if p.Slug == params.Slug {
 			// Hodor is publicly accessible — he's the guardian, his rules must apply
@@ -2423,7 +2395,7 @@ func (h *Handler) toolListSkills(w http.ResponseWriter, req *Request, args json.
 		json.Unmarshal(args, &params)
 	}
 
-	skills := h.loadSkills()
+	skills := h.LoadSkills()
 	match := func(s Skill) bool {
 		if params.Category != "" && !strings.EqualFold(s.Category, params.Category) {
 			return false
@@ -2472,7 +2444,7 @@ func skillHasTag(s Skill, tag string) bool {
 // bootstrap required — the catalogue slugs are already public via
 // list_skills, this just gives the group-level index.
 func (h *Handler) toolListSkillGroups(w http.ResponseWriter, req *Request) {
-	skills := h.loadSkills()
+	skills := h.LoadSkills()
 	groups := map[string][]string{}
 	for _, s := range skills {
 		for _, t := range s.Tags {
@@ -2520,7 +2492,7 @@ func (h *Handler) toolLoadSkillGroup(w http.ResponseWriter, r *http.Request, req
 	}
 	name := strings.TrimSpace(params.Name)
 	authenticated := h.isSessionActive(r)
-	skills := h.loadSkills()
+	skills := h.LoadSkills()
 	var matched []Skill
 	for _, s := range skills {
 		if skillHasTag(s, name) {
@@ -2648,7 +2620,7 @@ func (h *Handler) toolSuggestSkills(w http.ResponseWriter, req *Request, args js
 	groupReasons["always"] = append(groupReasons["always"], "default (guardian + style)")
 
 	// Resolve groups → concrete slugs via skill catalogue.
-	skills := h.loadSkills()
+	skills := h.LoadSkills()
 	type suggestion struct {
 		Slug        string
 		Group       string
@@ -2757,7 +2729,7 @@ func (h *Handler) toolGetSkill(w http.ResponseWriter, r *http.Request, req *Requ
 	}
 
 	authenticated := h.isSessionActive(r)
-	skills := h.loadSkills()
+	skills := h.LoadSkills()
 	for _, s := range skills {
 		if s.Slug == params.Slug {
 			// Skills with "-public" suffix are accessible without bootstrap.
