@@ -12,6 +12,7 @@ import (
 	"github.com/kapoost/humanmcp-go/internal/content"
 	"github.com/kapoost/humanmcp-go/internal/mcp"
 	mcpv2 "github.com/kapoost/humanmcp-go/internal/mcp/v2"
+	"github.com/kapoost/humanmcp-go/internal/mysloodsiewnia"
 	"github.com/kapoost/humanmcp-go/internal/web"
 )
 
@@ -36,9 +37,14 @@ func main() {
 	}
 
 	a := auth.New(cfg.EditToken)
+	liveness := mysloodsiewnia.New()
+	bridgeQueue := mysloodsiewnia.NewQueue()
+	bridge := mysloodsiewnia.NewBridge(liveness, bridgeQueue, cfg.VaultBridgeToken)
 	mcpHandler := mcp.NewHandler(cfg, store, a)
+	mcpHandler.SetBridge(liveness, bridgeQueue)
 	webHandler := web.NewHandler(cfg, store, a)
 	webHandler.SetMCPToolCount(len(mcpHandler.ToolNames()))
+	webHandler.SetLiveness(liveness)
 
 	mux := http.NewServeMux()
 
@@ -54,6 +60,10 @@ func main() {
 
 	// Web UI + REST API
 	webHandler.RegisterRoutes(mux)
+
+	// Bridge endpoints for the mysłoodsiewnia vault pull worker.
+	// Auth: Bearer VAULT_BRIDGE_TOKEN. Empty token ⇒ every endpoint 503.
+	bridge.Register(mux)
 
 	addr := cfg.Host + ":" + cfg.Port
 	log.Printf("humanMCP starting on %s", addr)

@@ -50,6 +50,12 @@ type Config struct {
 	// Empty key falls back to a stub voice so the async plumbing still works
 	// (useful for local dev and CI).
 	ClaudeAPIKey string `json:"-"`
+
+	// VaultBridgeToken authenticates the mysłoodsiewnia vault when it
+	// polls /mysloodsiewnia/pending-ops, heartbeats, and posts back
+	// completed operations. Shared secret over TLS; empty ⇒ bridge disabled.
+	// Rotate quarterly (see docs/adr/0001-mysloodsiewnia-bridge.md).
+	VaultBridgeToken string `json:"-"`
 }
 
 func Load() (*Config, error) {
@@ -99,6 +105,9 @@ func Load() (*Config, error) {
 	}
 	if v := os.Getenv("CLAUDE_API_KEY"); v != "" {
 		cfg.ClaudeAPIKey = v
+	}
+	if v := os.Getenv("VAULT_BRIDGE_TOKEN"); v != "" {
+		cfg.VaultBridgeToken = v
 	}
 	if v := os.Getenv("POET_POOL"); v != "" {
 		if decoded, err := base64.StdEncoding.DecodeString(v); err == nil {

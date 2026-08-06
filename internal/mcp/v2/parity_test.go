@@ -210,6 +210,24 @@ func TestV2ParityWithLegacy(t *testing.T) {
 			map[string]string{"Authorization": "Bearer testtoken"}},
 		{"synthesise_no_llm", "synthesise_persona_patterns", map[string]any{"slug": "hodor"},
 			map[string]string{"Authorization": "Bearer testtoken"}},
+
+		// mysłoodsiewnia bridge — parity_test never calls SetBridge, so
+		// Liveness() is nil and Status() collapses to StatusUnreachable
+		// deterministically. Both v1 and v2 must produce byte-identical
+		// offline JSON and identical unauthorized text.
+		{"mysloodsiewnia_status_anonymous", "mysloodsiewnia_status", map[string]any{}, nil},
+		{"mysloodsiewnia_status_owner_offline", "mysloodsiewnia_status", map[string]any{},
+			map[string]string{"Authorization": "Bearer testtoken"}},
+		{"mysloodsiewnia_search_anonymous", "mysloodsiewnia_search", map[string]any{"query": "morze"}, nil},
+		{"mysloodsiewnia_search_owner_offline", "mysloodsiewnia_search", map[string]any{"query": "morze"},
+			map[string]string{"Authorization": "Bearer testtoken"}},
+		{"mysloodsiewnia_search_owner_no_query", "mysloodsiewnia_search", map[string]any{},
+			map[string]string{"Authorization": "Bearer testtoken"}},
+		{"mysloodsiewnia_get_anonymous", "mysloodsiewnia_get", map[string]any{"doc_slug": "x"}, nil},
+		{"mysloodsiewnia_get_owner_offline", "mysloodsiewnia_get", map[string]any{"doc_slug": "x"},
+			map[string]string{"Authorization": "Bearer testtoken"}},
+		{"mysloodsiewnia_get_owner_no_slug", "mysloodsiewnia_get", map[string]any{},
+			map[string]string{"Authorization": "Bearer testtoken"}},
 	}
 
 	for _, c := range cases {

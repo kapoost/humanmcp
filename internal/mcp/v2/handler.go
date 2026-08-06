@@ -17,6 +17,7 @@ import (
 	"github.com/kapoost/humanmcp-go/internal/config"
 	"github.com/kapoost/humanmcp-go/internal/content"
 	"github.com/kapoost/humanmcp-go/internal/mcp"
+	"github.com/kapoost/humanmcp-go/internal/mysloodsiewnia"
 )
 
 // Source is what v2 needs from the legacy handler. Kept narrow so v2 stays
@@ -50,6 +51,11 @@ type Source interface {
 	CreateNaradaJob(context, from string) (content.RitualJob, []string, error)
 	WriteReflection(naradaID, personaSlug, errorContext string) (string, error)
 	SynthesisePersonaPatternsBySlug(slug string) (content.PersonaPatterns, int, error)
+
+	// mysłoodsiewnia bridge. Both may be nil if the bridge is disabled —
+	// tools handle that as StatusUnreachable, not as a panic.
+	Liveness() *mysloodsiewnia.Liveness
+	BridgeQueue() *mysloodsiewnia.Queue
 }
 
 // New wires an SDK server + StreamableHTTPHandler for path-based mounting.
@@ -121,6 +127,11 @@ func New(cfg *config.Config, src Source) http.Handler {
 	registerGetPersonaJournal(server, src)
 	registerRecordPersonaReflection(server, src)
 	registerSynthesisePersonaPatterns(server, src)
+
+	// mysłoodsiewnia bridge (read-only wave 1)
+	registerMysloodsiewniaStatus(server, src)
+	registerMysloodsiewniaSearch(server, src)
+	registerMysloodsiewniaGet(server, src)
 
 	return sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server {
 		return server

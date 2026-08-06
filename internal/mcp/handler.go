@@ -17,6 +17,7 @@ import (
 	"github.com/kapoost/humanmcp-go/internal/config"
 	"github.com/kapoost/humanmcp-go/internal/content"
 	"github.com/kapoost/humanmcp-go/internal/llm"
+	"github.com/kapoost/humanmcp-go/internal/mysloodsiewnia"
 )
 
 type Request struct {
@@ -102,6 +103,10 @@ type Handler struct {
 	fetchAnswerLog  map[string][]time.Time // IP → fetch_answer polls (30/hr)
 	naradaLog       map[string][]time.Time // IP → run_narada calls (5/hr)
 	naradaFetchLog  map[string][]time.Time // IP → fetch_narada_result polls (60/hr)
+
+	// Bridge into the mysłoodsiewnia vault. Nil ⇒ tools report offline.
+	liveness    *mysloodsiewnia.Liveness
+	bridgeQueue *mysloodsiewnia.Queue
 }
 
 func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler {
@@ -168,6 +173,20 @@ func (h *Handler) CheckNaradaFetchRateLimit(ip string) bool {
 // ValidateSessionCode exposes the poetry-fragment / session-secret validator
 // so the v2 SDK-based bootstrap_session can gate the same way as v1.
 func (h *Handler) ValidateSessionCode(code string) bool { return h.validateSession(code) }
+
+// SetBridge wires the shared liveness + queue from main.go so bridge tools
+// (mysloodsiewnia_*) can gate on vault reachability. Optional — if never
+// called, the tools deterministically report offline.
+func (h *Handler) SetBridge(liveness *mysloodsiewnia.Liveness, queue *mysloodsiewnia.Queue) {
+	h.liveness = liveness
+	h.bridgeQueue = queue
+}
+
+// Liveness returns the shared vault liveness store for the v2 handler.
+func (h *Handler) Liveness() *mysloodsiewnia.Liveness { return h.liveness }
+
+// BridgeQueue returns the shared vault op queue for the v2 handler.
+func (h *Handler) BridgeQueue() *mysloodsiewnia.Queue { return h.bridgeQueue }
 
 // ClientIPFromHeaders mirrors clientIP but reads from a raw http.Header —
 // SDK tool handlers only receive req.Extra.Header, not the full request.
@@ -1043,6 +1062,39 @@ func (h *Handler) buildTools() []Tool {
 				},
 			},
 		},
+		Tool{
+			Name:        "mysloodsiewnia_status",
+			Description: "Read-only liveness probe on kapoost's local vault (mysłoodsiewnia). Returns {status: online|degraded|offline, last_seen, commit_sha, personas_updated_at, skills_updated_at}. Offline is a stable state — retry later, don't escalate. Owner-only via Authorization: Bearer.",
+			InputSchema: map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+		},
+		Tool{
+			Name:        "mysloodsiewnia_search",
+			Description: "Full-text search (BM25 over SQLite FTS5) on kapoost's local vault corpus. Owner-only. Returns {status, results:[{source, type, body, doc_slug, title, page, citation}], summary}. Vault offline ⇒ {status:offline} — do not retry immediately.",
+			InputSchema: map[string]interface{}{
+				"type":     "object",
+				"required": []string{"query"},
+				"properties": map[string]interface{}{
+					"query":    map[string]interface{}{"type": "string", "description": "Search query (Polish or English)."},
+					"limit":    map[string]interface{}{"type": "integer", "description": "Max results (1-20, default 5)."},
+					"doc_type": map[string]interface{}{"type": "string", "description": "Optional filter by document type."},
+					"doc_slug": map[string]interface{}{"type": "string", "description": "Optional filter by document slug."},
+				},
+			},
+		},
+		Tool{
+			Name:        "mysloodsiewnia_get",
+			Description: "Fetch one document from kapoost's vault by slug. Owner-only. Returns the full body + metadata; vault offline ⇒ {status:offline}.",
+			InputSchema: map[string]interface{}{
+				"type":     "object",
+				"required": []string{"doc_slug"},
+				"properties": map[string]interface{}{
+					"doc_slug": map[string]interface{}{"type": "string", "description": "Document slug (as stored in vault.documents)."},
+				},
+			},
+		},
 	)
 	return tools
 }
@@ -1131,6 +1183,24 @@ func (h *Handler) handleToolsCall(w http.ResponseWriter, r *http.Request, req *R
 		h.toolRecordPersonaReflection(w, r, req, params.Arguments)
 	case "synthesise_persona_patterns":
 		h.toolSynthesisePersonaPatterns(w, r, req, params.Arguments)
+	case "mysloodsiewnia_status":
+		if !h.isOwnerRequest(r) {
+			writeToolText(w, req.ID, `Unauthorized — mysloodsiewnia_* tools require Authorization: Bearer <edit token>.`)
+			return
+		}
+		h.toolMysloodsiewniaStatus(w, req)
+	case "mysloodsiewnia_search":
+		if !h.isOwnerRequest(r) {
+			writeToolText(w, req.ID, `Unauthorized — mysloodsiewnia_* tools require Authorization: Bearer <edit token>.`)
+			return
+		}
+		h.toolMysloodsiewniaSearch(w, req, params.Arguments)
+	case "mysloodsiewnia_get":
+		if !h.isOwnerRequest(r) {
+			writeToolText(w, req.ID, `Unauthorized — mysloodsiewnia_* tools require Authorization: Bearer <edit token>.`)
+			return
+		}
+		h.toolMysloodsiewniaGet(w, req, params.Arguments)
 	default:
 		writeError(w, req.ID, -32602, "unknown tool: "+params.Name)
 	}
@@ -2422,6 +2492,7 @@ func (h *Handler) toolBootstrapSession(w http.ResponseWriter, r *http.Request, r
 	sb.WriteString("     - 'dobranoc' / '/dobranoc' → fetch skill `dobranoc-dziennik` via `get_skill` and follow it.\n")
 	sb.WriteString("     - Polish-language reply context → language-style-polish already auto-loaded via bootstrap; keep applying it.\n")
 	sb.WriteString("     - Secrets, tokens, destructive commands → Hodor is the guardian; default-deny and confirm with kapoost first.\n")
+	sb.WriteString("     - 'przeszukaj vault' / 'znajdź w mojej wiedzy' / 'w mysłoodsiewni' → `mysloodsiewnia_search(query, limit?)`; owner-only (Authorization: Bearer). Response `{status:offline}` = kapoost's home vault isn't reachable right now — this is a stable state, not an error, do NOT retry immediately. Sibling tools: `mysloodsiewnia_status` (heartbeat + commit_sha), `mysloodsiewnia_get(doc_slug)`.\n")
 	sb.WriteString("  4. For any other topic that hits a domain skill (e.g. 'go stack', 'deploy', 'shell', 'mx5', 's2000', 'onaudience', 'bookkido'), call `list_skills` to find the slug, then `get_skill(slug=<x>)` for the body — do NOT reinvent from memory alone.\n")
 	sb.WriteString("  4a. GROUP LOAD — when the user says 'załaduj skille z projektu X' / 'load project X skills' / 'load skill group X', call `load_skill_group(name=<X>)` (single MCP call, returns all bodies). Discover available groups via `list_skill_groups`. For a fresh workspace ('scaffold', 'skonfiguruj to repo') use `suggest_skills(files=[...], languages=[...], git_origin=...)` — deterministic, capped at 8 slugs.\n")
 	sb.WriteString("  5. If your platform supports it, also stash a durable pointer to this server's `about_humanmcp` tool — future-you can re-orient in one call without a full bootstrap.\n")
