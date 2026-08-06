@@ -1,0 +1,69 @@
+id: mysloodsiewnia/get_offline_owner_and_validation
+version: "1.0.0"
+title: "mysloodsiewnia_get: owner-only, args validated before gate, offline short-circuit"
+category: mysloodsiewnia_bridge
+summary: "mysloodsiewnia_get symmetrically to _search: requires owner token, requires doc_slug (validated before gate), short-circuits offline without enqueue."
+narrative: |
+  Same regression class as mysloodsiewnia_search — different tool, same
+  gate. Splitting into a dedicated storyboard so it's obvious in a
+  failing CI which tool broke; combining them would obscure it.
+
+kind: http
+
+setup: {}
+
+assertions:
+  - name: "anonymous → unauthorized"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mysloodsiewnia_get","arguments":{"doc_slug":"hello"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "Unauthorized"
+      body_does_not_contain:
+        - "op_id"
+
+  - name: "owner + missing doc_slug → invalid_args, no enqueue"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Authorization: Bearer storyboard-test-token
+      body: '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"mysloodsiewnia_get","arguments":{}}}'
+    expect:
+      status: 200
+      body_contains:
+        - '\"status\":\"invalid_args\"'
+        - 'doc_slug is required'
+      body_does_not_contain:
+        - 'op_id'
+
+  - name: "owner + vault offline → status:offline, no op_id"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Authorization: Bearer storyboard-test-token
+      body: '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"mysloodsiewnia_get","arguments":{"doc_slug":"lexicon-2026"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - '\"status\": \"offline\"'
+      body_does_not_contain:
+        - 'op_id'
+        - 'vault_timeout'
+        - '\"status\": \"online\"'
+
+closes_failure_modes:
+  - "get tool enqueues an op even when vault is offline"
+  - "missing doc_slug reaches the queue and burns a vault round-trip"
+  - "anonymous caller gets a real 500/timeout instead of stable Unauthorized"
+
+known_regressions_caught:
+  - "2026-08-05 — narada nar-4ac3506ab3bc: same gate as _search; pinned separately for CI diagnosability"

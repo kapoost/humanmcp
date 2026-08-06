@@ -1,0 +1,67 @@
+id: mysloodsiewnia/status_gates_offline_and_owner_only
+version: "1.0.0"
+title: "mysloodsiewnia_status: offline is a stable state; owner-only auth"
+category: mysloodsiewnia_bridge
+summary: "mysloodsiewnia_status reports offline (HTTP 200, not 500) when no heartbeat has been received. Requires Authorization: Bearer <edit token> — anonymous callers get the standard unauthorized text, not a leak of vault state."
+narrative: |
+  Wave 1 of the humanmcp ↔ mysłoodsiewnia bridge (narada nar-4ac3506ab3bc).
+  The tool short-circuits BEFORE enqueueing an op when the vault liveness
+  store reports StatusUnreachable — this is the axel-brandt regression
+  guard: hardcoded `VaultOnline: true` was the class of bug that made
+  every "test offline" storyboard pass on nothing.
+
+  In this storyboard the server boots without SetBridge being called (nil
+  liveness). The tool must:
+    - return status "offline" as JSON in a text content block,
+    - return HTTP 200 (offline is a state, not an error),
+    - never mention the internal liveness store or leak commit_sha
+      values (which are only present when a real heartbeat happened),
+    - reject anonymous callers with the same "Unauthorized" prose used
+      by upsert_skill so agents build one mental model, not two.
+
+kind: http
+
+setup: {}
+
+assertions:
+  - name: "no auth → unauthorized text, not a status leak"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mysloodsiewnia_status","arguments":{}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "Unauthorized"
+        - "mysloodsiewnia_"
+      body_does_not_contain:
+        - '\"status\":\"online\"'
+        - 'commit_sha'
+
+  - name: "owner + no heartbeat → offline JSON, HTTP 200"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Authorization: Bearer storyboard-test-token
+      body: '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"mysloodsiewnia_status","arguments":{}}}'
+    expect:
+      status: 200
+      body_contains:
+        - '\"status\": \"offline\"'
+        - '\"last_seen\": \"never\"'
+      body_does_not_contain:
+        - '\"status\": \"online\"'
+        - 'commit_sha'
+
+closes_failure_modes:
+  - "status tool reports online when no heartbeat has arrived (axel-brandt regression)"
+  - "offline path returns 500 instead of 200 so agent thinks the server is broken"
+  - "anonymous caller receives vault state (leaks whether the vault is up)"
+  - "unauthorized message diverges from other owner-only tools' phrasing"
+
+known_regressions_caught:
+  - "2026-08-05 — narada nar-4ac3506ab3bc opened this class: `VaultOnline: true` hardcoded in web/handler.go made every offline storyboard vacuous"

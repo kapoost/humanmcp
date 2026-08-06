@@ -1,0 +1,84 @@
+id: mysloodsiewnia/search_offline_owner_and_validation
+version: "1.0.0"
+title: "mysloodsiewnia_search: owner-only, args validated before gate, offline short-circuit"
+category: mysloodsiewnia_bridge
+summary: "mysloodsiewnia_search rejects anonymous callers, refuses to enqueue without a query (even when vault is offline — bad args are always bad), and short-circuits with {status:offline} without emitting an op_id when the vault is unreachable."
+narrative: |
+  Ghost's blindspot from narada nar-4ac3506ab3bc: a bridge tool that
+  returns HTTP 200 with `{status:offline}` on a write is a lie because
+  the agent will treat it as success. For read-only wave 1 the offline
+  short-circuit is safe — no work happens, the agent knows to retry
+  later. This storyboard pins:
+
+    - anonymous callers rejected before any state is touched,
+    - empty query rejected with an actionable message EVEN when vault
+      is offline (bad args are always bad),
+    - offline short-circuits BEFORE enqueue (so we never emit an op_id
+      whose completion the agent would wait for pointlessly),
+
+  The storyboard runner boots the MCP handler without SetBridge, so
+  Liveness() is nil and the gate collapses to StatusUnreachable.
+
+kind: http
+
+setup: {}
+
+assertions:
+  - name: "anonymous → unauthorized"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mysloodsiewnia_search","arguments":{"query":"morze"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "Unauthorized"
+      body_does_not_contain:
+        - "vault_timeout"
+        - "op_id"
+
+  - name: "owner + no query → invalid_args, no enqueue (bad args beat gate)"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Authorization: Bearer storyboard-test-token
+      body: '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"mysloodsiewnia_search","arguments":{}}}'
+    expect:
+      status: 200
+      body_contains:
+        - '\"status\":\"invalid_args\"'
+        - 'query is required'
+      body_does_not_contain:
+        - 'op_id'
+        - 'vault_timeout'
+
+  - name: "owner + vault offline → status:offline, no op_id emitted"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Authorization: Bearer storyboard-test-token
+      body: '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"mysloodsiewnia_search","arguments":{"query":"morze","limit":3}}}'
+    expect:
+      status: 200
+      body_contains:
+        - '\"status\": \"offline\"'
+      body_does_not_contain:
+        - 'op_id'
+        - 'vault_timeout'
+        - '\"status\": \"online\"'
+
+closes_failure_modes:
+  - "search tool enqueues an op even when vault is offline (agent hangs on WaitFor)"
+  - "search response emits op_id before checking liveness — leaks queue growth as amplification vector"
+  - "empty-query call gets enqueued instead of rejected early"
+  - "invalid args return an offline-shaped response, hiding the real problem from the agent"
+
+known_regressions_caught:
+  - "2026-08-05 — narada nar-4ac3506ab3bc: ghost warned that HTTP 200 offline on writes is a lie; this pins the short-circuit at the gate for reads too"
+  - "2026-08-05 — first storyboard iteration found gate check running before arg validation, so bad args returned offline"
