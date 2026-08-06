@@ -124,6 +124,38 @@ Adding write means resolving:
   `status:"applied"` vs `status:"queued"` — writes must honor this.
 - Cap enforcement: sliding-window on vault side, before DB write.
 
+### Wave 3+ — sharing / friend tokens (horcrux-adjacent, kapoost 2026-08-06)
+
+Today the bridge is single-tenant: one `EditToken` gates every
+`mysloodsiewnia_*` tool, and any agent presenting that token can query the
+whole corpus. When kapoost wants to share vault access with a friend
+(known scenario per `project_horcrux` + `project_hodor_tomorrow` memories),
+he wants:
+
+- **Per-recipient token** (separate from EditToken) so revocation is
+  granular — `flyctl secrets unset FRIEND_TOKEN_<slug>` cuts one recipient
+  without rotating everyone else.
+- **Scope filter per token** — e.g. Alice sees only `doc_type IN
+  ('literatura', 'note')` and can't touch invoices (`pdf`) or personal
+  notes tagged `access:private`. Enforced on both sides: Fly (token →
+  allowed scopes lookup) and vault (double-check before DB read).
+- **Audit trail per token** — who queried what, when. `stats.ndjson`
+  already has caller distinction, extend to include token identity.
+- **Rate limit per token** — friend token gets tighter cap than owner
+  (e.g. 50 req/hr vs unlimited) so a compromised friend token can't
+  scrape the whole 9k-doc corpus in minutes.
+
+Related work already scaffolded elsewhere: `content.access` field on
+documents (private/public/friends), `tokens.json` on vault side for
+named friend tokens. Wave 3 is the wire-up: extend
+`IsOwnerRequestByHeaders` to `IsAuthorizedRequestByHeaders(scopes)`,
+pass scopes down to bridge queue, vault filters at SQL time.
+
+Blocker before implementation: **new narada**. Threat model changes
+substantively — sharing = adversarial threat model (friend's laptop
+could be stolen, they may misuse token). Warrant fresh voices before
+committing to a specific design.
+
 ## Non-goals
 
 - **Email**: scoped out 2026-06-16 (CLAUDE.md line 70). No mail storage
