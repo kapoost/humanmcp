@@ -42,7 +42,7 @@ func renderAbout(cfg *config.Config) string {
 	fmt.Fprintln(&b, "  3. Ask the user for the session code (a Polish poetry fragment)")
 	fmt.Fprintln(&b, "  4. Call bootstrap_session(code) for full team + skills")
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "Tool families (33 tools total — call tools/list for full schema):")
+	fmt.Fprintln(&b, "Tool families (40 tools total — call tools/list for full schema):")
 	fmt.Fprintln(&b, "  - content:    list_content, read_content, get_certificate, verify_content")
 	fmt.Fprintln(&b, "  - access:     request_access, submit_answer, request_license")
 	fmt.Fprintln(&b, "  - feedback:   leave_comment, leave_message")
@@ -56,6 +56,11 @@ func renderAbout(cfg *config.Config) string {
 	fmt.Fprintln(&b, "                get_persona_journal + record_persona_reflection (owner-only).")
 	fmt.Fprintln(&b, "  - provenance: list_provenance, read_provenance (for artwork pieces)")
 	fmt.Fprintln(&b, "  - team:       list_personas, get_persona, list_skills, get_skill (post-session)")
+	fmt.Fprintln(&b, "  - vault:      mysloodsiewnia_status / _search / _get / _list — owner-only bridge")
+	fmt.Fprintln(&b, "                into kapoost's home vault (SQLite FTS5, 9k+ docs). Gated by")
+	fmt.Fprintln(&b, "                liveness heartbeat: `{status:\"offline\"}` (HTTP 200) when vault")
+	fmt.Fprintln(&b, "                is unreachable — retry later, don't escalate. Full skill:")
+	fmt.Fprintln(&b, "                get_skill(slug=\"mysloodsiewnia-bridge\").")
 	return b.String()
 }
 
