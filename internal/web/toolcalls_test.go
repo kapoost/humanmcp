@@ -2,10 +2,12 @@ package web
 
 import (
 	"testing"
+	"time"
 
 	"github.com/kapoost/humanmcp-go/internal/auth"
 	"github.com/kapoost/humanmcp-go/internal/config"
 	"github.com/kapoost/humanmcp-go/internal/content"
+	"github.com/kapoost/humanmcp-go/internal/mysloodsiewnia"
 )
 
 // Guards every counter buildEnrichedStats is contractually supposed to
@@ -53,8 +55,10 @@ func TestBuildEnrichedStatsPropagation(t *testing.T) {
 		{"Stats.HumanVisits", es.Stats.HumanVisits, 9},
 		{"Stats.TotalSearches", es.Stats.TotalSearches, 11},
 
-		// hardcoded invariants
-		{"VaultOnline", es.VaultOnline, true},
+		// Nil liveness (SetLiveness never called) ⇒ we don't claim online.
+		// The old test asserted VaultOnline==true unconditionally — that
+		// hid the fact we weren't measuring anything.
+		{"VaultOnline (no liveness wired)", es.VaultOnline, false},
 	}
 	for _, c := range cases {
 		if c.got != c.want {
@@ -73,6 +77,43 @@ func TestBuildEnrichedStatsPropagation(t *testing.T) {
 	// {{if .TopSearches}} and any subsequent {{range}}.
 	if got := es.TopSearches["niebo"]; got != 3 {
 		t.Errorf("TopSearches[niebo] = %d, want 3 (map must propagate)", got)
+	}
+}
+
+// Guards the axel-brandt regression: VaultOnline was hardcoded true, so
+// every storyboard that "tested offline" tested nothing. Now the field must
+// actually reflect liveness state; injecting fresh/stale heartbeats must
+// flip the flag deterministically.
+func TestVaultOnlineTracksLivenessState(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &config.Config{ContentDir: dir}
+	store := content.NewStore(dir)
+	h := NewHandler(cfg, store, auth.New("x"))
+
+	base := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
+	now := base
+	live := mysloodsiewnia.NewWith(30*time.Second, func() time.Time { return now })
+	h.SetLiveness(live)
+
+	// Fresh heartbeat with healthy FTS ⇒ online.
+	live.Update("sha1", base, base, true)
+	if got := h.buildEnrichedStats(&content.Stats{}, 0, 0).VaultOnline; !got {
+		t.Fatal("fresh heartbeat should render VaultOnline=true")
+	}
+
+	// Advance past TTL ⇒ offline in the dashboard.
+	now = base.Add(31 * time.Second)
+	if got := h.buildEnrichedStats(&content.Stats{}, 0, 0).VaultOnline; got {
+		t.Fatal("stale heartbeat should render VaultOnline=false")
+	}
+
+	// Fresh heartbeat but FTS rebuilding ⇒ degraded ⇒ not online.
+	// MC dashboard collapses degraded to OFFLINE badge on purpose: both
+	// states mean "don't route agent operations here right now".
+	live.Update("sha2", base, base, false)
+	now = base.Add(1 * time.Second)
+	if got := h.buildEnrichedStats(&content.Stats{}, 0, 0).VaultOnline; got {
+		t.Fatal("degraded (fts rebuilding) should not render VaultOnline=true")
 	}
 }
 

@@ -20,6 +20,7 @@ import (
 	"github.com/kapoost/humanmcp-go/internal/auth"
 	"github.com/kapoost/humanmcp-go/internal/config"
 	"github.com/kapoost/humanmcp-go/internal/content"
+	"github.com/kapoost/humanmcp-go/internal/mysloodsiewnia"
 )
 
 type Handler struct {
@@ -38,6 +39,10 @@ type Handler struct {
 	tmpl              *template.Template
 	startedAt         time.Time
 	mcpToolCount      int
+	// liveness reflects the vault's last-known reachability. Nil until
+	// SetLiveness is called by main.go; when nil, IsOnline reports false so
+	// dashboards don't lie about a channel that doesn't exist yet.
+	liveness          *mysloodsiewnia.Liveness
 
 	// IP-based sliding-window rate limiter for the anonymous /contact form.
 	// Generous limit so a real human refining their message isn't blocked,
@@ -1531,7 +1536,7 @@ func (h *Handler) handleConnect(w http.ResponseWriter, r *http.Request) {
 		"Author":    h.cfg.AuthorName,
 		"Bio":       h.cfg.AuthorBio,
 		"Domain":    h.cfg.Domain,
-		"ToolCount": 14,
+		"ToolCount": h.mcpToolCount,
 	})
 }
 
@@ -2317,7 +2322,7 @@ func (h *Handler) buildEnrichedStats(stats *content.Stats, pieceCount, listingCo
 		PersonaCount:  h.countPersonas(),
 		TotalListings: listingCount,
 		TotalLicenses: stats.TotalLicenses,
-		VaultOnline:   true,
+		VaultOnline:   h.vaultOnline(),
 		Uptime:        formatUptime(time.Since(h.startedAt)),
 		ToolCalls:     stats.AgentCalls,
 		TotalSearches: stats.TotalSearches,
@@ -2453,7 +2458,7 @@ func (h *Handler) handleMissionControl(w http.ResponseWriter, r *http.Request) {
 		"InboxCounts": view.InboxCounts,
 		"SessionCode": activePoem,
 		"SessionExp":  sessionExp,
-		"VaultOnline": true,
+		"VaultOnline": h.vaultOnline(),
 		"Uptime":      view.Uptime,
 		"ToolCalls":   view.ToolCalls,
 	})
@@ -2755,6 +2760,20 @@ func (h *Handler) handleGallery(w http.ResponseWriter, r *http.Request) {
 // without importing the mcp package (which would introduce a new
 // production dependency between the two subsystems).
 func (h *Handler) SetMCPToolCount(n int) { h.mcpToolCount = n }
+
+// SetLiveness wires the shared bridge liveness store so the /mc dashboard,
+// /connect page, and bridge-gated MCP tools all read the same view of "is
+// the vault reachable right now?". Call once at startup from main.go.
+func (h *Handler) SetLiveness(l *mysloodsiewnia.Liveness) { h.liveness = l }
+
+// vaultOnline centralises the nil-check so callers don't have to. Nil
+// liveness ⇒ we're not measuring ⇒ don't claim online.
+func (h *Handler) vaultOnline() bool {
+	if h.liveness == nil {
+		return false
+	}
+	return h.liveness.IsOnline()
+}
 
 // /llms.txt — plain text catalogue for AI agents. Format follows
 // https://llmstxt.org: H1 title, blockquote description, optional
