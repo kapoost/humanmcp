@@ -5,6 +5,19 @@
 - Narada: `nar-4ac3506ab3bc` — 5 voices (ghost, hodor, mira-chen, maruda, axel-brandt)
 - Commit tag: `[narada:nar-4ac3506ab3bc]`
 
+## Addenda
+
+- **2026-08-06** — Wave 1.5: added `mysloodsiewnia_list` (owner-only, no
+  required args) to complement `_search` for browsing by `doc_type` /
+  paginating. FTS rejects empty query, so listing "all notes" was
+  impossible with wave 1 tools alone. Vault worker uses direct lean SQL
+  (`SELECT ... LIMIT/OFFSET`) — the stock `db.list_documents()` runs a
+  per-row `chunk_count` subquery over the 9k-doc corpus and blows past
+  the 20s wait timeout.
+- **2026-08-06** — First sabotage-verify run recorded in
+  `storyboards/mysloodsiewnia/SABOTAGE_LOG.md`. Storyboard `search_offline`
+  flipped PASS→FAIL when gate removed — protocol works.
+
 ## Context
 
 humanmcp (this repo, Go, public on Fly `kapoost-humanmcp`) and mysłoodsiewnia
