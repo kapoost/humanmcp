@@ -228,6 +228,14 @@ func TestV2ParityWithLegacy(t *testing.T) {
 			map[string]string{"Authorization": "Bearer testtoken"}},
 		{"mysloodsiewnia_get_owner_no_slug", "mysloodsiewnia_get", map[string]any{},
 			map[string]string{"Authorization": "Bearer testtoken"}},
+
+		// mysloodsiewnia_list (wave 1.5)
+		{"mysloodsiewnia_list_anonymous", "mysloodsiewnia_list", map[string]any{}, nil},
+		{"mysloodsiewnia_list_owner_offline_no_args", "mysloodsiewnia_list", map[string]any{},
+			map[string]string{"Authorization": "Bearer testtoken"}},
+		{"mysloodsiewnia_list_owner_offline_with_filter", "mysloodsiewnia_list",
+			map[string]any{"doc_type": "note", "limit": 10, "offset": 5},
+			map[string]string{"Authorization": "Bearer testtoken"}},
 	}
 
 	for _, c := range cases {

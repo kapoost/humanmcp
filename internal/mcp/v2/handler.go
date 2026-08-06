@@ -128,10 +128,11 @@ func New(cfg *config.Config, src Source) http.Handler {
 	registerRecordPersonaReflection(server, src)
 	registerSynthesisePersonaPatterns(server, src)
 
-	// mysłoodsiewnia bridge (read-only wave 1)
+	// mysłoodsiewnia bridge (read-only wave 1 + wave 1.5 list)
 	registerMysloodsiewniaStatus(server, src)
 	registerMysloodsiewniaSearch(server, src)
 	registerMysloodsiewniaGet(server, src)
+	registerMysloodsiewniaList(server, src)
 
 	return sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server {
 		return server

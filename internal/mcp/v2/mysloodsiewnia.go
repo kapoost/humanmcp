@@ -69,6 +69,40 @@ func registerMysloodsiewniaSearch(s *sdk.Server, src Source) {
 	})
 }
 
+// ── mysloodsiewnia_list ─────────────────────────────────────────────────────
+
+func registerMysloodsiewniaList(s *sdk.Server, src Source) {
+	s.AddTool(&sdk.Tool{
+		Name:        "mysloodsiewnia_list",
+		Description: "Enumerate vault documents without FTS — for browsing by type or paginating. Owner-only. Args: {doc_type?: string filter (note/pdf/literatura/calendar_event/...), limit?: int 1-200 default 50, offset?: int default 0}. Returns [{slug, title, doc_type, created_at, chunk_count}]. Vault offline ⇒ {status:offline}.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"doc_type":{"type":"string"},"limit":{"type":"integer"},"offset":{"type":"integer"}}}`),
+	}, func(_ context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+		if !ownerRequest(src, req) {
+			return textResult(unauthorizedText), nil
+		}
+		var args struct {
+			DocType string `json:"doc_type,omitempty"`
+			Limit   int    `json:"limit,omitempty"`
+			Offset  int    `json:"offset,omitempty"`
+		}
+		if len(req.Params.Arguments) > 0 {
+			if err := json.Unmarshal(req.Params.Arguments, &args); err != nil {
+				return textResult(`{"status":"invalid_args","error":"could not parse arguments"}`), nil
+			}
+		}
+		if args.Limit <= 0 || args.Limit > 200 {
+			args.Limit = 50
+		}
+		if args.Offset < 0 {
+			args.Offset = 0
+		}
+		if text, stop := gate(src); stop {
+			return textResult(text), nil
+		}
+		return textResult(enqueueAndWait(src, mysloodsiewnia.OpList, args)), nil
+	})
+}
+
 // ── mysloodsiewnia_get ──────────────────────────────────────────────────────
 
 func registerMysloodsiewniaGet(s *sdk.Server, src Source) {

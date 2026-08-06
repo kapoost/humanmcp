@@ -17,6 +17,7 @@ const (
 	OpStatus OpKind = "status"
 	OpSearch OpKind = "search"
 	OpGet    OpKind = "get"
+	OpList   OpKind = "list"
 )
 
 // OpState tracks a queued operation's lifecycle. Ghost's blind-spot in the

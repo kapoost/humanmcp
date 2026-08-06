@@ -143,6 +143,31 @@ func (h *Handler) toolMysloodsiewniaSearch(w http.ResponseWriter, req *Request, 
 	writeToolText(w, req.ID, h.enqueueAndWait(mysloodsiewnia.OpSearch, args))
 }
 
+func (h *Handler) toolMysloodsiewniaList(w http.ResponseWriter, req *Request, arguments json.RawMessage) {
+	var args struct {
+		DocType string `json:"doc_type,omitempty"`
+		Limit   int    `json:"limit,omitempty"`
+		Offset  int    `json:"offset,omitempty"`
+	}
+	if len(arguments) > 0 {
+		if err := json.Unmarshal(arguments, &args); err != nil {
+			writeToolText(w, req.ID, `{"status":"invalid_args","error":"could not parse arguments"}`)
+			return
+		}
+	}
+	if args.Limit <= 0 || args.Limit > 200 {
+		args.Limit = 50
+	}
+	if args.Offset < 0 {
+		args.Offset = 0
+	}
+	if text, stop := h.mysloodsiewniaGate(); stop {
+		writeToolText(w, req.ID, text)
+		return
+	}
+	writeToolText(w, req.ID, h.enqueueAndWait(mysloodsiewnia.OpList, args))
+}
+
 func (h *Handler) toolMysloodsiewniaGet(w http.ResponseWriter, req *Request, arguments json.RawMessage) {
 	var args struct {
 		DocSlug string `json:"doc_slug"`

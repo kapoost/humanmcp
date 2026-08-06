@@ -1095,6 +1095,18 @@ func (h *Handler) buildTools() []Tool {
 				},
 			},
 		},
+		Tool{
+			Name:        "mysloodsiewnia_list",
+			Description: "Enumerate vault documents without FTS — for browsing by type or paginating. Owner-only. Args: {doc_type?: string filter (note/pdf/literatura/calendar_event/...), limit?: int 1-200 default 50, offset?: int default 0}. Returns [{slug, title, doc_type, created_at, chunk_count}]. Vault offline ⇒ {status:offline}.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"doc_type": map[string]interface{}{"type": "string", "description": "Optional filter by doc_type."},
+					"limit":    map[string]interface{}{"type": "integer", "description": "Max results (1-200, default 50)."},
+					"offset":   map[string]interface{}{"type": "integer", "description": "Pagination offset (default 0)."},
+				},
+			},
+		},
 	)
 	return tools
 }
@@ -1201,6 +1213,12 @@ func (h *Handler) handleToolsCall(w http.ResponseWriter, r *http.Request, req *R
 			return
 		}
 		h.toolMysloodsiewniaGet(w, req, params.Arguments)
+	case "mysloodsiewnia_list":
+		if !h.isOwnerRequest(r) {
+			writeToolText(w, req.ID, `Unauthorized — mysloodsiewnia_* tools require Authorization: Bearer <edit token>.`)
+			return
+		}
+		h.toolMysloodsiewniaList(w, req, params.Arguments)
 	default:
 		writeError(w, req.ID, -32602, "unknown tool: "+params.Name)
 	}

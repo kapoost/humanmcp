@@ -1,0 +1,69 @@
+id: mysloodsiewnia/list_offline_owner_and_defaults
+version: "1.0.0"
+title: "mysloodsiewnia_list: owner-only, no required args, offline short-circuit"
+category: mysloodsiewnia_bridge
+summary: "mysloodsiewnia_list allows empty args (default limit=50, no doc_type filter), rejects anonymous callers, and short-circuits with {status:offline} without enqueue when the vault is unreachable."
+narrative: |
+  Added in wave 1.5 (narada nar-4ac3506ab3bc). Complements _search when
+  you want to browse by doc_type or paginate rather than run a query —
+  FTS can't do "give me all notes" (empty query rejected). Storyboard
+  runner boots without SetBridge so gate collapses to offline.
+
+kind: http
+
+setup: {}
+
+assertions:
+  - name: "anonymous → unauthorized"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mysloodsiewnia_list","arguments":{}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "Unauthorized"
+      body_does_not_contain:
+        - "op_id"
+
+  - name: "owner + no args → offline (defaults applied, no enqueue)"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Authorization: Bearer storyboard-test-token
+      body: '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"mysloodsiewnia_list","arguments":{}}}'
+    expect:
+      status: 200
+      body_contains:
+        - '\"status\": \"offline\"'
+      body_does_not_contain:
+        - 'op_id'
+        - 'invalid_args'
+
+  - name: "owner + filter args → still offline (gate short-circuits)"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Authorization: Bearer storyboard-test-token
+      body: '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"mysloodsiewnia_list","arguments":{"doc_type":"note","limit":10,"offset":5}}}'
+    expect:
+      status: 200
+      body_contains:
+        - '\"status\": \"offline\"'
+      body_does_not_contain:
+        - 'op_id'
+        - 'vault_timeout'
+
+closes_failure_modes:
+  - "list tool enqueues an op when vault is offline (agent hangs on WaitFor)"
+  - "list requires args instead of applying safe defaults (limit=50, no doc_type filter)"
+  - "anonymous caller triggers vault work"
+
+known_regressions_caught:
+  - "2026-08-06 — wave 1.5 addition; asserts symmetry with _search/_get gate behavior"
