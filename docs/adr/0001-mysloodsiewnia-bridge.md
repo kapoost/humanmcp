@@ -87,6 +87,64 @@
     kind: write"}`, which is a truthful state and doesn't break
     any wave 1 semantics.
 
+- **2026-08-12** — Wave 2 (write) vault-side shipped as
+  `~/mysloodsiewnia` commit `7e63c24`. Design chosen inline with owner
+  ("opcja A") diverges from the `prompts/wave2-vault-worker.md` 1:1
+  kickoff — recording deltas here so a future reader doesn't chase a
+  design that was consciously overridden:
+  - **Registry, not inline.** Handler landed in
+    `services/ops/write.py` and dispatched via
+    `services/ops/registry.py` (`{"write": write.run}`) rather than
+    inline in `BridgeWorker._run()`. Kickoff explicitly rejected the
+    registry path (D1) because the registry blocks scoped tokens en
+    masse; owner override: the block is defense-in-depth for the whole
+    wave-2 family, keeps `_run()` from growing a fourth switch arm.
+  - **Notion-style slug, not timestamp.** `_slugify(title)` +
+    Polish→ASCII translit, on conflict append `-2`, `-3`, ... Kickoff
+    prescribed `{doc_type}-{sanitize}-{unix_ts}` so collisions were
+    numerically impossible. Owner preferred readable slugs matching
+    the rest of the vault; collision cost is bounded (SELECT scan on
+    `slug LIKE base%`).
+  - **`meta["via"] = "humanmcp-bridge"`, not `meta.tags[]`.**
+    Provenance is a top-level meta key, greppable in the JSON but
+    invisible to any UI that reads `meta.tags`. Deliberate — owner
+    wanted a distinct namespace, not another user-visible tag.
+  - **No `bridge_write_idempotency` table.** Kickoff D5 required an
+    `op_id → slug` map so a network-retried enqueue can't create a
+    duplicate doc. Not implemented; dedup relies on slug collision
+    handling (retry with same title → same base slug → `-2` suffix,
+    i.e. a duplicate doc, not the same doc). **Gap** — accept for now
+    because Fly retry is currently manual, but flag if bridge grows
+    automatic retry.
+  - **No 100 KiB re-check in vault handler.** Fly-side enforces it
+    pre-enqueue (`writeBodyCap = 100 * 1024`); vault trusts. Kickoff
+    wanted belt+suspenders. **Gap** — a wave-4 relaxation of the Fly
+    cap would silently pass through.
+  - **No `test_wave2_write.py`.** Commit message references an "E2E
+    test lokalny" run against a real DB, but no test file was added
+    to the repo. **Gap** — regression coverage lives only in the
+    Fly-side storyboards (`write_offline_owner_and_validation.yaml`,
+    `write_friend_forbidden.yaml`, `write_body_too_large.yaml`); a
+    vault-side change to `write.run()` won't fail any CI.
+  - **Response envelope `{slug, chunks_written, via}`** instead of
+    the kickoff-spec `{slug, created_at}`. `chunks_written` is more
+    useful for an agent verifying its write; `created_at` was
+    cosmetic. Fly-side accepts arbitrary JSON in `result`, no
+    contract break.
+  - **Bindings extended.** `_load_vault_bindings()` now exposes
+    `save_document`, `save_chunks`, `get_conn` in addition to the
+    wave-1 read set — matches Mira's decomposition pattern (ops as
+    isolated modules receiving a bindings dict).
+
+  Next actions if any of the four gaps above bite: (a) idempotency
+  table → migration + `_run` signature carrying `op_id`; (b) cap
+  re-check → single `len(body.encode("utf-8"))` check at top of
+  `write.run`; (c) pytest coverage → `test_wave2_write.py` with the
+  four cases the kickoff enumerated (happy path, cap breach,
+  idempotency, scoped reject); (d) revisit if we ever ship a
+  `mysloodsiewnia_write_scoped` op that would legitimately want to
+  reach the registry with a non-empty `token_id`.
+
 - **2026-08-12** — Wave 3 Fly-side wired up. Landed as a single commit
   under `[narada:nar-67cdd80179c2]`:
   - `internal/config/config.go` — `FriendTokenSpec` type + `FriendTokens`
