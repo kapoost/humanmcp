@@ -23,6 +23,8 @@ Rozszerz istniejący bridge humanMCP ↔ mysłoodsiewnia o **friend tokens** —
 
 Scope to `doc_type IN (<enum values>)` gdzie enum jest statycznie zdefiniowanym setem: `literatura`, `note`, `pdf`, itd. **Zero JSONata / CEL / expression evaluatorów** w authorization path — narada 5/5 wprost odrzuciła expressive grammar jako CVE-czekające-na-datę. Nowy use case = nowy commit z enum extension, nie nowy filtr od użytkownika.
 
+**Contrarian addendum (Z1)**: kapoost jest piszącym poetą — nowe `doc_type` będą się pojawiać (żegluga-log, nowe gatunki). Wave 3 idzie z **positive-list only** (bezpieczniejsze), ale wariant **wildcard-minus-exclusion** (`scopes: ["*"], exclude: ["private"]`) jest udokumentowany jako deferred, nie odrzucony. Rewizja po 30 dniach live jeśli rotation przy nowych typach będzie operacyjnym bólem. Nie implementuj wildcard w wave 3 bez potwierdzenia kapoosta.
+
 Format `tokens.json` (vault-side, po Fly-side lookup):
 
 ```json
@@ -56,6 +58,8 @@ Scoped token widzi vault jakby `access:private` dokumenty nie istniały. **Zero 
 
 Implementacja: vault SQL layer dodaje `AND access != 'private'` dla scoped callerów **przed** każdą operacją COUNT / LIMIT / listing, nie po. Nie ma "denied", jest "not found" — semantycznie identyczne dla scoped tokena z sytuacją kiedy dokument faktycznie nie istnieje.
 
+**KRYTYCZNY landmine (Z2)**: ta semantyka jest **celowo asymetryczna** z out-of-scope response. Out-of-scope `doc_type` → HTTP 403 z informacją `{"allowed":[…]}` (edukujemy frienda o jego scope). `access:private` match → zero rows, bez sygnału że coś istnieje (privacy by erasure). Implementator który czyta tylko kod i zobaczy "403 tu, silent skip tam" **będzie chciał to ujednolicić — nie ujednolicaj**. Scope filter to scope education, privacy filter to privacy by erasure. Różne threat models, różne odpowiedzi. Ta uwaga jest w ADR z tego samego powodu.
+
 ### W4 — Revocation: immediate hard cut, deployment atomicity load-bearing
 
 `flyctl secrets unset FRIEND_TOKEN_<slug>` → Fly restart → token martwy. **Zero TTL cache po stronie vaultu** który przeżyje token po Fly revoke. Yuki dopuścił 60s cache tylko z aktywnym alertem "token X używany <cache_ttl>s po revoke" — kapoost takiego alertu nie ma, więc cache = nadzieja.
@@ -69,11 +73,24 @@ Poll model tu jest wprost zły — "revoked in Fly, honored in vault" to jest *t
 
 **Belt & suspenders**: `expires_at` zakodowane w samym tokenie (payload), nie tylko w lookup table. Jeśli lookup zawiedzie (sync race), token nadal wygasa sam z siebie.
 
+**Pinned invariant (Z3)**: revocation soundness zależy od invariantu że **vault nie ma direct public endpoint** — Fly jest jedynym ingressem. Jeśli kapoost robi `secrets unset` gdy vault jest offline (łódka, power cut), token żyje w pamięci vaultu ale żaden request go nie dosięgnie (Fly refuse'uje na boundary). Bezpieczne *tylko* pod obecną architekturą. Jeśli vault kiedyś dostanie direct endpoint (ngrok, Tailscale wystawiony na public, wave 4+), revocation logic wymaga review **przed** exposure. To nie jest implementation detail — to load-bearing invariant.
+
 ### W5 — Read-only. Write nie w wave 3.
 
 Żadnego `leave_comment_scoped`, żadnego `write_document_scoped` w tej fali. Wave 2 (owner write) nawet nie istnieje jeszcze w prod — scoped write na nieistniejącej bazie to inverted order. Sequence: wave 3 read → 30 dni obserwacji → osobny ADR + narada na scoped write.
 
-### Prerequisite: rate limit per token — 50 req/hr per friend, unlimited dla EditToken
+### Horcrux vs sharing token (Z6 — nie mieszaj)
+
+Contrarian pass wskazał że **horcrux use case** (`project_horcrux` w memory kapoosta — dostęp do vaultu dla zaufanego powiernika na wypadek gdyby coś kapoostowi się stało) ma inne wymagania operacyjne niż sharing token. Token z `expires_at: 2026-11-30` jest **bezużyteczny jako horcrux** — renewal wymaga aktywnego udziału kapoosta, a to jest dokładnie ten stan który horcrux ma przetrwać.
+
+**Wave 3 nie implementuje horcrux tokenów.** Mechanizm jest ten sam (`tokens.json` shape, scope grammar, audit), ale dyscyplina operacyjna różni się ostro:
+
+- **Sharing token**: `expires_at` 30-90 dni, rotacja na scheduled, wąski scope.
+- **Horcrux token**: długi lub open-ended TTL, procedura renewal bez interakcji kapoosta (dead-man switch? auto-renew na absence heartbeat? — osobny ADR).
+
+**Nie twórz żadnego tokena z `expires_at > 1 rok` ani bez `expires_at`** w wave 3. Osobna decyzja (prawdopodobnie druga narada) przed pierwszym horcrux tokenem, bo threat model zmienia się znowu (recipient może nie wiedzieć że ma token do momentu trigger event).
+
+### Prerequisite: rate limit per token — per-token config, nie hardcoded default
 
 **Nie opcja, prerequisite.** Bez per-token cap friend token to bulk-dump narzędzie w friendly hat. Enforcement:
 
@@ -81,6 +98,8 @@ Poll model tu jest wprost zły — "revoked in Fly, honored in vault" to jest *t
 - **Fly-side** (fast path): mirror counter, żeby nie płacić round-tripa do vaultu na abuse.
 
 Counter per-token, nie shared. EditToken bypass'uje cap (owner robi co chce).
+
+**Contrarian addendum (Z4)**: **żadnego hardcoded universal default** w kodzie. Narada nie uzasadniła konkretnej liczby, a jedna wartość jest albo za hojna dla ochrony przed bulk dumpem, albo za tight dla legitymnego skryptu frienda-programisty. Source of truth to `tokens.json` (`rate_limit_per_hour` per token). Fallback jeśli field brakuje: **30 req/hr** (konserwatywnie — łatwiej rozluźnić per-token niż zaostrzyć). Rewizja po 30 dniach live.
 
 ## Twarde wymagania (nienegocjowalne)
 
@@ -140,7 +159,9 @@ Counter per-token, nie shared. EditToken bypass'uje cap (owner robi co chce).
 - [ ] Bootstrap body wzmiankuje friend model
 - [ ] Vault client committed osobno w repo mysłoodsiewnia + uruchomiony w domu (`SIGHUP` handler żywy)
 - [ ] Rotation runbook w `humanmcp-incident-playbook.txt` zaktualizowany
-- [ ] Contrarian sanity pass odbyty — 5/5 konsensus narady warty devil's advocate lap
+- [ ] Contrarian sanity pass odbyty — 5/5 konsensus narady warty devil's advocate lap (zrobione 2026-08-12, wyniki wbudowane w W1/W3/W4/Prerequisite/Horcrux sekcje)
+- [ ] Nie tworzysz tokena z `expires_at > 1 rok` ani open-ended TTL (patrz Horcrux vs sharing — osobna decyzja)
+- [ ] `access:private` zero-rows response NIE ujednolicony z out-of-scope 403 (asymetria celowa, patrz W3 landmine)
 - [ ] Commit subject/body zawiera `[narada:nar-67cdd80179c2]`
 
 ## Referencje

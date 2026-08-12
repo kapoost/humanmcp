@@ -21,8 +21,18 @@
   narada `nar-67cdd80179c2` (ghost, hodor, yuki-tanaka, mira-chen, maruda).
   Five-way consensus on all five open questions — see the "Wave 3 — sharing
   / friend tokens" section below for the chosen design. Implementation still
-  gated on a separate brief (`prompts/wave3-sharing.md`, TBD) and a green
-  storyboard tree before any `flyctl secrets set FRIEND_TOKEN_*` lands.
+  gated on the brief (`prompts/wave3-sharing.md`) and a green storyboard
+  tree before any `flyctl secrets set FRIEND_TOKEN_*` lands.
+- **2026-08-12** — Contrarian pass on wave 3 design (post 5/5 narada, per
+  "team suspiciously agreeable" heuristic). Six issues raised, four
+  actioned inline in the Wave 3 section: (Z1) whitelist-only for now,
+  wildcard-minus-exclusion documented as deferred; (Z2) `access:private`
+  zero-rows vs out-of-scope 403 asymmetry pinned as intentional so no
+  one "fixes" it; (Z3) invariant "vault has no direct public endpoint"
+  pinned as load-bearing for revocation soundness; (Z4) 50 req/hr moved
+  from hardcoded default to per-token config; plus a new "Horcrux vs
+  sharing token" subsection (Z6) — same mechanism, different operational
+  discipline, needs a separate decision before first horcrux token.
 
 ## Context
 
@@ -157,6 +167,20 @@ expressive grammar in a security boundary is a CVE waiting for a date.
 Rotating tokens for new use cases is two commits; patching a scope
 injection is a public incident on a public repo.
 
+**Contrarian addendum (Z1)**: `doc_type` is owned by the vault, and
+new document kinds ("żegluga-log," future genres) will land as
+kapoost's writing evolves. A pure positive-list scope forces token
+rotation on every new type — for example, a "friend gets all public
+poetry" token needs a bump every time a new poetic genre appears.
+Wave 3 implementation stays positive-list only (`scopes:
+["literatura","note"]`), but a **wildcard-minus-exclusion** variant is
+explicitly deferred as a follow-up, not rejected: `scopes: ["*"],
+exclude: ["private"]` (interpreted as *all `doc_type`s* subject to the
+`access != 'private'` filter of W3). Static, statically-auditable, no
+expression language. Revisit if rotation becomes operational pain
+within the first 30 days after wave 3 goes live. Decision-owner:
+kapoost.
+
 #### W2 — audit: per-response, transactional record
 
 Extend `stats.ndjson` (or the equivalent audit sink) to record, per call:
@@ -183,6 +207,20 @@ but correct choice.
 Concretely: vault SQL layer adds `AND access != 'private'` for scoped
 callers *before* any COUNT / LIMIT / listing operation, not after.
 
+**Pinned invariant (Z2 — do not "fix")**: this response semantics is
+**deliberately asymmetric** with out-of-scope `doc_type` requests. When
+a scoped token requests a `doc_type` outside its scope, the tool
+returns HTTP 403 with an informative body (`{"status":"out_of_scope",
+"allowed":[...]}`) — the friend is *taught* what they can access. When
+a scoped token would otherwise match an `access:private` document, the
+tool returns zero rows with no signal that any private document
+exists — the friend is *never taught* that privacy exists on any
+specific artefact. Both behaviours are correct; the asymmetry is the
+point. A future implementer who reads only the code and spots "403
+here, silent skip there" will be tempted to unify — do not unify. The
+scope filter is scope education; the privacy filter is privacy by
+erasure. Different threat models, different responses.
+
 #### W4 — revocation: immediate hard cut, no TTL grace window
 
 `flyctl secrets unset FRIEND_TOKEN_<slug>` triggers Fly restart; vault
@@ -203,6 +241,17 @@ vault" is *the* case at incident time, not an edge case.
 Additionally: encode a hard `expires_at` inside the friend token
 payload itself, not only in the lookup table. Belt and suspenders.
 
+**Pinned invariant (Z3 — load-bearing)**: revocation soundness depends
+on the invariant that **the vault has no direct public endpoint**. Fly
+is the sole ingress; if kapoost `secrets unset FRIEND_TOKEN_<slug>`
+while the vault is offline (boat, power cut, laptop asleep), the vault
+still has the token loaded in memory — but no request can reach it
+because Fly refuses at the boundary. This is safe *only* under the
+current architecture. If the vault ever gains a direct public endpoint
+(ngrok tunnel, Tailscale mesh exposed to the internet, wave 4-plus
+plans), the revocation logic must be reviewed *before* that endpoint
+is exposed. Do not treat this invariant as an implementation detail.
+
 #### W5 — read-only, always. Write is not in wave 3.
 
 `leave_comment` and any other scoped-write primitive is a separate ADR.
@@ -216,10 +265,19 @@ days observation → separate decision on scoped write.
 
 Maruda flagged this as a hard prerequisite: friend token without a
 per-token rate cap is a bulk-dump tool wearing a friendly hat.
-Reasonable starting cap: 50 req/hr per friend token, unlimited for
-owner `EditToken`. Enforced on the vault side (last line of defence),
-mirrored on Fly (fast path). Both cap counters are per-token, not
-shared.
+Enforced on the vault side (last line of defence), mirrored on Fly
+(fast path). Both cap counters are per-token, not shared.
+
+**Contrarian addendum (Z4)**: no hardcoded universal default in the
+code. The narada didn't justify any specific number, and "50 req/hr"
+is either too generous for bulk-dump protection or too tight for a
+friend running a legitimate script — depends entirely on the friend.
+The `tokens.json` format already carries `rate_limit_per_hour` per
+token; that is the source of truth. Config missing → default of 30
+req/hr (deliberately conservative — easier to loosen per-token than
+tighten). Owner `EditToken` bypasses the cap entirely. If per-token
+tuning becomes annoying, revisit — but not before wave 3 has 30 days
+of live observation.
 
 #### Threat model / repo hygiene note (Hodor)
 
@@ -235,18 +293,43 @@ Repo has been public since 2026-08-05
   vault-side counterpart lives in the same chmod 600 file family as
   `bridge.env`, never in git.
 
+#### Horcrux vs sharing token (Z6 — same mechanism, different discipline)
+
+Contrarian pass flagged that the horcrux use case
+(`project_horcrux` in kapoost's memory — vault access for a trusted
+recipient in case something happens to kapoost) has operational
+requirements that a standard sharing token doesn't satisfy. A friend
+token with `expires_at: 2026-11-30` is unusable as horcrux: renewal
+requires kapoost's active involvement, which is precisely the state
+that horcrux is designed to survive.
+
+Wave 3 does not implement horcrux tokens. The mechanism is the same
+(same `tokens.json` shape, same scope grammar, same audit trail), but
+the operational discipline differs sharply:
+
+- **Sharing token**: `expires_at` 30–90 days out, rotate on schedule,
+  narrow scope tied to a specific reason (Alice reading Q3 poetry).
+- **Horcrux token**: long or open-ended TTL, renewal procedure that
+  does not require kapoost's active input (dead-man switch on a
+  calendar entry? auto-renew on heartbeat absence? separate ADR).
+
+Before any token is created with `expires_at > 1 year` or without
+`expires_at`, a separate decision is required — likely another narada,
+because the threat model shifts again (recipient may not know they
+have the token until the trigger event). Do not conflate horcrux with
+sharing on the operational side, even though the code paths overlap
+100%.
+
 #### Open follow-ups (not blockers)
 
-- Write the wave 3 brief at `prompts/wave3-sharing.md` (mirror
-  `prompts/mysloodsiewnia-bridge.md` structure) — self-contained for a
-  fresh Plan session.
-- Contrarian sanity pass on this design before first `FRIEND_TOKEN_*`
-  ships. Narada was 5/5 in one direction; that warrants a devil's
-  advocate lap, even if the conclusion doesn't change.
 - Storyboard tree `storyboards/mysloodsiewnia/wave3_*.yaml`: at minimum
   scoped read (positive), out-of-scope read (negative, must 403),
   `access:private` invisibility (must return 0 rows, not "denied"),
   revoked token (must fail before *and* after Fly restart lag).
+- W1 whitelist vs wildcard-minus-exclusion — revisit at 30 days if
+  rotation is operationally painful.
+- Horcrux ADR — do not create any long-TTL / open-TTL token until this
+  lands.
 
 ## Non-goals
 
