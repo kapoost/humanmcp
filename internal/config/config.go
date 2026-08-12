@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -56,6 +57,27 @@ type Config struct {
 	// completed operations. Shared secret over TLS; empty ⇒ bridge disabled.
 	// Rotate quarterly (see docs/adr/0001-mysloodsiewnia-bridge.md).
 	VaultBridgeToken string `json:"-"`
+
+	// FriendTokens are named, scoped, expirable, rate-limited tokens that
+	// grant read access to mysloodsiewnia_* tools. Wave 3 sharing —
+	// see docs/adr/0001-mysloodsiewnia-bridge.md sekcja "Wave 3 —
+	// sharing / friend tokens". Keyed by slug (tokenID). Loaded from
+	// FRIEND_TOKENS_JSON env (base64-encoded JSON of the map) — never
+	// from disk, never committed. Empty map ⇒ only EditToken works.
+	FriendTokens map[string]*FriendTokenSpec `json:"-"`
+}
+
+// FriendTokenSpec is one named friend-token entry. Wave 3 read-only sharing
+// (ADR-0001). Token is the opaque bearer value the caller sends; the slug
+// (map key) is what's logged and propagated to the vault for scope + audit.
+// ExpiresAt is required (zero-value = never = rejected — horcrux tokens
+// live under a separate ADR).
+type FriendTokenSpec struct {
+	Token            string    `json:"token"`
+	Scopes           []string  `json:"scopes"`
+	RateLimitPerHour int       `json:"rate_limit_per_hour"`
+	ExpiresAt        time.Time `json:"expires_at"`
+	CreatedAt        time.Time `json:"created_at"`
 }
 
 func Load() (*Config, error) {
@@ -109,6 +131,21 @@ func Load() (*Config, error) {
 	if v := os.Getenv("VAULT_BRIDGE_TOKEN"); v != "" {
 		cfg.VaultBridgeToken = v
 	}
+	// Wave 3 sharing / friend tokens. FRIEND_TOKENS_JSON is a
+	// base64-encoded JSON blob mapping slug → FriendTokenSpec. Absent /
+	// empty ⇒ friend tokens disabled (owner-only, wave 1 behavior). Invalid
+	// JSON logs a warning and is treated as empty (defense in depth: a
+	// misformatted blob must not fall open by exposing everything).
+	// Rotate whole blob at once — see incident playbook wave 3 section.
+	if v := os.Getenv("FRIEND_TOKENS_JSON"); v != "" {
+		if tokens, err := parseFriendTokensBlob(v); err != nil {
+			// Log via os.Stderr — this file doesn't import a logger yet
+			// and adding one just for this path is more noise than value.
+			fmt.Fprintf(os.Stderr, "[config] FRIEND_TOKENS_JSON parse failed: %v — friend tokens disabled\n", err)
+		} else {
+			cfg.FriendTokens = tokens
+		}
+	}
 	if v := os.Getenv("POET_POOL"); v != "" {
 		if decoded, err := base64.StdEncoding.DecodeString(v); err == nil {
 			var pool []string
@@ -146,6 +183,32 @@ func (c *Config) PickActivePoem(now time.Time) (current string, previous string)
 	current = poemForHour(c.PoetPool, c.PoetSecret, hourKey)
 	previous = poemForHour(c.PoetPool, c.PoetSecret, hourKey-1)
 	return current, previous
+}
+
+// parseFriendTokensBlob decodes the base64-encoded JSON map of friend
+// tokens loaded from FRIEND_TOKENS_JSON. Fails hard on decode error so a
+// misconfigured blob doesn't fall open (returns nil map + error rather
+// than a partial map with fewer entries than expected).
+func parseFriendTokensBlob(b64 string) (map[string]*FriendTokenSpec, error) {
+	raw, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		return nil, fmt.Errorf("base64 decode: %w", err)
+	}
+	var out map[string]*FriendTokenSpec
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("json unmarshal: %w", err)
+	}
+	// Reject any spec with expires_at zero (unbounded TTL — that is horcrux
+	// territory, see ADR-0001 sekcja "Horcrux vs sharing token" Z6). Missing
+	// expires_at ⇒ token silently dropped and event logged; the deployment
+	// keeps working with the rest.
+	for slug, spec := range out {
+		if spec == nil || spec.ExpiresAt.IsZero() {
+			fmt.Fprintf(os.Stderr, "[config] FRIEND_TOKENS_JSON: dropping slug %q — expires_at required (Z6 horcrux ban)\n", slug)
+			delete(out, slug)
+		}
+	}
+	return out, nil
 }
 
 func poemForHour(pool []string, secret string, hourKey int64) string {

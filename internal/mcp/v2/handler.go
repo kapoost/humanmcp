@@ -35,6 +35,14 @@ type Source interface {
 	MemoryStore() *content.MemoryStore
 	IsSessionActiveByHeaders(http.Header) bool
 	IsOwnerRequestByHeaders(http.Header) bool
+	// AuthorizeRequestByHeaders is the wave-3 sharing / friend-tokens
+	// gateway. Returns (tokenID, grantedScopes, ok). tokenID=="owner"
+	// bypasses scope + rate-limit checks. tokenID=="" && ok==false
+	// covers every failure mode (unknown, malformed, expired) with the
+	// same shape so nothing about the friend-token set leaks. See
+	// docs/adr/0001-mysloodsiewnia-bridge.md sekcja "Wave 3" W4/Z3.
+	AuthorizeRequestByHeaders(http.Header) (string, []string, bool)
+	CheckFriendTokenRateLimit(tokenID string, limitPerHour int) (bool, int)
 	ValidateSessionCode(string) bool
 	ClientIPFromHeaders(http.Header) string
 	CheckBootstrapRateLimit(string) bool

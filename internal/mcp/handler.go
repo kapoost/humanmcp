@@ -103,6 +103,7 @@ type Handler struct {
 	fetchAnswerLog  map[string][]time.Time // IP → fetch_answer polls (30/hr)
 	naradaLog       map[string][]time.Time // IP → run_narada calls (5/hr)
 	naradaFetchLog  map[string][]time.Time // IP → fetch_narada_result polls (60/hr)
+	friendTokenLog  map[string][]time.Time // friend tokenID → mysloodsiewnia_* calls (per-token 1h window)
 
 	// Bridge into the mysłoodsiewnia vault. Nil ⇒ tools report offline.
 	liveness    *mysloodsiewnia.Liveness
@@ -130,6 +131,7 @@ func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler
 		fetchAnswerLog: make(map[string][]time.Time),
 		naradaLog:      make(map[string][]time.Time),
 		naradaFetchLog: make(map[string][]time.Time),
+		friendTokenLog: make(map[string][]time.Time),
 	}
 	// Cleanup goroutines
 	go h.cleanupLoop()
@@ -1196,29 +1198,13 @@ func (h *Handler) handleToolsCall(w http.ResponseWriter, r *http.Request, req *R
 	case "synthesise_persona_patterns":
 		h.toolSynthesisePersonaPatterns(w, r, req, params.Arguments)
 	case "mysloodsiewnia_status":
-		if !h.isOwnerRequest(r) {
-			writeToolText(w, req.ID, `Unauthorized — mysloodsiewnia_* tools require Authorization: Bearer <edit token>.`)
-			return
-		}
-		h.toolMysloodsiewniaStatus(w, req)
+		h.toolMysloodsiewniaStatus(w, r, req)
 	case "mysloodsiewnia_search":
-		if !h.isOwnerRequest(r) {
-			writeToolText(w, req.ID, `Unauthorized — mysloodsiewnia_* tools require Authorization: Bearer <edit token>.`)
-			return
-		}
-		h.toolMysloodsiewniaSearch(w, req, params.Arguments)
+		h.toolMysloodsiewniaSearch(w, r, req, params.Arguments)
 	case "mysloodsiewnia_get":
-		if !h.isOwnerRequest(r) {
-			writeToolText(w, req.ID, `Unauthorized — mysloodsiewnia_* tools require Authorization: Bearer <edit token>.`)
-			return
-		}
-		h.toolMysloodsiewniaGet(w, req, params.Arguments)
+		h.toolMysloodsiewniaGet(w, r, req, params.Arguments)
 	case "mysloodsiewnia_list":
-		if !h.isOwnerRequest(r) {
-			writeToolText(w, req.ID, `Unauthorized — mysloodsiewnia_* tools require Authorization: Bearer <edit token>.`)
-			return
-		}
-		h.toolMysloodsiewniaList(w, req, params.Arguments)
+		h.toolMysloodsiewniaList(w, r, req, params.Arguments)
 	default:
 		writeError(w, req.ID, -32602, "unknown tool: "+params.Name)
 	}
@@ -2515,7 +2501,7 @@ func (h *Handler) toolBootstrapSession(w http.ResponseWriter, r *http.Request, r
 	sb.WriteString("     - 'dobranoc' / '/dobranoc' → fetch skill `dobranoc-dziennik` via `get_skill` and follow it.\n")
 	sb.WriteString("     - Polish-language reply context → language-style-polish already auto-loaded via bootstrap; keep applying it.\n")
 	sb.WriteString("     - Secrets, tokens, destructive commands → Hodor is the guardian; default-deny and confirm with kapoost first.\n")
-	sb.WriteString("     - 'przeszukaj vault' / 'znajdź w mojej wiedzy' / 'w mysłoodsiewni' → `mysloodsiewnia_search(query, limit?)`; owner-only (Authorization: Bearer). Response `{status:offline}` = kapoost's home vault isn't reachable right now — this is a stable state, not an error, do NOT retry immediately. Sibling tools: `mysloodsiewnia_status` (heartbeat + commit_sha), `mysloodsiewnia_get(doc_slug)`.\n")
+	sb.WriteString("     - 'przeszukaj vault' / 'znajdź w mojej wiedzy' / 'w mysłoodsiewni' → `mysloodsiewnia_search(query, limit?)`; requires Authorization: Bearer <token>. Two token classes: (a) owner token = unlimited scope; (b) named friend tokens = read-only, scoped to specific `doc_type`s, per-token 1h rate limit, expirable. Both go through the same tools; the response shape is identical for both. Unknown / revoked / expired friend tokens are indistinguishable from anonymous — response is the same `Unauthorized` text, so nothing about the friend-token set leaks. Response `{status:offline}` = kapoost's home vault isn't reachable right now — stable state, do NOT retry immediately. `{status:out_of_scope, allowed:[...]}` = you're using a friend token and the requested `doc_type` isn't in your scope. `{status:rate_limited, retry_after:N}` = your token's 1h budget is spent; back off exactly N seconds. Sibling tools: `mysloodsiewnia_status`, `mysloodsiewnia_list(doc_type?)`, `mysloodsiewnia_get(doc_slug)`.\n")
 	sb.WriteString("  4. For any other topic that hits a domain skill (e.g. 'go stack', 'deploy', 'shell', 'mx5', 's2000', 'onaudience', 'bookkido'), call `list_skills` to find the slug, then `get_skill(slug=<x>)` for the body — do NOT reinvent from memory alone.\n")
 	sb.WriteString("  4a. GROUP LOAD — when the user says 'załaduj skille z projektu X' / 'load project X skills' / 'load skill group X', call `load_skill_group(name=<X>)` (single MCP call, returns all bodies). Discover available groups via `list_skill_groups`. For a fresh workspace ('scaffold', 'skonfiguruj to repo') use `suggest_skills(files=[...], languages=[...], git_origin=...)` — deterministic, capped at 8 slugs.\n")
 	sb.WriteString("  5. If your platform supports it, also stash a durable pointer to this server's `about_humanmcp` tool — future-you can re-orient in one call without a full bootstrap.\n")

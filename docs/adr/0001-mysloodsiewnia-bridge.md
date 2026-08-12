@@ -33,6 +33,35 @@
   from hardcoded default to per-token config; plus a new "Horcrux vs
   sharing token" subsection (Z6) — same mechanism, different operational
   discipline, needs a separate decision before first horcrux token.
+- **2026-08-12** — Wave 3 Fly-side wired up. Landed as a single commit
+  under `[narada:nar-67cdd80179c2]`:
+  - `internal/config/config.go` — `FriendTokenSpec` type + `FriendTokens`
+    field. Prod loads from `FRIEND_TOKENS_JSON` env (base64-encoded JSON
+    blob). Empty ⇒ owner-only (wave 1 behavior).
+  - `internal/mcp/friend_auth.go` — `AuthorizeRequestByHeaders` returns
+    `(tokenID, scopes, ok)`. Unknown / expired / malformed all return
+    `("", nil, false)` — indistinguishable from anonymous by design
+    (W4 + Z3). `CheckFriendTokenRateLimit` — per-tokenID sliding 1h
+    window, owner bypasses, returns `retry_after` seconds on deny.
+  - `internal/mcp/mysloodsiewnia_tools.go` + `internal/mcp/v2/mysloodsiewnia.go`
+    — new precedence for all four tools: (1) auth (2) validate args
+    (3) rate-limit (4) scope (5) liveness gate (6) enqueueScoped.
+    Owner path unchanged (backward compat with wave 1 storyboards).
+  - `internal/mysloodsiewnia/queue.go` + `bridge.go` — `Op.TokenID` +
+    `Op.Scopes` (omitempty) propagate to vault via `EnqueueScoped` +
+    the `/pending-ops` wire form. Vault worker uses these for SQL
+    filter + audit write.
+  - `storyboards/mysloodsiewnia/wave3_*.yaml` — four new storyboards
+    (moved from `prompts/wave3-storyboards/`). All 17 assertions green.
+    Each sabotage-verified per SABOTAGE_LOG.md (rate-limit, gate,
+    scope, auth — each removal caught by the respective storyboard).
+  - Bootstrap body (v1 + v2) mentions the friend-token model and every
+    response-envelope shape (`out_of_scope`, `rate_limited`, `offline`).
+  - Vault-side + `flyctl secrets set FRIEND_TOKENS_JSON` land separately
+    (see `~/Documents/humanmcp-incident-playbook.txt` new WAVE 3 section
+    for rotation / revocation / audit runbook). Fly-side is safe to
+    deploy first — with no `FRIEND_TOKENS_JSON` set, behavior is
+    identical to wave 1.
 
 ## Context
 

@@ -41,6 +41,15 @@ type Op struct {
 	Args       json.RawMessage `json:"args"`
 	EnqueuedAt time.Time       `json:"enqueued_at"`
 
+	// Wave 3 sharing / friend tokens. When TokenID is "" (or "owner"),
+	// vault treats the op as unlimited-scope (wave 1 semantics). When
+	// TokenID names a friend slug, vault MUST filter its SELECTs with
+	// `AND doc_type IN (Scopes...) AND access != 'private'` before any
+	// COUNT / LIMIT and MUST record the returned doc_id hashes in the
+	// per-response audit sink. See ADR-0001 sekcja "Wave 3".
+	TokenID string   `json:"token_id,omitempty"`
+	Scopes  []string `json:"scopes,omitempty"`
+
 	// Set by Complete; readable only after result chan closes.
 	State  OpState         `json:"-"`
 	Result json.RawMessage `json:"-"`
@@ -64,11 +73,26 @@ func NewQueue() *Queue {
 
 // Enqueue registers a new op with a fresh UUID and returns it. The caller
 // blocks in WaitFor until the vault posts /complete or timeout elapses.
+// Owner path — no scope propagation. Wave 1 semantics.
 func (q *Queue) Enqueue(kind OpKind, args json.RawMessage) *Op {
+	return q.enqueue(kind, args, "", nil)
+}
+
+// EnqueueScoped is the wave-3 friend-token variant: TokenID and Scopes are
+// carried on the op so the vault worker can apply the SQL filter and audit
+// write before returning. Race-safe — fields set before the op is visible
+// to /pending-ops pickers.
+func (q *Queue) EnqueueScoped(kind OpKind, args json.RawMessage, tokenID string, scopes []string) *Op {
+	return q.enqueue(kind, args, tokenID, scopes)
+}
+
+func (q *Queue) enqueue(kind OpKind, args json.RawMessage, tokenID string, scopes []string) *Op {
 	op := &Op{
 		ID:         newOpID(),
 		Kind:       kind,
 		Args:       args,
+		TokenID:    tokenID,
+		Scopes:     scopes,
 		EnqueuedAt: time.Now(),
 		State:      OpAccepted,
 		result:     make(chan struct{}),

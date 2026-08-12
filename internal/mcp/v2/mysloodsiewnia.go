@@ -3,6 +3,7 @@ package v2
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -14,20 +15,29 @@ import (
 // paths waiting the same amount before returning vault_timeout.
 const bridgeWaitTimeout = 20 * time.Second
 
-// unauthorizedText is what bridge tools return without a valid owner token.
-// Same string as v1 so parity_test passes.
+// unauthorizedText is what bridge tools return without any recognized token.
+// IDENTICAL for owner-not-present AND friend-token-unknown/expired/malformed
+// (wave 3 W4 + Z3). Same string as v1 so parity_test passes.
 const unauthorizedText = "Unauthorized — mysloodsiewnia_* tools require Authorization: Bearer <edit token>."
+
+// ownerSlug is the tokenID stamped on requests that carry the edit / agent /
+// session token. Kept in sync with internal/mcp/friend_auth.go:ownerTokenID.
+const ownerSlug = "owner"
 
 // ── mysloodsiewnia_status ───────────────────────────────────────────────────
 
 func registerMysloodsiewniaStatus(s *sdk.Server, src Source) {
 	s.AddTool(&sdk.Tool{
 		Name:        "mysloodsiewnia_status",
-		Description: "Read-only liveness probe on kapoost's local vault (mysłoodsiewnia). Returns {status: online|degraded|offline, last_seen, commit_sha, personas_updated_at, skills_updated_at}. Offline is a stable state — retry later, don't escalate. Owner-only via Authorization: Bearer.",
+		Description: "Read-only liveness probe on kapoost's local vault (mysłoodsiewnia). Returns {status: online|degraded|offline, last_seen, commit_sha, personas_updated_at, skills_updated_at}. Offline is a stable state — retry later, don't escalate. Requires Authorization: Bearer <edit token or friend token>.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
 	}, func(_ context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
-		if !ownerRequest(src, req) {
+		tokenID, _, ok := src.AuthorizeRequestByHeaders(req.Extra.Header)
+		if !ok {
 			return textResult(unauthorizedText), nil
+		}
+		if resp, allowed := enforceRateLimit(src, tokenID); !allowed {
+			return textResult(resp), nil
 		}
 		snap := currentSnapshot(src)
 		return textResult(renderBridgeStatus(snap)), nil
@@ -39,10 +49,11 @@ func registerMysloodsiewniaStatus(s *sdk.Server, src Source) {
 func registerMysloodsiewniaSearch(s *sdk.Server, src Source) {
 	s.AddTool(&sdk.Tool{
 		Name:        "mysloodsiewnia_search",
-		Description: "Full-text search (BM25 over SQLite FTS5) on kapoost's local vault corpus. Owner-only. Returns {status, results:[{source, type, body, doc_slug, title, page, citation}], summary}. Vault offline ⇒ {status:offline} — do not retry immediately.",
+		Description: "Full-text search (BM25 over SQLite FTS5) on kapoost's local vault corpus. Requires Authorization: Bearer <edit token or friend token>. Friend tokens see only their scoped doc_types; access:private is invisible. Returns {status, results:[{source, type, body, doc_slug, title, page, citation}], summary}. Vault offline ⇒ {status:offline}.",
 		InputSchema: json.RawMessage(`{"type":"object","required":["query"],"properties":{"query":{"type":"string"},"limit":{"type":"integer"},"doc_type":{"type":"string"},"doc_slug":{"type":"string"}}}`),
 	}, func(_ context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
-		if !ownerRequest(src, req) {
+		tokenID, scopes, ok := src.AuthorizeRequestByHeaders(req.Extra.Header)
+		if !ok {
 			return textResult(unauthorizedText), nil
 		}
 		var args struct {
@@ -59,13 +70,19 @@ func registerMysloodsiewniaSearch(s *sdk.Server, src Source) {
 		if args.Query == "" {
 			return textResult(`{"status":"invalid_args","error":"query is required"}`), nil
 		}
+		if resp, allowed := enforceRateLimit(src, tokenID); !allowed {
+			return textResult(resp), nil
+		}
+		if resp, allowed := enforceScope(tokenID, scopes, args.DocType); !allowed {
+			return textResult(resp), nil
+		}
 		if text, stop := gate(src); stop {
 			return textResult(text), nil
 		}
 		if args.Limit <= 0 || args.Limit > 20 {
 			args.Limit = 5
 		}
-		return textResult(enqueueAndWait(src, mysloodsiewnia.OpSearch, args)), nil
+		return textResult(enqueueAndWait(src, mysloodsiewnia.OpSearch, args, tokenID, scopes)), nil
 	})
 }
 
@@ -74,10 +91,11 @@ func registerMysloodsiewniaSearch(s *sdk.Server, src Source) {
 func registerMysloodsiewniaList(s *sdk.Server, src Source) {
 	s.AddTool(&sdk.Tool{
 		Name:        "mysloodsiewnia_list",
-		Description: "Enumerate vault documents without FTS — for browsing by type or paginating. Owner-only. Args: {doc_type?: string filter (note/pdf/literatura/calendar_event/...), limit?: int 1-200 default 50, offset?: int default 0}. Returns [{slug, title, doc_type, created_at, chunk_count}]. Vault offline ⇒ {status:offline}.",
+		Description: "Enumerate vault documents without FTS — for browsing by type or paginating. Requires Authorization: Bearer <edit token or friend token>. Friend tokens see only their scoped doc_types; access:private is invisible. Args: {doc_type?: string filter (note/pdf/literatura/calendar_event/...), limit?: int 1-200 default 50, offset?: int default 0}. Returns [{slug, title, doc_type, created_at, chunk_count}]. Vault offline ⇒ {status:offline}.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"doc_type":{"type":"string"},"limit":{"type":"integer"},"offset":{"type":"integer"}}}`),
 	}, func(_ context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
-		if !ownerRequest(src, req) {
+		tokenID, scopes, ok := src.AuthorizeRequestByHeaders(req.Extra.Header)
+		if !ok {
 			return textResult(unauthorizedText), nil
 		}
 		var args struct {
@@ -96,10 +114,16 @@ func registerMysloodsiewniaList(s *sdk.Server, src Source) {
 		if args.Offset < 0 {
 			args.Offset = 0
 		}
+		if resp, allowed := enforceRateLimit(src, tokenID); !allowed {
+			return textResult(resp), nil
+		}
+		if resp, allowed := enforceScope(tokenID, scopes, args.DocType); !allowed {
+			return textResult(resp), nil
+		}
 		if text, stop := gate(src); stop {
 			return textResult(text), nil
 		}
-		return textResult(enqueueAndWait(src, mysloodsiewnia.OpList, args)), nil
+		return textResult(enqueueAndWait(src, mysloodsiewnia.OpList, args, tokenID, scopes)), nil
 	})
 }
 
@@ -108,10 +132,11 @@ func registerMysloodsiewniaList(s *sdk.Server, src Source) {
 func registerMysloodsiewniaGet(s *sdk.Server, src Source) {
 	s.AddTool(&sdk.Tool{
 		Name:        "mysloodsiewnia_get",
-		Description: "Fetch one document from kapoost's vault by slug. Owner-only. Returns the full body + metadata; vault offline ⇒ {status:offline}.",
+		Description: "Fetch one document from kapoost's vault by slug. Requires Authorization: Bearer <edit token or friend token>. Friend tokens: vault-side filter enforces scope + access:private invisibility — an out-of-scope or private slug returns not_found. Vault offline ⇒ {status:offline}.",
 		InputSchema: json.RawMessage(`{"type":"object","required":["doc_slug"],"properties":{"doc_slug":{"type":"string"}}}`),
 	}, func(_ context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
-		if !ownerRequest(src, req) {
+		tokenID, scopes, ok := src.AuthorizeRequestByHeaders(req.Extra.Header)
+		if !ok {
 			return textResult(unauthorizedText), nil
 		}
 		var args struct {
@@ -125,10 +150,16 @@ func registerMysloodsiewniaGet(s *sdk.Server, src Source) {
 		if args.DocSlug == "" {
 			return textResult(`{"status":"invalid_args","error":"doc_slug is required"}`), nil
 		}
+		if resp, allowed := enforceRateLimit(src, tokenID); !allowed {
+			return textResult(resp), nil
+		}
+		// _get has no doc_type in args — scope enforcement is deferred to
+		// the vault SQL layer, which filters by scope + access before
+		// returning the row (out-of-scope / private ⇒ not_found).
 		if text, stop := gate(src); stop {
 			return textResult(text), nil
 		}
-		return textResult(enqueueAndWait(src, mysloodsiewnia.OpGet, args)), nil
+		return textResult(enqueueAndWait(src, mysloodsiewnia.OpGet, args, tokenID, scopes)), nil
 	})
 }
 
@@ -148,6 +179,56 @@ func gate(src Source) (text string, stop bool) {
 		return "", false
 	}
 	return renderBridgeStatus(snap), true
+}
+
+// enforceRateLimit returns (responseBody, allowed). Owner bypasses. On deny
+// the body shape is inline (no indent) `{"status":"rate_limited","retry_after":N}`
+// — pinned by wave3_rate_limit_per_token.yaml (asserts without space after
+// colon). See ADR-0001 Prerequisite + Z4.
+func enforceRateLimit(src Source, tokenID string) (string, bool) {
+	if tokenID == "" || tokenID == ownerSlug {
+		return "", true
+	}
+	limit := 30 // Z4 fallback
+	if cfg := src.Config(); cfg != nil {
+		if spec, exists := cfg.FriendTokens[tokenID]; exists && spec != nil && spec.RateLimitPerHour > 0 {
+			limit = spec.RateLimitPerHour
+		}
+	}
+	allow, retry := src.CheckFriendTokenRateLimit(tokenID, limit)
+	if !allow {
+		return fmt.Sprintf(`{"status":"rate_limited","retry_after":%d}`, retry), false
+	}
+	return "", true
+}
+
+// enforceScope returns (responseBody, allowed). Owner/nil-scopes bypass. Empty
+// docType means the caller didn't filter — the vault will apply the scope
+// filter on its side (SELECT ... WHERE doc_type IN (Scopes...)). Only an
+// explicit out-of-scope doc_type argument short-circuits here.
+//
+// Body shape is JSON-indented `{"status": "out_of_scope","allowed": [...]}`
+// — pinned by wave3_scoped_out_of_scope_403.yaml (asserts WITH space after
+// colon). Deliberately asymmetric with access:private (silent skip on vault
+// side) — see ADR-0001 W3/Z2 pinned invariant. Do NOT unify.
+func enforceScope(tokenID string, scopes []string, docType string) (string, bool) {
+	if tokenID == "" || tokenID == ownerSlug || scopes == nil {
+		return "", true
+	}
+	if docType == "" {
+		return "", true
+	}
+	for _, s := range scopes {
+		if s == docType || s == "*" {
+			return "", true
+		}
+	}
+	body := map[string]any{
+		"status":  "out_of_scope",
+		"allowed": scopes,
+	}
+	b, _ := json.MarshalIndent(body, "", "  ")
+	return string(b), false
 }
 
 func renderBridgeStatus(snap mysloodsiewnia.Snapshot) string {
@@ -178,7 +259,11 @@ func formatBridgeTime(t time.Time) string {
 	return t.UTC().Format(time.RFC3339)
 }
 
-func enqueueAndWait(src Source, kind mysloodsiewnia.OpKind, args any) string {
+// enqueueAndWait — tokenID + scopes propagate to the vault via the queue
+// wire form. Owner path (tokenID=="" or "owner") uses the wave-1 unscoped
+// Enqueue; friend path uses EnqueueScoped so the vault worker applies the
+// SQL filter + writes the transactional audit row.
+func enqueueAndWait(src Source, kind mysloodsiewnia.OpKind, args any, tokenID string, scopes []string) string {
 	q := src.BridgeQueue()
 	if q == nil {
 		return `{"status":"internal_error","error":"bridge queue not configured"}`
@@ -187,7 +272,12 @@ func enqueueAndWait(src Source, kind mysloodsiewnia.OpKind, args any) string {
 	if err != nil {
 		return `{"status":"internal_error","error":"failed to marshal args"}`
 	}
-	op := q.Enqueue(kind, raw)
+	var op *mysloodsiewnia.Op
+	if tokenID == "" || tokenID == ownerSlug {
+		op = q.Enqueue(kind, raw)
+	} else {
+		op = q.EnqueueScoped(kind, raw, tokenID, scopes)
+	}
 	completed, ok := q.WaitFor(op.ID, bridgeWaitTimeout)
 	if !ok {
 		out, _ := json.MarshalIndent(map[string]any{

@@ -96,16 +96,27 @@ func (b *Bridge) handlePendingOps(w http.ResponseWriter, r *http.Request) {
 	}
 	ops := b.Queue.Pending(10)
 	// Marshal explicit fields — the private `result` chan on Op is not
-	// exported but we still want to filter to the pull contract.
+	// exported but we still want to filter to the pull contract. Wave 3
+	// adds TokenID + Scopes (omitempty) so scoped friend-token ops carry
+	// the SQL filter context to the vault; owner-path ops omit both.
 	type wireOp struct {
 		ID         string          `json:"op_id"`
 		Kind       OpKind          `json:"kind"`
 		Args       json.RawMessage `json:"args"`
 		EnqueuedAt time.Time       `json:"enqueued_at"`
+		TokenID    string          `json:"token_id,omitempty"`
+		Scopes     []string        `json:"scopes,omitempty"`
 	}
 	out := make([]wireOp, 0, len(ops))
 	for _, op := range ops {
-		out = append(out, wireOp{ID: op.ID, Kind: op.Kind, Args: op.Args, EnqueuedAt: op.EnqueuedAt})
+		out = append(out, wireOp{
+			ID:         op.ID,
+			Kind:       op.Kind,
+			Args:       op.Args,
+			EnqueuedAt: op.EnqueuedAt,
+			TokenID:    op.TokenID,
+			Scopes:     op.Scopes,
+		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ops": out})
 }

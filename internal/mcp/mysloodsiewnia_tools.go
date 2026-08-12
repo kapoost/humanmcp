@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -13,6 +14,12 @@ import (
 // under load. Timeout kicks in when the vault is stale but hasn't crossed
 // the liveness TTL yet (a torn network).
 const bridgeWaitTimeout = 20 * time.Second
+
+// unauthorizedText is what mysloodsiewnia_* tools return without any
+// recognized token. IDENTICAL for owner-absent AND friend-unknown/expired/
+// malformed (wave 3 W4 + Z3 pin — see ADR-0001). Same string as v2 so the
+// parity test between v1 and v2 stays green.
+const unauthorizedText = "Unauthorized — mysloodsiewnia_* tools require Authorization: Bearer <edit token>."
 
 // mysloodsiewniaGate is called first by every bridge tool. Returns the
 // serialized offline/degraded response (as JSON in a text block) plus a
@@ -63,19 +70,23 @@ func formatBridgeTime(t time.Time) string {
 }
 
 // enqueueAndWait pushes an op onto the shared queue and waits for the vault
-// to complete it. Returns the text the tool should surface to the agent —
-// either the successful result, a timeout note, or a vault-side error.
-func (h *Handler) enqueueAndWait(kind mysloodsiewnia.OpKind, args any) string {
+// to complete it. Owner path (tokenID=="" or "owner") uses unscoped Enqueue;
+// friend path uses EnqueueScoped so the vault worker applies the SQL filter
+// + writes the transactional audit row for the returned doc_ids.
+func (h *Handler) enqueueAndWait(kind mysloodsiewnia.OpKind, args any, tokenID string, scopes []string) string {
 	raw, err := json.Marshal(args)
 	if err != nil {
 		return `{"status":"internal_error","error":"failed to marshal args"}`
 	}
 	if h.bridgeQueue == nil {
-		// Should never happen if liveness reports online, but defence in
-		// depth: don't panic on a bad wiring.
 		return `{"status":"internal_error","error":"bridge queue not configured"}`
 	}
-	op := h.bridgeQueue.Enqueue(kind, raw)
+	var op *mysloodsiewnia.Op
+	if tokenID == "" || tokenID == ownerTokenID {
+		op = h.bridgeQueue.Enqueue(kind, raw)
+	} else {
+		op = h.bridgeQueue.EnqueueScoped(kind, raw, tokenID, scopes)
+	}
 	completed, ok := h.bridgeQueue.WaitFor(op.ID, bridgeWaitTimeout)
 	if !ok {
 		out, _ := json.MarshalIndent(map[string]any{
@@ -93,20 +104,83 @@ func (h *Handler) enqueueAndWait(kind mysloodsiewnia.OpKind, args any) string {
 		}, "", "  ")
 		return string(out)
 	}
-	// Vault-side result is already JSON — surface it as-is so the agent
-	// gets whatever /query or the get handler produced.
 	if len(completed.Result) == 0 {
 		return `{"status":"applied","result":null}`
 	}
-	// Wrap the vault's result so agents can rely on a uniform envelope.
 	envelope := map[string]any{"status": "online", "op_id": completed.ID, "result": json.RawMessage(completed.Result)}
 	b, _ := json.MarshalIndent(envelope, "", "  ")
 	return string(b)
 }
 
-// ── v1 tool handlers ────────────────────────────────────────────────────────
+// friendRateLimit returns (responseBody, allowed). Inline JSON (no indent)
+// so wave3_rate_limit_per_token.yaml assertion matches — body_contains
+// checks for `"status":"rate_limited"` with no space after colon.
+func (h *Handler) friendRateLimit(tokenID string) (string, bool) {
+	if tokenID == "" || tokenID == ownerTokenID {
+		return "", true
+	}
+	limit := 30 // Z4 fallback
+	if h.cfg != nil {
+		if spec, exists := h.cfg.FriendTokens[tokenID]; exists && spec != nil && spec.RateLimitPerHour > 0 {
+			limit = spec.RateLimitPerHour
+		}
+	}
+	allow, retry := h.CheckFriendTokenRateLimit(tokenID, limit)
+	if !allow {
+		return fmt.Sprintf(`{"status":"rate_limited","retry_after":%d}`, retry), false
+	}
+	return "", true
+}
 
-func (h *Handler) toolMysloodsiewniaStatus(w http.ResponseWriter, req *Request) {
+// friendScope enforces doc_type ∈ scopes for scoped callers. JSON-indented
+// so wave3_scoped_out_of_scope_403.yaml assertion matches — body_contains
+// checks for `"status": "out_of_scope"` WITH space after colon.
+//
+// Empty docType ⇒ vault-side handles scope (SELECT ... WHERE doc_type IN
+// (scopes)). Only an explicit out-of-scope doc_type short-circuits here.
+//
+// Asymmetric with access:private (silent skip on vault) — see ADR-0001
+// W3/Z2 pinned invariant. Do NOT unify.
+func friendScope(tokenID string, scopes []string, docType string) (string, bool) {
+	if tokenID == "" || tokenID == ownerTokenID || scopes == nil {
+		return "", true
+	}
+	if docType == "" {
+		return "", true
+	}
+	for _, s := range scopes {
+		if s == docType || s == "*" {
+			return "", true
+		}
+	}
+	body := map[string]any{
+		"status":  "out_of_scope",
+		"allowed": scopes,
+	}
+	b, _ := json.MarshalIndent(body, "", "  ")
+	return string(b), false
+}
+
+// ── v1 tool handlers ────────────────────────────────────────────────────────
+//
+// Auth precedence for all four tools:
+//   (1) AuthorizeRequestByHeaders → unauthorized text if not recognized
+//   (2) Parse args → invalid_args on decode failure or required-arg missing
+//   (3) friendRateLimit (owner bypasses)
+//   (4) friendScope on args.DocType where applicable (owner bypasses)
+//   (5) liveness gate → offline / degraded shape
+//   (6) enqueueAndWait — passes tokenID + scopes to vault via queue
+
+func (h *Handler) toolMysloodsiewniaStatus(w http.ResponseWriter, r *http.Request, req *Request) {
+	tokenID, _, ok := h.AuthorizeRequestByHeaders(r.Header)
+	if !ok {
+		writeToolText(w, req.ID, unauthorizedText)
+		return
+	}
+	if resp, allowed := h.friendRateLimit(tokenID); !allowed {
+		writeToolText(w, req.ID, resp)
+		return
+	}
 	if h.liveness == nil {
 		writeToolText(w, req.ID, renderBridgeStatus(mysloodsiewnia.Snapshot{Status: mysloodsiewnia.StatusUnreachable}))
 		return
@@ -114,7 +188,12 @@ func (h *Handler) toolMysloodsiewniaStatus(w http.ResponseWriter, req *Request) 
 	writeToolText(w, req.ID, renderBridgeStatus(h.liveness.Get()))
 }
 
-func (h *Handler) toolMysloodsiewniaSearch(w http.ResponseWriter, req *Request, arguments json.RawMessage) {
+func (h *Handler) toolMysloodsiewniaSearch(w http.ResponseWriter, r *http.Request, req *Request, arguments json.RawMessage) {
+	tokenID, scopes, ok := h.AuthorizeRequestByHeaders(r.Header)
+	if !ok {
+		writeToolText(w, req.ID, unauthorizedText)
+		return
+	}
 	var args struct {
 		Query   string `json:"query"`
 		Limit   int    `json:"limit,omitempty"`
@@ -131,8 +210,14 @@ func (h *Handler) toolMysloodsiewniaSearch(w http.ResponseWriter, req *Request, 
 		writeToolText(w, req.ID, `{"status":"invalid_args","error":"query is required"}`)
 		return
 	}
-	// Validate args BEFORE gating on liveness — agents get useful errors
-	// even when the vault is offline (bad query is always bad).
+	if resp, allowed := h.friendRateLimit(tokenID); !allowed {
+		writeToolText(w, req.ID, resp)
+		return
+	}
+	if resp, allowed := friendScope(tokenID, scopes, args.DocType); !allowed {
+		writeToolText(w, req.ID, resp)
+		return
+	}
 	if text, stop := h.mysloodsiewniaGate(); stop {
 		writeToolText(w, req.ID, text)
 		return
@@ -140,10 +225,15 @@ func (h *Handler) toolMysloodsiewniaSearch(w http.ResponseWriter, req *Request, 
 	if args.Limit <= 0 || args.Limit > 20 {
 		args.Limit = 5
 	}
-	writeToolText(w, req.ID, h.enqueueAndWait(mysloodsiewnia.OpSearch, args))
+	writeToolText(w, req.ID, h.enqueueAndWait(mysloodsiewnia.OpSearch, args, tokenID, scopes))
 }
 
-func (h *Handler) toolMysloodsiewniaList(w http.ResponseWriter, req *Request, arguments json.RawMessage) {
+func (h *Handler) toolMysloodsiewniaList(w http.ResponseWriter, r *http.Request, req *Request, arguments json.RawMessage) {
+	tokenID, scopes, ok := h.AuthorizeRequestByHeaders(r.Header)
+	if !ok {
+		writeToolText(w, req.ID, unauthorizedText)
+		return
+	}
 	var args struct {
 		DocType string `json:"doc_type,omitempty"`
 		Limit   int    `json:"limit,omitempty"`
@@ -161,14 +251,27 @@ func (h *Handler) toolMysloodsiewniaList(w http.ResponseWriter, req *Request, ar
 	if args.Offset < 0 {
 		args.Offset = 0
 	}
+	if resp, allowed := h.friendRateLimit(tokenID); !allowed {
+		writeToolText(w, req.ID, resp)
+		return
+	}
+	if resp, allowed := friendScope(tokenID, scopes, args.DocType); !allowed {
+		writeToolText(w, req.ID, resp)
+		return
+	}
 	if text, stop := h.mysloodsiewniaGate(); stop {
 		writeToolText(w, req.ID, text)
 		return
 	}
-	writeToolText(w, req.ID, h.enqueueAndWait(mysloodsiewnia.OpList, args))
+	writeToolText(w, req.ID, h.enqueueAndWait(mysloodsiewnia.OpList, args, tokenID, scopes))
 }
 
-func (h *Handler) toolMysloodsiewniaGet(w http.ResponseWriter, req *Request, arguments json.RawMessage) {
+func (h *Handler) toolMysloodsiewniaGet(w http.ResponseWriter, r *http.Request, req *Request, arguments json.RawMessage) {
+	tokenID, scopes, ok := h.AuthorizeRequestByHeaders(r.Header)
+	if !ok {
+		writeToolText(w, req.ID, unauthorizedText)
+		return
+	}
 	var args struct {
 		DocSlug string `json:"doc_slug"`
 	}
@@ -182,11 +285,18 @@ func (h *Handler) toolMysloodsiewniaGet(w http.ResponseWriter, req *Request, arg
 		writeToolText(w, req.ID, `{"status":"invalid_args","error":"doc_slug is required"}`)
 		return
 	}
+	if resp, allowed := h.friendRateLimit(tokenID); !allowed {
+		writeToolText(w, req.ID, resp)
+		return
+	}
+	// _get has no doc_type in args; scope enforcement is deferred to the
+	// vault SQL layer, which filters by scope + access before returning
+	// the row (out-of-scope / private ⇒ not_found).
 	if text, stop := h.mysloodsiewniaGate(); stop {
 		writeToolText(w, req.ID, text)
 		return
 	}
-	writeToolText(w, req.ID, h.enqueueAndWait(mysloodsiewnia.OpGet, args))
+	writeToolText(w, req.ID, h.enqueueAndWait(mysloodsiewnia.OpGet, args, tokenID, scopes))
 }
 
 // writeToolText wraps writeResult with the standard MCP CallResult envelope.

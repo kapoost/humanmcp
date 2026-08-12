@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kapoost/humanmcp-go/internal/auth"
 	"github.com/kapoost/humanmcp-go/internal/config"
@@ -20,6 +21,35 @@ import (
 )
 
 const testEditToken = "storyboard-test-token"
+
+// testFriendTokens is the deterministic fixture used by wave-3 storyboards
+// (storyboards/mysloodsiewnia/wave3_*.yaml). Slug names are anonymous
+// (slug-a, slug-b) per repo-public hygiene — see prompts/wave3-sharing.md
+// Landminy sekcja. Scopes are toy values that match the YAMLs, not real
+// vault doc_types.
+//
+// slug-a: normal scope + generous cap — used by out-of-scope + offline gate.
+// slug-b: aggressive cap (3/hr) — used by rate-limit burn test.
+func testFriendTokens() map[string]*config.FriendTokenSpec {
+	future := time.Now().Add(90 * 24 * time.Hour)
+	now := time.Now()
+	return map[string]*config.FriendTokenSpec{
+		"slug-a": {
+			Token:            "storyboard-friend-slug-a",
+			Scopes:           []string{"literatura", "note"},
+			RateLimitPerHour: 50,
+			ExpiresAt:        future,
+			CreatedAt:        now,
+		},
+		"slug-b": {
+			Token:            "storyboard-friend-slug-b",
+			Scopes:           []string{"literatura"},
+			RateLimitPerHour: 3,
+			ExpiresAt:        future,
+			CreatedAt:        now,
+		},
+	}
+}
 
 // runHTTP boots a fresh server stack against a temp data dir, applies the
 // declared setup (listings, pieces), then replays each scripted assertion.
@@ -32,11 +62,12 @@ func runHTTP(t *testing.T, sb Storyboard) {
 	}
 
 	cfg := &config.Config{
-		Host:       "127.0.0.1",
-		Port:       "0",
-		ContentDir: contentDir,
-		AuthorName: "Storyboard",
-		EditToken:  testEditToken,
+		Host:         "127.0.0.1",
+		Port:         "0",
+		ContentDir:   contentDir,
+		AuthorName:   "Storyboard",
+		EditToken:    testEditToken,
+		FriendTokens: testFriendTokens(),
 		// Provide deterministic PoetPool + PoetSecret so PickActivePoem
 		// returns a non-empty session code in tests. Without this, the
 		// owner dashboards skip the "session" section entirely and
