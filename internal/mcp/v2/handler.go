@@ -25,6 +25,11 @@ import (
 type Source interface {
 	LoadPersonas() []mcp.Persona
 	LoadSkills() []mcp.Skill
+	// ToolNames returns every registered MCP tool name. Used at v2 server
+	// construction to bake the tool count into the initialize instructions
+	// (matches v1 exactly since v1 owns the source of truth and v2's
+	// parity_test asserts both sides register the same names).
+	ToolNames() []string
 	Config() *config.Config
 	Store() *content.Store
 	StatStore() *content.StatStore
@@ -69,10 +74,21 @@ type Source interface {
 // New wires an SDK server + StreamableHTTPHandler for path-based mounting.
 // Stateless: true is mandatory for 2026-07-28 per the SDK v1.7.0 release notes.
 func New(cfg *config.Config, src Source) http.Handler {
+	// Bake the initialize instructions block once at server construction.
+	// SDK exposes it via ServerOptions.Instructions → surfaces in the
+	// InitializeResult response, matching v1's `handleInitialize` behavior.
+	// Counts snapshot here; drift-vs-v1 is negligible (only new deploys
+	// change tool/persona/skill totals).
+	instructions := mcp.RenderServerInstructions(
+		cfg.Domain,
+		len(src.ToolNames()),
+		len(src.LoadPersonas()),
+		len(src.LoadSkills()),
+	)
 	server := sdk.NewServer(&sdk.Implementation{
 		Name:    "humanMCP — kapoost",
 		Version: "0.2.0-dev",
-	}, nil)
+	}, &sdk.ServerOptions{Instructions: instructions})
 
 	// discovery
 	registerAboutHumanmcp(server, cfg)

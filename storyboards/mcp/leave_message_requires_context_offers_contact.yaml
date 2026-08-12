@@ -18,7 +18,10 @@ narrative: |
   New contract:
     - `text` still required.
     - `context` NEW required — short reason (which piece, which task,
-      which discovery path). Empty/whitespace rejected with -32602.
+      which discovery path). Empty/whitespace rejected as JSON-RPC
+      error (code depends on transport: v1 direct = -32602, v2 SDK
+      wraps in CallToolResult content with code:0 — assertion checks
+      `"error"` field presence, not code number).
     - `contact` NEW optional — email / URL / MCP endpoint. Presence
       changes the response text but never the storage.
     - Response body composes context + contact prefix into the .txt
@@ -33,7 +36,7 @@ setup:
   personas: []
 
 assertions:
-  - name: "missing context → -32602"
+  - name: "missing context → error"
     request:
       method: POST
       path: /mcp
@@ -43,12 +46,12 @@ assertions:
     expect:
       status: 200
       body_contains:
-        - '"code":-32602'
+        - '"error"'
         - "context required"
       body_does_not_contain:
         - "Message saved"
 
-  - name: "whitespace-only context → -32602"
+  - name: "whitespace-only context → error"
     request:
       method: POST
       path: /mcp
@@ -58,7 +61,8 @@ assertions:
     expect:
       status: 200
       body_contains:
-        - '"code":-32602'
+        - '"error"'
+        - "context required"
       body_does_not_contain:
         - "Message saved"
 

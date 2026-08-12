@@ -17,7 +17,7 @@ import (
 	"github.com/kapoost/humanmcp-go/internal/config"
 	"github.com/kapoost/humanmcp-go/internal/content"
 	"github.com/kapoost/humanmcp-go/internal/mcp"
-	_ "github.com/kapoost/humanmcp-go/internal/mcp/v2" // trialed Tier C mount, see comment below
+	mcpv2 "github.com/kapoost/humanmcp-go/internal/mcp/v2"
 	"github.com/kapoost/humanmcp-go/internal/web"
 )
 
@@ -91,22 +91,21 @@ func runHTTP(t *testing.T, sb Storyboard) {
 	a := auth.New(cfg.EditToken)
 	h := web.NewHandler(cfg, store, a)
 	mux := http.NewServeMux()
-	// Mount MCP at /mcp + /mcp/ so storyboards can POST JSON-RPC
-	// against tools/call without spinning up a parallel server.
-	// TODO(Tier C v1→v2): storyboards currently target v1 mcpHandler.
-	// A trial mount of v2 (mcpv2.New(cfg, mcpHandler)) here surfaces
-	// 10 real failures: (a) 4× -32602 error-code drift (SDK wraps tool
-	// errors in CallToolResult content, no JSON-RPC error object with
-	// code); (b) 2× list_collection/read_collection_item missing
-	// "Members-only drawing"/"Original creator" fields — v2 impl parity
-	// gap vs v1; (c) 4× initialize response missing HOW USERS ADD /
-	// PERSIST FOR NEXT SESSION / server instructions block — v2 SDK
-	// doesn't surface them via initialize the same way v1 did. Fix in
-	// three PRs (assertion updates + v2 collection port + v2 initialize
-	// instructions wire-up) before flipping this mount.
+	// Tier C v1→v2 migration status: storyboards still mount v1
+	// (mcpHandler). Trial mount of v2 (mcpv2.New(cfg, mcpHandler)) yields
+	// 248/251 passing — the 2 remaining failures are both in
+	// `mcp/collection_access_gates_via_mcp` bootstrapped subtests,
+	// blocked on the v2 session model. Root cause: SDK strips the
+	// Mcp-Session-Id header on stateless servers (see handler.go:232-240),
+	// so `IsSessionActiveByHeaders` always returns false for v2 callers.
+	// Requires a session-activation channel v2 SDK doesn't provide today
+	// (options: piggyback on Authorization: Bearer <session_token> issued
+	// by bootstrap_session, or custom X-Session-Id header the SDK doesn't
+	// touch). Separate ADR before flipping this mount.
 	mcpHandler := mcp.NewHandler(cfg, store, a)
 	mux.Handle("/mcp", mcpHandler)
 	mux.Handle("/mcp/", mcpHandler)
+	_ = mcpv2.New // keep import compiling; used at prod v2 endpoint mount, not here yet.
 	// Wire the MCP tool count into the web handler so /llms.txt can
 	// render the same number as prod.
 	h.SetMCPToolCount(len(mcpHandler.ToolNames()))

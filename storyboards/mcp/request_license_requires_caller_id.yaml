@@ -19,7 +19,10 @@ narrative: |
     - slug required (unchanged)
     - intended_use required (unchanged)
     - caller_id required (NEW) — whitespace-only rejected
-    - JSON-RPC error -32602 when any of the three is missing
+    - JSON-RPC error when any of the three is missing (code depends
+      on transport: v1 = -32602, v2 SDK = 0 wrapped in CallToolResult
+      content; assertion checks `"error"` presence + message text
+      instead of code number)
 
   Positive path still works: valid caller_id → license terms in the
   response and a fully-attributed audit message on disk.
@@ -35,7 +38,7 @@ setup:
       signed: true
 
 assertions:
-  - name: "missing caller_id → -32602"
+  - name: "missing caller_id → error"
     request:
       method: POST
       path: /mcp
@@ -45,12 +48,12 @@ assertions:
     expect:
       status: 200
       body_contains:
-        - '"code":-32602'
+        - '"error"'
         - "caller_id required"
       body_does_not_contain:
         - "LICENSE TERMS"
 
-  - name: "whitespace-only caller_id → -32602"
+  - name: "whitespace-only caller_id → error"
     request:
       method: POST
       path: /mcp
@@ -60,7 +63,7 @@ assertions:
     expect:
       status: 200
       body_contains:
-        - '"code":-32602'
+        - '"error"'
         - "caller_id required"
       body_does_not_contain:
         - "LICENSE TERMS"
@@ -79,7 +82,7 @@ assertions:
         - "Audit trail target"
         - "STATUS"
       body_does_not_contain:
-        - '"code":-32602'
+        - '"error"'
 
 closes_failure_modes:
   - "caller_id becomes optional again in a refactor and audit-trail messages land with `caller=`"
