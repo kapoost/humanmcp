@@ -13,6 +13,7 @@ import (
 	"github.com/kapoost/humanmcp-go/internal/mcp"
 	mcpv2 "github.com/kapoost/humanmcp-go/internal/mcp/v2"
 	"github.com/kapoost/humanmcp-go/internal/mysloodsiewnia"
+	"github.com/kapoost/humanmcp-go/internal/rituals"
 	"github.com/kapoost/humanmcp-go/internal/web"
 )
 
@@ -40,7 +41,9 @@ func main() {
 	liveness := mysloodsiewnia.New()
 	bridgeQueue := mysloodsiewnia.NewQueue()
 	bridge := mysloodsiewnia.NewBridge(liveness, bridgeQueue, cfg.VaultBridgeToken)
-	mcpHandler := mcp.NewHandler(cfg, store, a)
+	ritualWorker := rituals.New(cfg)
+	ritualWorker.Start()
+	mcpHandler := mcp.NewHandler(cfg, store, a, ritualWorker)
 	mcpHandler.SetBridge(liveness, bridgeQueue)
 	webHandler := web.NewHandler(cfg, store, a)
 	webHandler.SetMCPToolCount(len(mcpHandler.ToolNames()))

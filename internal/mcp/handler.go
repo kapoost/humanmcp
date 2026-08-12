@@ -16,10 +16,15 @@ import (
 	"github.com/kapoost/humanmcp-go/internal/auth"
 	"github.com/kapoost/humanmcp-go/internal/config"
 	"github.com/kapoost/humanmcp-go/internal/content"
-	"github.com/kapoost/humanmcp-go/internal/llm"
 	"github.com/kapoost/humanmcp-go/internal/mysloodsiewnia"
+	personapkg "github.com/kapoost/humanmcp-go/internal/personas"
 	"github.com/kapoost/humanmcp-go/internal/ratelimit"
+	"github.com/kapoost/humanmcp-go/internal/rituals"
 )
+
+// Persona is re-exported from internal/personas so v1 callers still compile
+// during the Tier C.d drop-window; deleted alongside handler.go itself.
+type Persona = personapkg.Persona
 
 type Request struct {
 	JSONRPC string          `json:"jsonrpc"`
@@ -59,19 +64,6 @@ type ContentBlock struct {
 	Text string `json:"text"`
 }
 
-type Persona struct {
-	Slug  string   `json:"slug"`
-	Title string   `json:"title"`
-	Role  string   `json:"role"`
-	Tags  []string `json:"tags"`
-	Body  string   `json:"body"`
-	// Model — optional frontmatter field selecting which Anthropic model
-	// generates this persona's voice in a narada. Values: "haiku" (fast +
-	// cheap, good for narrow/reactive roles) or "sonnet" (default, needed
-	// for personas that synthesise). Missing/unknown → sonnet.
-	Model string `json:"model,omitempty"`
-}
-
 type Skill struct {
 	Slug      string   `json:"slug"`
 	Category  string   `json:"category"`
@@ -93,18 +85,17 @@ type Handler struct {
 	memoryStore     *content.MemoryStore
 	provenanceStore *content.ProvenanceStore
 	collectionStore *content.CollectionStore
-	ritualStore     *content.RitualStore
-	journalStore    *content.PersonaJournalStore
-	llm             *llm.Client
-	sessions      map[string]time.Time // session ID → expiry time
+	// ritualWorker owns ritualStore + journalStore + llm + narada rate
+	// limiters. Shared with the v2 SDK handler via the Source interface
+	// so both mounts drive the same async pipeline.
+	ritualWorker *rituals.Worker
+	sessions     map[string]time.Time // session ID → expiry time
 
 	mu sync.Mutex
 	// Rate limiters — all keyed sliding windows, unified via internal/ratelimit.
 	bootstrapBucket   *ratelimit.Bucket // per-IP: 5/min bootstrap_session
 	askHumanBucket    *ratelimit.Bucket // per-IP: 5/hr ask_human
 	fetchAnswerBucket *ratelimit.Bucket // per-IP: 30/hr fetch_answer polls
-	naradaBucket      *ratelimit.Bucket // per-IP: 5/hr run_narada
-	naradaFetchBucket *ratelimit.Bucket // per-IP: 60/hr fetch_narada_result polls
 	friendTokenBucket *ratelimit.Bucket // per-tokenID: 1h window, per-token limit via AllowWithLimit
 
 	// Bridge into the mysłoodsiewnia vault. Nil ⇒ tools report offline.
@@ -112,7 +103,7 @@ type Handler struct {
 	bridgeQueue *mysloodsiewnia.Queue
 }
 
-func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler {
+func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth, worker *rituals.Worker) *Handler {
 	h := &Handler{
 		cfg:           cfg,
 		store:         store,
@@ -124,23 +115,18 @@ func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler
 		memoryStore:     content.NewMemoryStore(cfg.ContentDir),
 		provenanceStore: content.NewProvenanceStore(cfg.ContentDir),
 		collectionStore: content.NewCollectionStore(cfg.ContentDir),
-		ritualStore:     content.NewRitualStore(cfg.ContentDir),
-		journalStore:    content.NewPersonaJournalStore(cfg.ContentDir),
-		llm:             llm.New(cfg.ClaudeAPIKey),
+		ritualWorker:    worker,
 		sessions:       make(map[string]time.Time),
 		bootstrapBucket:   ratelimit.New(time.Minute, 5, nil),
 		askHumanBucket:    ratelimit.New(time.Hour, 5, nil),
 		fetchAnswerBucket: ratelimit.New(time.Hour, 30, nil),
-		naradaBucket:      ratelimit.New(time.Hour, 5, nil),
-		naradaFetchBucket: ratelimit.New(time.Hour, 60, nil),
 		// friendTokenBucket: default limit 30/hr (Z4 fallback when a spec's
 		// rate_limit_per_hour is 0). Per-call overrides via AllowWithLimit.
 		friendTokenBucket: ratelimit.New(time.Hour, 30, nil),
 	}
-	// Cleanup goroutines
+	// Cleanup goroutine — narada worker/pattern synthesis loops are owned
+	// by the rituals.Worker (started by main).
 	go h.cleanupLoop()
-	go h.naradaWorkerLoop()
-	go h.patternSynthesisLoop()
 	return h
 }
 
@@ -159,9 +145,9 @@ func (h *Handler) MemoryStore() *content.MemoryStore         { return h.memorySt
 
 // Store accessors for the ritual + dialogue families.
 func (h *Handler) QuestionStore() *content.QuestionStore              { return h.questionStore }
-func (h *Handler) RitualStore() *content.RitualStore                  { return h.ritualStore }
-func (h *Handler) PersonaJournalStore() *content.PersonaJournalStore  { return h.journalStore }
-func (h *Handler) LLMAvailable() bool                                 { return h.llm.Available() }
+func (h *Handler) RitualStore() *content.RitualStore                  { return h.ritualWorker.RitualStore() }
+func (h *Handler) PersonaJournalStore() *content.PersonaJournalStore  { return h.ritualWorker.PersonaJournalStore() }
+func (h *Handler) LLMAvailable() bool                                 { return h.ritualWorker.LLMAvailable() }
 
 // Rate-limit passthroughs — v2 hits the same per-IP buckets as v1 so
 // abusive callers can't dodge quotas by picking the new endpoint.
@@ -170,12 +156,10 @@ func (h *Handler) CheckFetchAnswerRateLimit(ip string) bool {
 	return h.checkFetchAnswerRateLimit(ip)
 }
 func (h *Handler) CheckNaradaRateLimit(ip string) bool {
-	allowed, _ := h.naradaBucket.Allow(ip)
-	return allowed
+	return h.ritualWorker.CheckNaradaRateLimit(ip)
 }
 func (h *Handler) CheckNaradaFetchRateLimit(ip string) bool {
-	allowed, _ := h.naradaFetchBucket.Allow(ip)
-	return allowed
+	return h.ritualWorker.CheckNaradaFetchRateLimit(ip)
 }
 
 // ValidateSessionCode exposes the poetry-fragment / session-secret validator
@@ -277,66 +261,12 @@ func (h *Handler) cleanupLoop() {
 		h.bootstrapBucket.Prune()
 		h.askHumanBucket.Prune()
 		h.fetchAnswerBucket.Prune()
-		h.naradaBucket.Prune()
-		h.naradaFetchBucket.Prune()
 		h.friendTokenBucket.Prune()
 	}
 }
 
 func (h *Handler) LoadPersonas() []Persona {
-	dir := filepath.Join(h.cfg.ContentDir, "personas")
-	var out []Persona
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return out
-	}
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
-		if err != nil {
-			continue
-		}
-		p := parsePersonaFile(string(data), strings.TrimSuffix(e.Name(), ".md"))
-		if p.Slug != "" {
-			out = append(out, p)
-		}
-	}
-	return out
-}
-
-func parsePersonaFile(raw string, fallbackSlug string) Persona {
-	p := Persona{Slug: fallbackSlug}
-	parts := strings.SplitN(raw, "---", 3)
-	if len(parts) < 3 {
-		p.Body = raw
-		return p
-	}
-	// Parse frontmatter
-	for _, line := range strings.Split(parts[1], "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "slug:") {
-			p.Slug = strings.TrimSpace(strings.TrimPrefix(line, "slug:"))
-		} else if strings.HasPrefix(line, "title:") {
-			p.Title = strings.TrimSpace(strings.TrimPrefix(line, "title:"))
-		} else if strings.HasPrefix(line, "role:") {
-			p.Role = strings.TrimSpace(strings.TrimPrefix(line, "role:"))
-		} else if strings.HasPrefix(line, "tags:") {
-			tagStr := strings.TrimSpace(strings.TrimPrefix(line, "tags:"))
-			tagStr = strings.Trim(tagStr, "[]")
-			for _, t := range strings.Split(tagStr, ",") {
-				t = strings.TrimSpace(t)
-				if t != "" {
-					p.Tags = append(p.Tags, t)
-				}
-			}
-		} else if strings.HasPrefix(line, "model:") {
-			p.Model = strings.TrimSpace(strings.TrimPrefix(line, "model:"))
-		}
-	}
-	p.Body = strings.TrimSpace(parts[2])
-	return p
+	return personapkg.LoadAll(h.cfg.ContentDir)
 }
 
 func (h *Handler) LoadSkills() []Skill {

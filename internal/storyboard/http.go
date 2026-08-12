@@ -19,6 +19,7 @@ import (
 	"github.com/kapoost/humanmcp-go/internal/content"
 	"github.com/kapoost/humanmcp-go/internal/mcp"
 	mcpv2 "github.com/kapoost/humanmcp-go/internal/mcp/v2"
+	"github.com/kapoost/humanmcp-go/internal/rituals"
 	"github.com/kapoost/humanmcp-go/internal/web"
 )
 
@@ -113,7 +114,10 @@ func runHTTP(t *testing.T, sb Storyboard) {
 	// subsequent /mcp calls (see sessionTokenRe + runHTTPAssertion),
 	// so the collection_access_gates storyboard's bootstrap→members
 	// flow works without per-YAML surgery.
-	mcpHandler := mcp.NewHandler(cfg, store, a)
+	worker := rituals.New(cfg)
+	// NOTE: intentionally NOT calling worker.Start() — storyboards must not
+	// spawn a live narada goroutine that leaks between t.Run cases.
+	mcpHandler := mcp.NewHandler(cfg, store, a, worker)
 	// SessionSecret needed by v2 bootstrap tool to emit HMAC-signed
 	// session tokens. Test-only value; prod uses env SESSION_SECRET.
 	cfg.SessionSecret = "storyboard-session-secret-not-for-prod"

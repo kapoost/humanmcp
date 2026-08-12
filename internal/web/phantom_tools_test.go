@@ -13,6 +13,7 @@ import (
 	"github.com/kapoost/humanmcp-go/internal/auth"
 	"github.com/kapoost/humanmcp-go/internal/config"
 	"github.com/kapoost/humanmcp-go/internal/mcp"
+	"github.com/kapoost/humanmcp-go/internal/rituals"
 )
 
 // TestDocsToolCountMatchesReality walks docs/index.html for the cardinal
@@ -156,7 +157,7 @@ func implementedToolSet(t *testing.T) map[string]bool {
 		Domain:     "test.example",
 		ContentDir: t.TempDir(),
 	}
-	h := mcp.NewHandler(cfg, nil, auth.New("test"))
+	h := mcp.NewHandler(cfg, nil, auth.New("test"), rituals.New(cfg))
 	out := map[string]bool{}
 	for _, n := range h.ToolNames() {
 		out[n] = true

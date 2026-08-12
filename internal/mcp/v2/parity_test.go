@@ -17,6 +17,7 @@ import (
 	"github.com/kapoost/humanmcp-go/internal/content"
 	"github.com/kapoost/humanmcp-go/internal/mcp"
 	v2 "github.com/kapoost/humanmcp-go/internal/mcp/v2"
+	"github.com/kapoost/humanmcp-go/internal/rituals"
 )
 
 // TestV2ParityWithLegacy calls every migrated tool on both /mcp (legacy) and
@@ -40,7 +41,8 @@ func TestV2ParityWithLegacy(t *testing.T) {
 	if err := store.Load(); err != nil {
 		t.Fatalf("store load: %v", err)
 	}
-	legacy := mcp.NewHandler(cfg, store, auth.New("testtoken"))
+	worker := rituals.New(cfg)
+	legacy := mcp.NewHandler(cfg, store, auth.New("testtoken"), worker)
 
 	// Seed a public collection item + a public blob so list_collection,
 	// read_collection_item, list_blobs, read_blob exercise populated paths.
