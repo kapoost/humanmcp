@@ -17,6 +17,7 @@ import (
 	"github.com/kapoost/humanmcp-go/internal/config"
 	"github.com/kapoost/humanmcp-go/internal/content"
 	"github.com/kapoost/humanmcp-go/internal/mcp"
+	_ "github.com/kapoost/humanmcp-go/internal/mcp/v2" // trialed Tier C mount, see comment below
 	"github.com/kapoost/humanmcp-go/internal/web"
 )
 
@@ -92,6 +93,17 @@ func runHTTP(t *testing.T, sb Storyboard) {
 	mux := http.NewServeMux()
 	// Mount MCP at /mcp + /mcp/ so storyboards can POST JSON-RPC
 	// against tools/call without spinning up a parallel server.
+	// TODO(Tier C v1→v2): storyboards currently target v1 mcpHandler.
+	// A trial mount of v2 (mcpv2.New(cfg, mcpHandler)) here surfaces
+	// 10 real failures: (a) 4× -32602 error-code drift (SDK wraps tool
+	// errors in CallToolResult content, no JSON-RPC error object with
+	// code); (b) 2× list_collection/read_collection_item missing
+	// "Members-only drawing"/"Original creator" fields — v2 impl parity
+	// gap vs v1; (c) 4× initialize response missing HOW USERS ADD /
+	// PERSIST FOR NEXT SESSION / server instructions block — v2 SDK
+	// doesn't surface them via initialize the same way v1 did. Fix in
+	// three PRs (assertion updates + v2 collection port + v2 initialize
+	// instructions wire-up) before flipping this mount.
 	mcpHandler := mcp.NewHandler(cfg, store, a)
 	mux.Handle("/mcp", mcpHandler)
 	mux.Handle("/mcp/", mcpHandler)
@@ -195,6 +207,13 @@ func runHTTPAssertion(t *testing.T, srv *httptest.Server, a HTTPAssertion) {
 	}
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
+	}
+	// MCP 2026-07-28 Streamable HTTP (via go-sdk) rejects requests without
+	// Accept: application/json + text/event-stream. Auto-set for /mcp
+	// paths so YAMLs stay concise (storyboards target JSON-RPC semantics,
+	// not transport headers). YAML `headers` can still override.
+	if strings.HasPrefix(a.Request.Path, "/mcp") {
+		req.Header.Set("Accept", "application/json, text/event-stream")
 	}
 	for k, v := range a.Request.Headers {
 		req.Header.Set(k, v)
