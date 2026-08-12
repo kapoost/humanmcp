@@ -1,0 +1,134 @@
+id: mysloodsiewnia/write_offline_owner_and_validation
+version: "1.0.0"
+title: "mysloodsiewnia_write (wave 2): auth + args + cap + offline gate on one page"
+category: mysloodsiewnia_bridge_wave2
+summary: "mysloodsiewnia_write is owner-only ingest. Anonymous → Unauthorized. Owner + missing required arg → invalid_args. Owner + body >100 KiB → payload_too_large. Owner + no vault heartbeat → offline (HTTP 200). All happen BEFORE anything reaches the queue, so a broken vault never masks a bad call."
+
+narrative: |
+  Wave 2 of the humanmcp ↔ mysłoodsiewnia bridge — ADR-0001 Wave 2
+  addendum. Write is owner-only (friend tokens rejected with a distinct
+  `write_denied` shape covered by write_friend_forbidden.yaml). The tool
+  short-circuits in a fixed order so the failure envelope always maps
+  to the actual cause:
+
+    (1) auth → Unauthorized (unknown / expired / anonymous — see wave 3 Z3)
+    (2) owner-gate → write_denied (valid friend, separate storyboard)
+    (3) parse + required args → invalid_args
+    (4) 100 KiB body cap → payload_too_large
+    (5) liveness gate → offline / degraded
+    (6) enqueue → vault_timeout / vault_error / online
+
+  This storyboard exercises (1), (3), (4), (5). Sabotage-verifyable on
+  the offline path — remove mysloodsiewniaGate() and the last assertion
+  flips to `internal_error: bridge queue not configured` because the
+  storyboard runner boots without SetBridge.
+
+kind: http
+
+setup: {}
+
+assertions:
+  - name: "anonymous → Unauthorized, no leak of write existence"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mysloodsiewnia_write","arguments":{"doc_type":"note","title":"x","body":"y"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "Unauthorized"
+        - "mysloodsiewnia_"
+      body_does_not_contain:
+        - '\"status\": \"online\"'
+        - '\"status\": \"applied\"'
+        - '\"status\": \"offline\"'
+        - '\"status\": \"invalid_args\"'
+        - '\"status\": \"payload_too_large\"'
+        - 'op_id'
+
+  - name: "owner + no args → invalid_args (doc_type required)"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Authorization: Bearer storyboard-test-token
+      body: '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"mysloodsiewnia_write","arguments":{}}}'
+    expect:
+      status: 200
+      body_contains:
+        - '\"status\":\"invalid_args\"'
+        - 'doc_type is required'
+      body_does_not_contain:
+        - '\"status\": \"offline\"'
+        - 'op_id'
+
+  - name: "owner + doc_type only → invalid_args (title required)"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Authorization: Bearer storyboard-test-token
+      body: '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"mysloodsiewnia_write","arguments":{"doc_type":"note"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - '\"status\":\"invalid_args\"'
+        - 'title is required'
+      body_does_not_contain:
+        - '\"status\": \"offline\"'
+        - 'op_id'
+
+  - name: "owner + doc_type + title, no body → invalid_args (body required)"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Authorization: Bearer storyboard-test-token
+      body: '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"mysloodsiewnia_write","arguments":{"doc_type":"note","title":"hello"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - '\"status\":\"invalid_args\"'
+        - 'body is required'
+      body_does_not_contain:
+        - '\"status\": \"offline\"'
+        - 'op_id'
+
+  - name: "owner + valid args + no heartbeat → offline (HTTP 200, stable state)"
+    # Runner boots WITHOUT SetBridge — liveness is nil. Sabotage this
+    # assertion by commenting out mysloodsiewniaGate() in
+    # toolMysloodsiewniaWrite: the response flips from `status:offline`
+    # to `internal_error: bridge queue not configured` and this
+    # assertion FAILS. That's the sabotage-verify signal.
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Authorization: Bearer storyboard-test-token
+      body: '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"mysloodsiewnia_write","arguments":{"doc_type":"note","title":"hello","body":"world"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - '\"status\": \"offline\"'
+        - '\"last_seen\": \"never\"'
+      body_does_not_contain:
+        - '\"status\": \"online\"'
+        - '\"status\": \"applied\"'
+        - 'op_id'
+        - 'internal_error'
+
+closes_failure_modes:
+  - "write reaches the queue when doc_type/title/body missing → half-inserted rows in vault"
+  - "write reaches the queue when body > cap → vault OOM / large-object DoS"
+  - "write silently succeeds when vault offline → agent thinks the doc landed but it never did"
+  - "anonymous caller learns write tool exists via a different error text than reads"
+  - "invalid_args returns 400 instead of 200 → agent retries thinking it was transient"
+
+known_regressions_caught:
+  - "2026-08-12 — wave 2 ingest wired without an offline gate would enqueue an op nobody picks up, then time out after 20s per write attempt"

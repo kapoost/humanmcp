@@ -299,6 +299,67 @@ func (h *Handler) toolMysloodsiewniaGet(w http.ResponseWriter, r *http.Request, 
 	writeToolText(w, req.ID, h.enqueueAndWait(mysloodsiewnia.OpGet, args, tokenID, scopes))
 }
 
+// writeBodyCap is the Fly-side body cap for mysloodsiewnia_write. Vault
+// enforces the same cap (belt+suspenders per ADR-0001 D5). 100 KiB.
+const writeBodyCap = 100 * 1024
+
+// toolMysloodsiewniaWrite (wave 2) — owner-only ingest of a new document
+// into the vault. Friend tokens (valid auth, scoped read) are rejected with
+// a distinct `write_denied` shape so the friend learns why (asymmetric with
+// unknown-token `Unauthorized`, deliberate — see ADR-0001 Wave 2 addendum).
+//
+// Auth precedence:
+//   (1) AuthorizeRequestByHeaders → unauthorized text if not recognized
+//   (2) Owner-only gate → write_denied if tokenID != owner
+//   (3) Parse args → invalid_args on decode / required-arg missing
+//   (4) 100 KiB body cap → payload_too_large
+//   (5) liveness gate → offline / degraded
+//   (6) enqueueAndWait — owner path (unscoped Enqueue)
+func (h *Handler) toolMysloodsiewniaWrite(w http.ResponseWriter, r *http.Request, req *Request, arguments json.RawMessage) {
+	tokenID, _, ok := h.AuthorizeRequestByHeaders(r.Header)
+	if !ok {
+		writeToolText(w, req.ID, unauthorizedText)
+		return
+	}
+	if tokenID != ownerTokenID {
+		writeToolText(w, req.ID, `{"status":"write_denied","reason":"owner_only"}`)
+		return
+	}
+	var args struct {
+		DocType    string          `json:"doc_type"`
+		Title      string          `json:"title"`
+		Body       string          `json:"body"`
+		SourcePath string          `json:"source_path,omitempty"`
+		Meta       json.RawMessage `json:"meta,omitempty"`
+	}
+	if len(arguments) > 0 {
+		if err := json.Unmarshal(arguments, &args); err != nil {
+			writeToolText(w, req.ID, `{"status":"invalid_args","error":"could not parse arguments"}`)
+			return
+		}
+	}
+	switch {
+	case args.DocType == "":
+		writeToolText(w, req.ID, `{"status":"invalid_args","error":"doc_type is required"}`)
+		return
+	case args.Title == "":
+		writeToolText(w, req.ID, `{"status":"invalid_args","error":"title is required"}`)
+		return
+	case args.Body == "":
+		writeToolText(w, req.ID, `{"status":"invalid_args","error":"body is required"}`)
+		return
+	}
+	if len(args.Body) > writeBodyCap {
+		writeToolText(w, req.ID, fmt.Sprintf(`{"status":"payload_too_large","limit":%d,"got":%d}`, writeBodyCap, len(args.Body)))
+		return
+	}
+	if text, stop := h.mysloodsiewniaGate(); stop {
+		writeToolText(w, req.ID, text)
+		return
+	}
+	writeToolText(w, req.ID, h.enqueueAndWait(mysloodsiewnia.OpWrite, args, ownerTokenID, nil))
+}
+
 // writeToolText wraps writeResult with the standard MCP CallResult envelope.
 func writeToolText(w http.ResponseWriter, id interface{}, text string) {
 	writeResult(w, id, CallResult{Content: []ContentBlock{{Type: "text", Text: text}}})

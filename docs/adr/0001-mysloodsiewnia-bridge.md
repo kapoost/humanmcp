@@ -33,6 +33,60 @@
   from hardcoded default to per-token config; plus a new "Horcrux vs
   sharing token" subsection (Z6) — same mechanism, different operational
   discipline, needs a separate decision before first horcrux token.
+- **2026-08-12** — Wave 2 (write) Fly-side wired up. No narada — the
+  design questions were all answered inline by ADR-0001 D5 + Wave 3 W5
+  ("write pozostaje read-only w wave 3; scoped write to osobny ADR").
+  Wave 2 is owner-only ingest, matching that pin exactly. Landed
+  independently of any [narada:...] tag.
+  - `internal/mysloodsiewnia/queue.go` — `OpWrite` op kind. Wire
+    contract to vault: `{doc_type, title, body, source_path?, meta?}`
+    in `args`, result `{slug, created_at}` on success.
+  - `internal/mcp/mysloodsiewnia_tools.go` +
+    `internal/mcp/v2/mysloodsiewnia.go` — `toolMysloodsiewniaWrite` /
+    `registerMysloodsiewniaWrite`. Precedence: (1) auth → Unauthorized,
+    (2) owner-gate → `{status:write_denied,reason:owner_only}` for
+    valid friend tokens, (3) parse + required args, (4) 100 KiB body
+    cap → `{status:payload_too_large,limit,got}`, (5) liveness gate,
+    (6) enqueue owner-path (unscoped Enqueue). Cap constant
+    `writeBodyCap = 100 * 1024` mirrored across both handlers.
+  - `internal/mcp/handler.go` + `internal/mcp/v2/handler.go` — tool
+    listed in `tools/list`, dispatched in the switch, registered on
+    the v2 server. Tool count 40 → 41 in `docs/index.html` (twitter
+    card + feature card) + discovery hint ("Tool families (41 tools
+    total)").
+  - `storyboards/mysloodsiewnia/write_offline_owner_and_validation.yaml`
+    — 5 assertions covering the full precedence chain (unauthorized,
+    doc_type/title/body required, offline gate). Sabotage-verifyable
+    on the offline path (comment out `mysloodsiewniaGate()` in the
+    write tool, run storyboard, expect FAIL).
+  - `storyboards/mysloodsiewnia/write_friend_forbidden.yaml` — pins
+    the pedagogic `write_denied` shape for valid friend tokens (slug-a
+    normal, slug-b tight cap) and that owner-gate runs BEFORE the
+    rate-limit check (otherwise a scoped friend could burn their read
+    budget hammering /write).
+  - `storyboards/mysloodsiewnia/write_body_too_large.yaml` — boundary
+    signal that a normal-size body passes the cap check. Over-cap
+    arithmetic (100 KiB + 1 → `payload_too_large` with `limit=102400
+    got=102401`) lives in `internal/mcp/mysloodsiewnia_write_cap_test.go`
+    because YAML can't inline a 100 KiB body legibly.
+  - `internal/mcp/v2/parity_test.go` — 5 new cases pin v1↔v2 byte
+    equality on all five write branches (anonymous, missing each
+    required arg, owner-offline).
+  - Bootstrap teach body (v1 handler.go + v2/team.go) mentions
+    `mysloodsiewnia_write` with owner-only, cap, and every envelope
+    shape (`write_denied`, `payload_too_large`, success envelope).
+  - Skill body `content/skills/mysloodsiewnia-bridge.json` updated to
+    "pięć toolów" with wave 2 section spelling out the ADR guarantees
+    (owner-only, cap, no delete ever, idempotent on op_id, auto-tag
+    server-side).
+  - Vault-side worker + `flyctl deploy` land separately (see
+    `~/Documents/humanmcp-incident-playbook.txt` for the wave 2
+    vault-side runbook once written). Fly-side is safe to deploy
+    first — until the vault worker knows the `write` op kind, every
+    write attempt returns `{status:"vault_error","error":"unknown op
+    kind: write"}`, which is a truthful state and doesn't break
+    any wave 1 semantics.
+
 - **2026-08-12** — Wave 3 Fly-side wired up. Landed as a single commit
   under `[narada:nar-67cdd80179c2]`:
   - `internal/config/config.go` — `FriendTokenSpec` type + `FriendTokens`

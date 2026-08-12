@@ -18,6 +18,15 @@ const (
 	OpSearch OpKind = "search"
 	OpGet    OpKind = "get"
 	OpList   OpKind = "list"
+	// OpWrite (wave 2) — vault ingests a new document. Args:
+	//   {doc_type, title, body, source_path?, meta?}
+	// Vault side MUST: (a) enforce 100KB body cap before insert (Fly caps
+	// too, belt+suspenders), (b) auto-tag `via:humanmcp-bridge`
+	// server-side, (c) dedup on op_id (idempotency table), (d) reject
+	// scoped tokens with a `write_denied` error (write is owner-only per
+	// ADR-0001 W5 addendum "Wave 2"). Result envelope on success:
+	//   {"slug":"<generated>","created_at":"<ISO8601>"}
+	OpWrite OpKind = "write"
 )
 
 // OpState tracks a queued operation's lifecycle. Ghost's blind-spot in the

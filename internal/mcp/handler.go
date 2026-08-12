@@ -979,6 +979,21 @@ func (h *Handler) buildTools() []Tool {
 				},
 			},
 		},
+		Tool{
+			Name:        "mysloodsiewnia_write",
+			Description: "Ingest a new document into kapoost's vault (wave 2). OWNER-ONLY — friend tokens receive {status:write_denied,reason:owner_only}. Args: {doc_type (required), title (required), body (required, ≤100 KiB), source_path?, meta?}. Server-side vault auto-tags via:humanmcp-bridge; op_id is dedup key (idempotent retries safe). Delete is permanently unavailable. Envelopes: {status:online, op_id, result:{slug, created_at}}, {status:invalid_args}, {status:payload_too_large, limit, got}, {status:offline}, {status:vault_timeout}, {status:vault_error, error}.",
+			InputSchema: map[string]interface{}{
+				"type":     "object",
+				"required": []string{"doc_type", "title", "body"},
+				"properties": map[string]interface{}{
+					"doc_type":    map[string]interface{}{"type": "string", "description": "Vault doc_type (note / pdf / literatura / calendar_event / ...)."},
+					"title":       map[string]interface{}{"type": "string", "description": "Human title, indexed for FTS."},
+					"body":        map[string]interface{}{"type": "string", "description": "Document body, chunked + indexed by vault. Max 100 KiB."},
+					"source_path": map[string]interface{}{"type": "string", "description": "Optional source path (e.g. original filename)."},
+					"meta":        map[string]interface{}{"type": "object", "description": "Optional metadata blob stored alongside the doc."},
+				},
+			},
+		},
 	)
 	return tools
 }
@@ -1075,6 +1090,8 @@ func (h *Handler) handleToolsCall(w http.ResponseWriter, r *http.Request, req *R
 		h.toolMysloodsiewniaGet(w, r, req, params.Arguments)
 	case "mysloodsiewnia_list":
 		h.toolMysloodsiewniaList(w, r, req, params.Arguments)
+	case "mysloodsiewnia_write":
+		h.toolMysloodsiewniaWrite(w, r, req, params.Arguments)
 	default:
 		writeError(w, req.ID, -32602, "unknown tool: "+params.Name)
 	}
@@ -1680,7 +1697,7 @@ func (h *Handler) toolAboutHumanmcp(w http.ResponseWriter, req *Request) {
 	fmt.Fprintln(&b, "  3. Ask the user for the session code (a Polish poetry fragment)")
 	fmt.Fprintln(&b, "  4. Call bootstrap_session(code) for full team + skills")
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "Tool families (40 tools total — call tools/list for full schema):")
+	fmt.Fprintln(&b, "Tool families (41 tools total — call tools/list for full schema):")
 	fmt.Fprintln(&b, "  - content:    list_content, read_content, get_certificate, verify_content")
 	fmt.Fprintln(&b, "  - access:     request_access, submit_answer, request_license")
 	fmt.Fprintln(&b, "  - feedback:   leave_comment, leave_message")
@@ -1694,7 +1711,7 @@ func (h *Handler) toolAboutHumanmcp(w http.ResponseWriter, req *Request) {
 	fmt.Fprintln(&b, "                get_persona_journal + record_persona_reflection (owner-only).")
 	fmt.Fprintln(&b, "  - provenance: list_provenance, read_provenance (for artwork pieces)")
 	fmt.Fprintln(&b, "  - team:       list_personas, get_persona, list_skills, get_skill (post-session)")
-	fmt.Fprintln(&b, "  - vault:      mysloodsiewnia_status / _search / _get / _list — owner-only bridge")
+	fmt.Fprintln(&b, "  - vault:      mysloodsiewnia_status / _search / _get / _list / _write — owner-only bridge")
 	fmt.Fprintln(&b, "                into kapoost's home vault (SQLite FTS5, 9k+ docs). Gated by")
 	fmt.Fprintln(&b, "                liveness heartbeat: `{status:\"offline\"}` (HTTP 200) when vault")
 	fmt.Fprintln(&b, "                is unreachable — retry later, don't escalate. Full skill:")
@@ -2333,7 +2350,7 @@ func (h *Handler) toolBootstrapSession(w http.ResponseWriter, r *http.Request, r
 	sb.WriteString("     - 'dobranoc' / '/dobranoc' → fetch skill `dobranoc-dziennik` via `get_skill` and follow it.\n")
 	sb.WriteString("     - Polish-language reply context → language-style-polish already auto-loaded via bootstrap; keep applying it.\n")
 	sb.WriteString("     - Secrets, tokens, destructive commands → Hodor is the guardian; default-deny and confirm with kapoost first.\n")
-	sb.WriteString("     - 'przeszukaj vault' / 'znajdź w mojej wiedzy' / 'w mysłoodsiewni' → `mysloodsiewnia_search(query, limit?)`; requires Authorization: Bearer <token>. Two token classes: (a) owner token = unlimited scope; (b) named friend tokens = read-only, scoped to specific `doc_type`s, per-token 1h rate limit, expirable. Both go through the same tools; the response shape is identical for both. Unknown / revoked / expired friend tokens are indistinguishable from anonymous — response is the same `Unauthorized` text, so nothing about the friend-token set leaks. Response `{status:offline}` = kapoost's home vault isn't reachable right now — stable state, do NOT retry immediately. `{status:out_of_scope, allowed:[...]}` = you're using a friend token and the requested `doc_type` isn't in your scope. `{status:rate_limited, retry_after:N}` = your token's 1h budget is spent; back off exactly N seconds. Sibling tools: `mysloodsiewnia_status`, `mysloodsiewnia_list(doc_type?)`, `mysloodsiewnia_get(doc_slug)`.\n")
+	sb.WriteString("     - 'przeszukaj vault' / 'znajdź w mojej wiedzy' / 'w mysłoodsiewni' → `mysloodsiewnia_search(query, limit?)`; requires Authorization: Bearer <token>. Two token classes: (a) owner token = unlimited scope; (b) named friend tokens = read-only, scoped to specific `doc_type`s, per-token 1h rate limit, expirable. Both go through the same tools; the response shape is identical for both. Unknown / revoked / expired friend tokens are indistinguishable from anonymous — response is the same `Unauthorized` text, so nothing about the friend-token set leaks. Response `{status:offline}` = kapoost's home vault isn't reachable right now — stable state, do NOT retry immediately. `{status:out_of_scope, allowed:[...]}` = you're using a friend token and the requested `doc_type` isn't in your scope. `{status:rate_limited, retry_after:N}` = your token's 1h budget is spent; back off exactly N seconds. Sibling tools: `mysloodsiewnia_status`, `mysloodsiewnia_list(doc_type?)`, `mysloodsiewnia_get(doc_slug)`. Wave 2 ingest: `mysloodsiewnia_write(doc_type, title, body, source_path?, meta?)` — OWNER-ONLY (friend tokens receive `{status:write_denied,reason:owner_only}`), body ≤ 100 KiB (over-cap ⇒ `{status:payload_too_large,limit,got}`), success envelope `{status:online, op_id, result:{slug, created_at}}`. Auto-tagged server-side `via:humanmcp-bridge`; delete is permanently unavailable; idempotent on `op_id`.\n")
 	sb.WriteString("  4. For any other topic that hits a domain skill (e.g. 'go stack', 'deploy', 'shell', 'mx5', 's2000', 'onaudience', 'bookkido'), call `list_skills` to find the slug, then `get_skill(slug=<x>)` for the body — do NOT reinvent from memory alone.\n")
 	sb.WriteString("  4a. GROUP LOAD — when the user says 'załaduj skille z projektu X' / 'load project X skills' / 'load skill group X', call `load_skill_group(name=<X>)` (single MCP call, returns all bodies). Discover available groups via `list_skill_groups`. For a fresh workspace ('scaffold', 'skonfiguruj to repo') use `suggest_skills(files=[...], languages=[...], git_origin=...)` — deterministic, capped at 8 slugs.\n")
 	sb.WriteString("  5. If your platform supports it, also stash a durable pointer to this server's `about_humanmcp` tool — future-you can re-orient in one call without a full bootstrap.\n")

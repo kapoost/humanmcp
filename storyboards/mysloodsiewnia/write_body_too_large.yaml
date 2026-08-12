@@ -1,0 +1,52 @@
+id: mysloodsiewnia/write_body_too_large
+version: "1.0.0"
+title: "mysloodsiewnia_write (wave 2): under-cap body passes cap check (offline-gate reached)"
+category: mysloodsiewnia_bridge_wave2
+summary: "Boundary signal that the cap check exists and lets normal-sized bodies through to the offline gate. The over-cap case (body > 100 KiB) is covered in a Go test — YAML storyboards can't inline a 200 KiB body legibly. Together the two guard the cap invariant: under-cap → offline (proves gate order), over-cap → payload_too_large (proves cap check runs)."
+
+narrative: |
+  ADR-0001 D5 pins body cap at 100 KiB, enforced Fly + vault. Fly cap
+  is `writeBodyCap = 100 * 1024` in one place per handler (v1 and v2)
+  and appears BEFORE the liveness gate in tool precedence — a broken
+  vault must not mask oversize payloads.
+
+  Storyboard scope: prove that a normal-size body threads through the
+  auth+args+cap chain and lands on the offline gate. If the cap check
+  ever short-circuits normal bodies (e.g. buggy `>=` instead of `>`),
+  this storyboard flips from `offline` to `payload_too_large` and
+  fails.
+
+  Over-cap assertion lives in a Go test (see
+  internal/mcp/mysloodsiewnia_write_cap_test.go if it exists — else
+  future work under wave 2 addendum). Storyboards work on wire-shape
+  not payload arithmetic.
+
+kind: http
+
+setup: {}
+
+assertions:
+  - name: "owner + small body → cap passes, offline gate trips"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Authorization: Bearer storyboard-test-token
+      body: '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mysloodsiewnia_write","arguments":{"doc_type":"note","title":"cap","body":"under-cap-fine"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - '\"status\": \"offline\"'
+      body_does_not_contain:
+        - '\"status\":\"payload_too_large\"'
+        - '\"status\": \"online\"'
+        - 'op_id'
+
+closes_failure_modes:
+  - "cap check uses `>=` instead of `>` → normal bodies (say 1 KiB) trigger payload_too_large"
+  - "cap check runs BEFORE arg-shape → invalid_args and payload_too_large collide"
+  - "cap check moved AFTER gate → over-cap requests wait 20s for vault_timeout instead of failing fast"
+
+known_regressions_caught:
+  - "2026-08-12 — wave 2 addendum: cap constant lives in one place per handler; boundary check ensures the constant isn't set to something absurd like 100 bytes"

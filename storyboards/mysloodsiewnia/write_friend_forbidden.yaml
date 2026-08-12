@@ -1,0 +1,87 @@
+id: mysloodsiewnia/write_friend_forbidden
+version: "1.0.0"
+title: "mysloodsiewnia_write (wave 2): valid friend token → write_denied, distinct from Unauthorized"
+category: mysloodsiewnia_bridge_wave2
+summary: "A friend token that authenticates fine on reads (search/list/get) MUST be rejected on write with a distinct `{status:write_denied,reason:owner_only}` envelope. This is deliberately asymmetric with the Unauthorized text used for unknown/revoked/anonymous — a valid friend is TAUGHT why they can't write, mirroring the out_of_scope pedagogy (wave 3 Z2). Unknown-token asymmetry (silent leak-free) is covered by wave3_unrecognized_token_unauthorized.yaml — do not conflate."
+
+narrative: |
+  Wave 2 owner-only invariant. Friend tokens (see wave 3) can search /
+  list / get within their scope; write is strictly the owner's
+  privilege. The response shape is chosen to be pedagogic — a valid
+  friend who tries `_write` learns immediately that write requires the
+  owner token, without having to guess whether their token was revoked
+  (which would be the wrong signal because they still work on reads).
+
+  Symmetry note (do NOT unify):
+    - Unknown / revoked / expired / anonymous → "Unauthorized ..." text
+      (wave 3 W4 + Z3, wave3_unrecognized_token_unauthorized.yaml).
+    - Valid friend + write attempt → {status:write_denied,reason:owner_only}
+      (this storyboard).
+    - Valid friend + out-of-scope read → {status:out_of_scope,allowed:[...]}
+      (wave 3 Z2, wave3_scoped_out_of_scope_403.yaml).
+
+  Three different envelopes because three different threat models.
+  Merging them into one "generic denied" text would either leak the
+  friend-token set (bad) or lose the pedagogic value on both scoped
+  reads and owner-only writes (also bad).
+
+kind: http
+
+setup: {}
+
+assertions:
+  - name: "slug-a (valid friend, scope literatura+note) + write → write_denied"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Authorization: Bearer storyboard-friend-slug-a
+      body: '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mysloodsiewnia_write","arguments":{"doc_type":"note","title":"hi","body":"friend cannot write"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - '\"status\":\"write_denied\"'
+        - '\"reason\":\"owner_only\"'
+      body_does_not_contain:
+        - 'Unauthorized'
+        - '\"status\": \"offline\"'
+        - '\"status\": \"out_of_scope\"'
+        - '\"status\": \"online\"'
+        - 'op_id'
+
+  - name: "slug-b (valid friend, tight cap) + write → write_denied (cap NOT consumed, owner gate first)"
+    # slug-b has aggressive 3/hr rate limit. write_denied MUST come
+    # BEFORE the rate-limit check in the auth precedence — otherwise
+    # a scoped friend could exhaust their read budget by hammering
+    # /write, denial-of-service on themselves without ever writing.
+    # If precedence flips (rate_limit before owner_gate), this
+    # assertion still passes on the first call but on the 4th call
+    # would return rate_limited instead of write_denied. Sabotage-
+    # verify: move friendRateLimit() before the owner-gate in
+    # toolMysloodsiewniaWrite and observe the 4th call's response.
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Authorization: Bearer storyboard-friend-slug-b
+      body: '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"mysloodsiewnia_write","arguments":{"doc_type":"literatura","title":"a","body":"b"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - '\"status\":\"write_denied\"'
+        - '\"reason\":\"owner_only\"'
+      body_does_not_contain:
+        - '\"status\": \"rate_limited\"'
+        - 'Unauthorized'
+        - 'op_id'
+
+closes_failure_modes:
+  - "friend token receives 'Unauthorized' on write → friend thinks their token is broken, contacts kapoost about read tools too"
+  - "friend token silently succeeds writing → whole point of owner-only write is bypassed"
+  - "write_denied envelope drifts (misspelled reason, wrong key names) → downstream tooling breaks"
+  - "rate-limit runs before owner gate → friend token cap gets consumed by write attempts they cannot make"
+
+known_regressions_caught:
+  - "2026-08-12 — wave 2 ADR addendum: owner-only write pinned. Any future 'let a specific friend write' feature must ship its own ADR + storyboards, not silently loosen this shape"

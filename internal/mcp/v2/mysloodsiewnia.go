@@ -163,6 +163,58 @@ func registerMysloodsiewniaGet(s *sdk.Server, src Source) {
 	})
 }
 
+// ── mysloodsiewnia_write (wave 2) ───────────────────────────────────────────
+
+// writeBodyCap mirrors the v1 constant — 100 KiB Fly-side, same limit
+// enforced by the vault worker (belt+suspenders per ADR-0001 D5).
+const writeBodyCap = 100 * 1024
+
+// registerMysloodsiewniaWrite exposes owner-only ingest. Friend tokens with
+// valid auth get {status:write_denied,reason:owner_only} — distinct from the
+// anonymous Unauthorized text on purpose (see ADR-0001 Wave 2 addendum).
+func registerMysloodsiewniaWrite(s *sdk.Server, src Source) {
+	s.AddTool(&sdk.Tool{
+		Name:        "mysloodsiewnia_write",
+		Description: "Ingest a new document into kapoost's vault (wave 2). OWNER-ONLY — friend tokens receive {status:write_denied,reason:owner_only}. Args: {doc_type (required), title (required), body (required, ≤100 KiB), source_path?, meta?}. Server-side vault auto-tags via:humanmcp-bridge; op_id is dedup key (idempotent retries safe). Delete is permanently unavailable. Envelopes: {status:online, op_id, result:{slug, created_at}}, {status:invalid_args}, {status:payload_too_large, limit, got}, {status:offline}, {status:vault_timeout}, {status:vault_error, error}.",
+		InputSchema: json.RawMessage(`{"type":"object","required":["doc_type","title","body"],"properties":{"doc_type":{"type":"string"},"title":{"type":"string"},"body":{"type":"string"},"source_path":{"type":"string"},"meta":{"type":"object"}}}`),
+	}, func(_ context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+		tokenID, _, ok := src.AuthorizeRequestByHeaders(req.Extra.Header)
+		if !ok {
+			return textResult(unauthorizedText), nil
+		}
+		if tokenID != ownerSlug {
+			return textResult(`{"status":"write_denied","reason":"owner_only"}`), nil
+		}
+		var args struct {
+			DocType    string          `json:"doc_type"`
+			Title      string          `json:"title"`
+			Body       string          `json:"body"`
+			SourcePath string          `json:"source_path,omitempty"`
+			Meta       json.RawMessage `json:"meta,omitempty"`
+		}
+		if len(req.Params.Arguments) > 0 {
+			if err := json.Unmarshal(req.Params.Arguments, &args); err != nil {
+				return textResult(`{"status":"invalid_args","error":"could not parse arguments"}`), nil
+			}
+		}
+		switch {
+		case args.DocType == "":
+			return textResult(`{"status":"invalid_args","error":"doc_type is required"}`), nil
+		case args.Title == "":
+			return textResult(`{"status":"invalid_args","error":"title is required"}`), nil
+		case args.Body == "":
+			return textResult(`{"status":"invalid_args","error":"body is required"}`), nil
+		}
+		if len(args.Body) > writeBodyCap {
+			return textResult(fmt.Sprintf(`{"status":"payload_too_large","limit":%d,"got":%d}`, writeBodyCap, len(args.Body))), nil
+		}
+		if text, stop := gate(src); stop {
+			return textResult(text), nil
+		}
+		return textResult(enqueueAndWait(src, mysloodsiewnia.OpWrite, args, ownerSlug, nil)), nil
+	})
+}
+
 // ── shared helpers (mirror internal/mcp/mysloodsiewnia_tools.go) ─────────────
 
 func currentSnapshot(src Source) mysloodsiewnia.Snapshot {

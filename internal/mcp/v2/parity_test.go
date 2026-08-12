@@ -236,6 +236,24 @@ func TestV2ParityWithLegacy(t *testing.T) {
 		{"mysloodsiewnia_list_owner_offline_with_filter", "mysloodsiewnia_list",
 			map[string]any{"doc_type": "note", "limit": 10, "offset": 5},
 			map[string]string{"Authorization": "Bearer testtoken"}},
+
+		// mysloodsiewnia_write (wave 2). Owner-only ingest. Each variant
+		// exercises a distinct step in the precedence chain so v1↔v2 drift
+		// in any of them surfaces as a specific-named failure.
+		{"mysloodsiewnia_write_anonymous", "mysloodsiewnia_write",
+			map[string]any{"doc_type": "note", "title": "t", "body": "b"}, nil},
+		{"mysloodsiewnia_write_owner_missing_doc_type", "mysloodsiewnia_write",
+			map[string]any{"title": "t", "body": "b"},
+			map[string]string{"Authorization": "Bearer testtoken"}},
+		{"mysloodsiewnia_write_owner_missing_title", "mysloodsiewnia_write",
+			map[string]any{"doc_type": "note", "body": "b"},
+			map[string]string{"Authorization": "Bearer testtoken"}},
+		{"mysloodsiewnia_write_owner_missing_body", "mysloodsiewnia_write",
+			map[string]any{"doc_type": "note", "title": "t"},
+			map[string]string{"Authorization": "Bearer testtoken"}},
+		{"mysloodsiewnia_write_owner_offline", "mysloodsiewnia_write",
+			map[string]any{"doc_type": "note", "title": "t", "body": "b"},
+			map[string]string{"Authorization": "Bearer testtoken"}},
 	}
 
 	for _, c := range cases {
