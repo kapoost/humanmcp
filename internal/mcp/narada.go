@@ -21,7 +21,7 @@ import (
 // with the job id so the caller can poll fetch_narada_result later.
 func (h *Handler) toolRunNarada(w http.ResponseWriter, r *http.Request, req *Request, args json.RawMessage) {
 	ip := h.clientIP(r)
-	if !h.checkBucketRate(ip, h.naradaLog, time.Hour, 5) {
+	if allowed, _ := h.naradaBucket.Allow(ip); !allowed {
 		log.Printf("[AUDIT] run_narada RATE_LIMITED ip=%s", ip)
 		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
 			Text: "Too many naradas from this caller — limit is 5 per hour. Try again later."}}})
@@ -87,7 +87,7 @@ that tag to match rollbacks back to the recommending persona.`,
 // until Status is "done" or "failed".
 func (h *Handler) toolFetchNaradaResult(w http.ResponseWriter, r *http.Request, req *Request, args json.RawMessage) {
 	ip := h.clientIP(r)
-	if !h.checkBucketRate(ip, h.naradaFetchLog, time.Hour, 60) {
+	if allowed, _ := h.naradaFetchBucket.Allow(ip); !allowed {
 		log.Printf("[AUDIT] fetch_narada_result RATE_LIMITED ip=%s", ip)
 		writeResult(w, req.ID, CallResult{Content: []ContentBlock{{Type: "text",
 			Text: "Too many polls from this caller — limit is 60 per hour. Try again later."}}})

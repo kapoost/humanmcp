@@ -14,13 +14,13 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/kapoost/humanmcp-go/internal/auth"
 	"github.com/kapoost/humanmcp-go/internal/config"
 	"github.com/kapoost/humanmcp-go/internal/content"
 	"github.com/kapoost/humanmcp-go/internal/mysloodsiewnia"
+	"github.com/kapoost/humanmcp-go/internal/ratelimit"
 )
 
 type Handler struct {
@@ -47,8 +47,8 @@ type Handler struct {
 	// IP-based sliding-window rate limiter for the anonymous /contact form.
 	// Generous limit so a real human refining their message isn't blocked,
 	// tight enough to stop bot-driven spam once we get visibility.
-	contactRateMu      sync.Mutex
-	contactRateLog     map[string][]time.Time
+	// Also reused by the /api/search-beacon endpoint (same limits).
+	contactBucket *ratelimit.Bucket
 }
 
 func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler {
@@ -65,7 +65,7 @@ func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler
 		provenanceStore:   content.NewProvenanceStore(cfg.ContentDir),
 		collectionStore:   content.NewCollectionStore(cfg.ContentDir),
 		startedAt:         time.Now(),
-		contactRateLog:    make(map[string][]time.Time),
+		contactBucket:     ratelimit.New(10*time.Minute, 5, nil),
 	}
 	if cfg.SigningPrivateKey != "" {
 		if kp, err := content.KeyPairFromBase64(cfg.SigningPrivateKey); err == nil {
@@ -1611,31 +1611,12 @@ func (h *Handler) contactClientIP(r *http.Request) string {
 }
 
 // checkContactRateLimit allows up to 5 POSTs per 10 minutes per IP for
-// the anonymous /contact form. Generous to humans iterating on a message,
-// tight enough to stop a script. Sliding window — recomputed on every
-// call. Returns true if the request is allowed.
+// the anonymous /contact form + /api/search-beacon. Generous to humans
+// iterating on a message, tight enough to stop a script. Backed by the
+// shared internal/ratelimit sliding-window Bucket.
 func (h *Handler) checkContactRateLimit(ip string) bool {
-	const (
-		windowSeconds = 600
-		maxInWindow   = 5
-	)
-	h.contactRateMu.Lock()
-	defer h.contactRateMu.Unlock()
-	now := time.Now()
-	cutoff := now.Add(-time.Duration(windowSeconds) * time.Second)
-	var kept []time.Time
-	for _, t := range h.contactRateLog[ip] {
-		if t.After(cutoff) {
-			kept = append(kept, t)
-		}
-	}
-	if len(kept) >= maxInWindow {
-		h.contactRateLog[ip] = kept
-		return false
-	}
-	kept = append(kept, now)
-	h.contactRateLog[ip] = kept
-	return true
+	allowed, _ := h.contactBucket.Allow(ip)
+	return allowed
 }
 
 func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {

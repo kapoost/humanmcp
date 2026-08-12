@@ -56,45 +56,19 @@ func (h *Handler) AuthorizeRequestByHeaders(hdr http.Header) (tokenID string, sc
 	return "", nil, false
 }
 
-// CheckFriendTokenRateLimit enforces a per-token sliding 1h window. Owner
-// (tokenID=="owner" or "") bypasses. Returns (allowed, retryAfterSecs).
-// retryAfterSecs is the time until the oldest hit in the current window
-// falls off — so the caller knows exactly when they can retry. Zero when
-// allowed.
+// CheckFriendTokenRateLimit enforces a per-token sliding 1h window via the
+// shared ratelimit.Bucket. Owner (tokenID=="owner" or "") bypasses.
+// Returns (allowed, retryAfterSecs) — retryAfterSecs is the time until the
+// oldest hit in the current window falls off. Zero when allowed.
 //
 // Called by mysloodsiewnia_* tools right before scope check, so a burn
 // attack costs the token its budget but never reaches the vault.
+//
+// Wave 3 Z4 fallback: if per-token limit is unset (<=0), the bucket's
+// default limit (30/hr) applies via AllowWithLimit.
 func (h *Handler) CheckFriendTokenRateLimit(tokenID string, limitPerHour int) (allowed bool, retryAfterSecs int) {
 	if tokenID == "" || tokenID == ownerTokenID {
 		return true, 0
 	}
-	if limitPerHour <= 0 {
-		// Z4 fallback: config missing → 30 req/hr (conservative — easier
-		// to loosen per-token than to tighten mid-incident).
-		limitPerHour = 30
-	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	now := time.Now()
-	window := time.Hour
-	cutoff := now.Add(-window)
-	times := h.friendTokenLog[tokenID]
-	kept := times[:0]
-	for _, t := range times {
-		if t.After(cutoff) {
-			kept = append(kept, t)
-		}
-	}
-	if len(kept) >= limitPerHour {
-		oldest := kept[0]
-		retry := int(oldest.Add(window).Sub(now).Seconds()) + 1
-		if retry < 1 {
-			retry = 1
-		}
-		h.friendTokenLog[tokenID] = kept
-		return false, retry
-	}
-	kept = append(kept, now)
-	h.friendTokenLog[tokenID] = kept
-	return true, 0
+	return h.friendTokenBucket.AllowWithLimit(tokenID, limitPerHour)
 }

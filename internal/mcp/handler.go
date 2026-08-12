@@ -18,6 +18,7 @@ import (
 	"github.com/kapoost/humanmcp-go/internal/content"
 	"github.com/kapoost/humanmcp-go/internal/llm"
 	"github.com/kapoost/humanmcp-go/internal/mysloodsiewnia"
+	"github.com/kapoost/humanmcp-go/internal/ratelimit"
 )
 
 type Request struct {
@@ -97,13 +98,14 @@ type Handler struct {
 	llm             *llm.Client
 	sessions      map[string]time.Time // session ID → expiry time
 
-	mu              sync.Mutex
-	rateLimiter     map[string][]time.Time // IP → bootstrap_session attempts (5/min)
-	askHumanLog     map[string][]time.Time // IP → ask_human calls (5/hr)
-	fetchAnswerLog  map[string][]time.Time // IP → fetch_answer polls (30/hr)
-	naradaLog       map[string][]time.Time // IP → run_narada calls (5/hr)
-	naradaFetchLog  map[string][]time.Time // IP → fetch_narada_result polls (60/hr)
-	friendTokenLog  map[string][]time.Time // friend tokenID → mysloodsiewnia_* calls (per-token 1h window)
+	mu sync.Mutex
+	// Rate limiters — all keyed sliding windows, unified via internal/ratelimit.
+	bootstrapBucket   *ratelimit.Bucket // per-IP: 5/min bootstrap_session
+	askHumanBucket    *ratelimit.Bucket // per-IP: 5/hr ask_human
+	fetchAnswerBucket *ratelimit.Bucket // per-IP: 30/hr fetch_answer polls
+	naradaBucket      *ratelimit.Bucket // per-IP: 5/hr run_narada
+	naradaFetchBucket *ratelimit.Bucket // per-IP: 60/hr fetch_narada_result polls
+	friendTokenBucket *ratelimit.Bucket // per-tokenID: 1h window, per-token limit via AllowWithLimit
 
 	// Bridge into the mysłoodsiewnia vault. Nil ⇒ tools report offline.
 	liveness    *mysloodsiewnia.Liveness
@@ -126,12 +128,14 @@ func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler
 		journalStore:    content.NewPersonaJournalStore(cfg.ContentDir),
 		llm:             llm.New(cfg.ClaudeAPIKey),
 		sessions:       make(map[string]time.Time),
-		rateLimiter:    make(map[string][]time.Time),
-		askHumanLog:    make(map[string][]time.Time),
-		fetchAnswerLog: make(map[string][]time.Time),
-		naradaLog:      make(map[string][]time.Time),
-		naradaFetchLog: make(map[string][]time.Time),
-		friendTokenLog: make(map[string][]time.Time),
+		bootstrapBucket:   ratelimit.New(time.Minute, 5, nil),
+		askHumanBucket:    ratelimit.New(time.Hour, 5, nil),
+		fetchAnswerBucket: ratelimit.New(time.Hour, 30, nil),
+		naradaBucket:      ratelimit.New(time.Hour, 5, nil),
+		naradaFetchBucket: ratelimit.New(time.Hour, 60, nil),
+		// friendTokenBucket: default limit 30/hr (Z4 fallback when a spec's
+		// rate_limit_per_hour is 0). Per-call overrides via AllowWithLimit.
+		friendTokenBucket: ratelimit.New(time.Hour, 30, nil),
 	}
 	// Cleanup goroutines
 	go h.cleanupLoop()
@@ -166,10 +170,12 @@ func (h *Handler) CheckFetchAnswerRateLimit(ip string) bool {
 	return h.checkFetchAnswerRateLimit(ip)
 }
 func (h *Handler) CheckNaradaRateLimit(ip string) bool {
-	return h.checkBucketRate(ip, h.naradaLog, time.Hour, 5)
+	allowed, _ := h.naradaBucket.Allow(ip)
+	return allowed
 }
 func (h *Handler) CheckNaradaFetchRateLimit(ip string) bool {
-	return h.checkBucketRate(ip, h.naradaFetchLog, time.Hour, 60)
+	allowed, _ := h.naradaFetchBucket.Allow(ip)
+	return allowed
 }
 
 // ValidateSessionCode exposes the poetry-fragment / session-secret validator
@@ -254,22 +260,16 @@ func (h *Handler) cleanupLoop() {
 				delete(h.sessions, sid)
 			}
 		}
-		// Expire rate limiter entries
-		cutoff := now.Add(-1 * time.Minute)
-		for ip, times := range h.rateLimiter {
-			var fresh []time.Time
-			for _, t := range times {
-				if t.After(cutoff) {
-					fresh = append(fresh, t)
-				}
-			}
-			if len(fresh) == 0 {
-				delete(h.rateLimiter, ip)
-			} else {
-				h.rateLimiter[ip] = fresh
-			}
-		}
 		h.mu.Unlock()
+		// Prune stale rate-limiter keys — each bucket owns its mutex, so
+		// no need to hold h.mu. IP-keyed buckets accumulate one-shot keys
+		// (scanners, crawlers); prune keeps memory bounded.
+		h.bootstrapBucket.Prune()
+		h.askHumanBucket.Prune()
+		h.fetchAnswerBucket.Prune()
+		h.naradaBucket.Prune()
+		h.naradaFetchBucket.Prune()
+		h.friendTokenBucket.Prune()
 	}
 }
 
@@ -2306,59 +2306,21 @@ func (h *Handler) clientIP(r *http.Request) string {
 }
 
 func (h *Handler) checkRateLimit(ip string) bool {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	now := time.Now()
-	cutoff := now.Add(-1 * time.Minute)
-	var recent []time.Time
-	for _, t := range h.rateLimiter[ip] {
-		if t.After(cutoff) {
-			recent = append(recent, t)
-		}
-	}
-	if len(recent) >= 5 {
-		h.rateLimiter[ip] = recent
-		return false // rate limited
-	}
-	recent = append(recent, now)
-	h.rateLimiter[ip] = recent
-	return true // allowed
+	allowed, _ := h.bootstrapBucket.Allow(ip)
+	return allowed
 }
 
 // checkAskHumanRateLimit allows up to 5 ask_human calls per hour per IP.
-// Sliding window: every call re-evaluates the last hour and prunes stale
-// entries before the decision.
 func (h *Handler) checkAskHumanRateLimit(ip string) bool {
-	return h.checkBucketRate(ip, h.askHumanLog, time.Hour, 5)
+	allowed, _ := h.askHumanBucket.Allow(ip)
+	return allowed
 }
 
 // checkFetchAnswerRateLimit allows 30 fetch_answer polls per hour per IP —
 // enough headroom for an agent that politely polls every couple minutes.
 func (h *Handler) checkFetchAnswerRateLimit(ip string) bool {
-	return h.checkBucketRate(ip, h.fetchAnswerLog, time.Hour, 30)
-}
-
-// checkBucketRate generalises the sliding-window pattern used by the older
-// per-minute rate limiter. The bucket is mutated in place; caller holds no
-// lock (we acquire h.mu here).
-func (h *Handler) checkBucketRate(ip string, bucket map[string][]time.Time, window time.Duration, maxInWindow int) bool {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	now := time.Now()
-	cutoff := now.Add(-window)
-	var kept []time.Time
-	for _, t := range bucket[ip] {
-		if t.After(cutoff) {
-			kept = append(kept, t)
-		}
-	}
-	if len(kept) >= maxInWindow {
-		bucket[ip] = kept
-		return false
-	}
-	kept = append(kept, now)
-	bucket[ip] = kept
-	return true
+	allowed, _ := h.fetchAnswerBucket.Allow(ip)
+	return allowed
 }
 
 func (h *Handler) toolBootstrapSession(w http.ResponseWriter, r *http.Request, req *Request, args json.RawMessage) {
