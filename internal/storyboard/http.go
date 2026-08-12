@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +23,18 @@ import (
 )
 
 const testEditToken = "storyboard-test-token"
+
+// sessionTokenRe matches the `SESSION_TOKEN: <token>` line the v2
+// bootstrap_session tool emits. Runner scans every response body for
+// this line; when found, subsequent /mcp assertions in the same
+// storyboard file auto-inject the token as Authorization: Bearer.
+// Lets storyboards that used the v1 Mcp-Session-Id pattern keep
+// working against a v2 mount without per-file YAML surgery.
+// Token format: `<expiry_unix>.<hmac_hex>` — digits + dot + lowercase hex.
+// Explicit char class instead of \S+ because response bodies wrap the
+// briefing in JSON-encoded text; \S+ was greedy-capturing trailing
+// `\n(Send...` from the preamble comment and corrupting validation.
+var sessionTokenRe = regexp.MustCompile(`SESSION_TOKEN:\s*([0-9a-f.]+)`)
 
 // testFriendTokens is the deterministic fixture used by wave-3 storyboards
 // (storyboards/mysloodsiewnia/wave3_*.yaml). Slug names are anonymous
@@ -91,21 +104,22 @@ func runHTTP(t *testing.T, sb Storyboard) {
 	a := auth.New(cfg.EditToken)
 	h := web.NewHandler(cfg, store, a)
 	mux := http.NewServeMux()
-	// Tier C v1→v2 migration status: storyboards still mount v1
-	// (mcpHandler). Trial mount of v2 (mcpv2.New(cfg, mcpHandler)) yields
-	// 248/251 passing — the 2 remaining failures are both in
-	// `mcp/collection_access_gates_via_mcp` bootstrapped subtests,
-	// blocked on the v2 session model. Root cause: SDK strips the
-	// Mcp-Session-Id header on stateless servers (see handler.go:232-240),
-	// so `IsSessionActiveByHeaders` always returns false for v2 callers.
-	// Requires a session-activation channel v2 SDK doesn't provide today
-	// (options: piggyback on Authorization: Bearer <session_token> issued
-	// by bootstrap_session, or custom X-Session-Id header the SDK doesn't
-	// touch). Separate ADR before flipping this mount.
+	// Tier C v1→v2 migration: storyboards mount v2 (Streamable HTTP via
+	// go-sdk) at /mcp — every green here proves one less thing to break
+	// when v1 is finally dropped. mcpHandler stays alive as the Source
+	// interface implementation (state, session validation, rate limits —
+	// v2 delegates back to it). Bootstrap session tokens emitted by v2
+	// are auto-captured by the runner and injected as Bearer on
+	// subsequent /mcp calls (see sessionTokenRe + runHTTPAssertion),
+	// so the collection_access_gates storyboard's bootstrap→members
+	// flow works without per-YAML surgery.
 	mcpHandler := mcp.NewHandler(cfg, store, a)
-	mux.Handle("/mcp", mcpHandler)
-	mux.Handle("/mcp/", mcpHandler)
-	_ = mcpv2.New // keep import compiling; used at prod v2 endpoint mount, not here yet.
+	// SessionSecret needed by v2 bootstrap tool to emit HMAC-signed
+	// session tokens. Test-only value; prod uses env SESSION_SECRET.
+	cfg.SessionSecret = "storyboard-session-secret-not-for-prod"
+	v2Handler := mcpv2.New(cfg, mcpHandler)
+	mux.Handle("/mcp", v2Handler)
+	mux.Handle("/mcp/", v2Handler)
 	// Wire the MCP tool count into the web handler so /llms.txt can
 	// render the same number as prod.
 	h.SetMCPToolCount(len(mcpHandler.ToolNames()))
@@ -142,18 +156,24 @@ func runHTTP(t *testing.T, sb Storyboard) {
 		}
 	}
 
+	// Session token cache — shared across assertions in this storyboard.
+	// v2 bootstrap_session emits `SESSION_TOKEN: <token>`; runner extracts
+	// + auto-injects on subsequent /mcp calls (see runHTTPAssertion).
+	// Scoped per-storyboard so friend-token tests don't accidentally pick
+	// up a session token from an earlier storyboard's bootstrap.
+	sessionToken := ""
 	for _, asn := range sb.HTTPCases {
 		name := asn.Name
 		if name == "" {
 			name = asn.Request.Method + " " + asn.Request.Path
 		}
 		t.Run(name, func(t *testing.T) {
-			runHTTPAssertion(t, srv, asn)
+			runHTTPAssertion(t, srv, asn, &sessionToken)
 		})
 	}
 }
 
-func runHTTPAssertion(t *testing.T, srv *httptest.Server, a HTTPAssertion) {
+func runHTTPAssertion(t *testing.T, srv *httptest.Server, a HTTPAssertion, sessionToken *string) {
 	t.Helper()
 	client := &http.Client{
 		// Don't follow redirects — we want to assert on Location.
@@ -220,6 +240,16 @@ func runHTTPAssertion(t *testing.T, srv *httptest.Server, a HTTPAssertion) {
 	if a.Request.Owner {
 		req.Header.Set("X-Edit-Token", testEditToken)
 	}
+	// Auto-inject session token as Authorization: Bearer on /mcp calls
+	// when (a) an earlier bootstrap_session in this storyboard emitted
+	// one and (b) the assertion didn't set its own Authorization header.
+	// Storyboards that explicitly set Authorization (friend-token tests)
+	// keep their value. See sessionTokenRe scan on response body below.
+	if sessionToken != nil && *sessionToken != "" &&
+		strings.HasPrefix(a.Request.Path, "/mcp") &&
+		req.Header.Get("Authorization") == "" {
+		req.Header.Set("Authorization", "Bearer "+*sessionToken)
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -227,6 +257,15 @@ func runHTTPAssertion(t *testing.T, srv *httptest.Server, a HTTPAssertion) {
 	}
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(resp.Body)
+
+	// Scan response for SESSION_TOKEN emitted by v2 bootstrap_session.
+	// One captured token per storyboard is enough — subsequent bootstrap
+	// calls overwrite (last-write-wins, matching agent behavior).
+	if sessionToken != nil {
+		if m := sessionTokenRe.FindStringSubmatch(string(respBody)); m != nil {
+			*sessionToken = m[1]
+		}
+	}
 
 	if a.Expect.Status != 0 && resp.StatusCode != a.Expect.Status {
 		t.Errorf("status: got %d, want %d (body: %s)", resp.StatusCode, a.Expect.Status, truncate(string(respBody), 200))

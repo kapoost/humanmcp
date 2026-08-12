@@ -44,11 +44,22 @@ func registerBootstrapSession(s *sdk.Server, src Source) {
 			return textResult("Niepoprawne hasło sesji. Sprawdź — to powinien być fragment wiersza polskiego poety. Wielkość liter nie ma znaczenia."), nil
 		}
 		log.Printf("[AUDIT] bootstrap_session OK ip=%s", ip)
-		// Session activation is a v1-only concern: Mcp-Session-Id is
-		// stripped by the SDK on 2026-07-28 stateless transport. Agents
-		// on v2 get the full briefing inline (personas + skills bodies),
-		// so downstream get_persona / get_skill "unlock" gates are moot.
-		return textResult(renderBootstrapBriefing(src.LoadPersonas(), src.LoadSkills(), src.Config().Domain)), nil
+		// v2 session activation: stateless HMAC token embedded in the
+		// briefing. Agents extract via `SESSION_TOKEN: <token>` line at
+		// the top and send on subsequent calls as
+		//   Authorization: Bearer <token>
+		// SDK strips Mcp-Session-Id on stateless transport (2026-07-28
+		// protocol), so this Bearer channel is the way v2 gates
+		// members-tier content (see IsSessionActiveByHeaders dual-read).
+		// TTL 1h — see internal/mcp/session.go.
+		body := renderBootstrapBriefing(src.LoadPersonas(), src.LoadSkills(), src.Config().Domain)
+		if token := mcp.GenerateSessionToken(src.Config().SessionSecret); token != "" {
+			preamble := "SESSION_TOKEN: " + token + "\n" +
+				"(Send on subsequent tool calls as `Authorization: Bearer <token>` — TTL 1h.\n" +
+				" Members-tier content (list_collection, read_collection_item) is gated on this.)\n\n"
+			return textResult(preamble + body), nil
+		}
+		return textResult(body), nil
 	})
 }
 
