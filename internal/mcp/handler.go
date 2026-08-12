@@ -232,20 +232,30 @@ func (h *Handler) IsOwnerRequestByHeaders(hdr http.Header) bool {
 	return false
 }
 
-// IsSessionActiveByHeaders is a header-only variant of isSessionActive
-// for callers (v2 SDK handler) that only expose http.Header, not the
-// full *http.Request. On 2026-07-28 stateless servers Mcp-Session-Id
-// is stripped by the SDK, so this returns false until v2 grows its
-// own session-activation channel.
+// IsSessionActiveByHeaders is a header-only variant of isSessionActive.
+// Dual-read: tries the v1 Mcp-Session-Id path first (in-memory session
+// map keyed by sid), then falls back to the v2 stateless session token
+// path (HMAC-signed Bearer, see session.go). Either channel proving
+// active-session status is enough — this call is idempotent, no state
+// mutation.
 func (h *Handler) IsSessionActiveByHeaders(hdr http.Header) bool {
-	sid := hdr.Get("Mcp-Session-Id")
-	if sid == "" {
+	if sid := hdr.Get("Mcp-Session-Id"); sid != "" {
+		h.mu.Lock()
+		expiry, ok := h.sessions[sid]
+		h.mu.Unlock()
+		if ok && time.Now().Before(expiry) {
+			return true
+		}
+	}
+	authHeader := hdr.Get("Authorization")
+	if !strings.HasPrefix(authHeader, "Bearer ") {
 		return false
 	}
-	h.mu.Lock()
-	expiry, ok := h.sessions[sid]
-	h.mu.Unlock()
-	return ok && time.Now().Before(expiry)
+	token := strings.TrimPrefix(authHeader, "Bearer ")
+	if !strings.Contains(token, ".") {
+		return false
+	}
+	return ValidateSessionToken(token, h.cfg.SessionSecret)
 }
 
 func (h *Handler) cleanupLoop() {
