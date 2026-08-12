@@ -1,0 +1,93 @@
+id: mysloodsiewnia/wave3_scoped_out_of_scope_403
+version: "1.0.0"
+title: "wave 3: scoped token pytający o doc_type poza scope → HTTP 403 z allowed:[…]"
+category: mysloodsiewnia_bridge_wave3
+summary: "Friend token slug_a ma scope [literatura, note]. Wywołanie mysloodsiewnia_list z filter doc_type=pdf wraca HTTP 403 z body zawierającym 'out_of_scope' + listę allowed. NIE zwraca zero rows (to zarezerwowane dla access:private per Z2)."
+
+narrative: |
+  Wave 3 sharing / friend tokens (ADR-0001 sekcja "Wave 3", narada
+  nar-67cdd80179c2, contrarian pass Z2).
+
+  Ten storyboard pinuje ASYMETRIĘ która jest KRYTYCZNA i wygląda jak bug:
+    - out-of-scope doc_type → HTTP 403 z {"status":"out_of_scope","allowed":[…]}
+    - access:private match → zero rows, cisza (osobny test vault-side)
+
+  Semantyka celowa. Scoped agent (Alice) uczy się o swoim scope przez
+  403 z listą; NIGDY nie uczy się o istnieniu prywatnych dokumentów.
+  Implementator który zobaczy tylko kod będzie chciał ujednolicić do
+  jednego sygnału — NIE UJEDNOLICAJ. Ten storyboard fail'uje gdy ktoś
+  próbuje.
+
+  Storyboard boot: nil bridge (offline vault) NIE MA znaczenia, bo
+  scope check MUSI runować przed liveness gate — out-of-scope to
+  invalid_args-shaped decyzja, nie stan vaultu.
+
+kind: http
+
+setup: {}
+
+assertions:
+  - name: "friend slug_a + doc_type in scope + vault offline → offline (nie 403)"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Authorization: Bearer storyboard-friend-slug-a
+      body: '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mysloodsiewnia_list","arguments":{"doc_type":"literatura","limit":5}}}'
+    expect:
+      status: 200
+      body_contains:
+        - '\"status\": \"offline\"'
+      body_does_not_contain:
+        - 'out_of_scope'
+        - 'Unauthorized'
+
+  - name: "friend slug_a + doc_type poza scope → 403 out_of_scope z allowed"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Authorization: Bearer storyboard-friend-slug-a
+      body: '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"mysloodsiewnia_list","arguments":{"doc_type":"pdf","limit":5}}}'
+    expect:
+      status: 200
+      body_contains:
+        - '\"status\": \"out_of_scope\"'
+        - '\"allowed\":'
+        - '\"literatura\"'
+        - '\"note\"'
+      body_does_not_contain:
+        - '\"status\": \"offline\"'
+        - '\"results\": []'
+        - 'Unauthorized'
+
+  - name: "friend slug_a + brak filtra doc_type → tool decyduje domyślne (dopisać po impl)"
+    # Kwestia otwarta w brief: default doc_type gdy scoped token nie podaje?
+    # Options: (a) auto-filter na scope, zwraca wszystko z jego scope;
+    #          (b) 400 invalid_args "specify doc_type";
+    # Impl session decyduje i dopisuje asercję. Na razie storyboard nie
+    # asertuje żeby nie zamknąć przedwcześnie.
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Authorization: Bearer storyboard-friend-slug-a
+      body: '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"mysloodsiewnia_list","arguments":{"limit":5}}}'
+    expect:
+      status: 200
+      body_does_not_contain:
+        - 'Unauthorized'
+        - '\"status\": \"online\"'
+
+closes_failure_modes:
+  - "Scoped token dostaje zero rows dla out-of-scope zamiast 403 → agent halucynuje pusty vault"
+  - "403 body nie zawiera allowed[] → friend nie wie co może; wypytuje przez guess-and-check"
+  - "Implementator ujednolica out-of-scope + private do jednej odpowiedzi → privacy leak (istnienie private inferable przez różnicę)"
+  - "Scope check biegnie po liveness gate → offline vault ukrywa scope errors, friend nie dostaje feedbacku aż vault wróci"
+
+known_regressions_caught:
+  - "2026-08-12 — contrarian Z2 (post-narada nar-67cdd80179c2): asymetria zero-rows vs 403 jest CELOWA i pinnowana"
+  - "2026-08-12 — narada nar-67cdd80179c2 W1: scope grammar to static enum, więc allowed[] jest deterministyczne i można je asertować literały"

@@ -1,0 +1,122 @@
+id: mysloodsiewnia/wave3_unrecognized_token_unauthorized
+version: "1.0.0"
+title: "wave 3: nieznany friend token (revoked / typo / phishing) → Unauthorized identyczne jak anonimowe; brak leak"
+category: mysloodsiewnia_bridge_wave3
+summary: "Token który nie jest w cfg (revoked przez secrets unset, typo w headerze, wygasł, phishing intercept z fake tokenem) MUSI dostać identyczną odpowiedź jak anonimowe wywołanie. Zero informacji o (a) czy token kiedyś istniał, (b) czy istnieje owner token, (c) jakie scopes byłyby możliwe."
+
+narrative: |
+  Wave 3 sharing / friend tokens (ADR-0001 sekcja "Wave 3" W4 +
+  contrarian Z3, narada nar-67cdd80179c2).
+
+  Ryzyko: łatwo napisać response który różnicuje "token X nie
+  istnieje" od "token X wygasł" od "token X poza scope" od "anonymous"
+  — każda różnica to information leak. Attacker z jednym fake tokenem
+  może zmapować kształt friend token system'u przez różnice
+  w odpowiedziach.
+
+  Kanoniczny sygnał: dokładnie ten sam "Unauthorized" text co dla
+  anonymous. Bez "token expired", bez "token unknown", bez
+  "friend token required". Anonymous i revoked są nieodróżnialne
+  z zewnątrz.
+
+  Ten storyboard pinuje W4 immediate hard cut: token którego nie ma
+  w cfg (revoked przez secrets unset) zachowuje się jak nigdy nie
+  istniał. Zero grace period, zero cache TTL.
+
+  Storyboard boot: cfg ma ONLY storyboard-test-token (owner) i
+  storyboard-friend-slug-a (valid friend). Wszystkie inne friend
+  slugs traktowane jak anonymous.
+
+kind: http
+
+setup: {}
+
+assertions:
+  - name: "anonymous → Unauthorized (baseline)"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mysloodsiewnia_search","arguments":{"query":"morze"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "Unauthorized"
+      body_does_not_contain:
+        - '\"status\": \"offline\"'
+        - '\"status\": \"out_of_scope\"'
+        - 'expired'
+        - 'friend'
+        - 'op_id'
+
+  - name: "unknown friend slug (never existed) → Unauthorized, identyczne z anonimowym"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Authorization: Bearer storyboard-friend-slug-does-not-exist
+      body: '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"mysloodsiewnia_search","arguments":{"query":"morze"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "Unauthorized"
+      body_does_not_contain:
+        - '\"status\": \"offline\"'
+        - '\"status\": \"out_of_scope\"'
+        - 'expired'
+        - 'unknown'
+        - 'revoked'
+        - 'friend'
+        - 'op_id'
+
+  - name: "revoked-shaped slug (nie w cfg = tak samo jak revoked) → Unauthorized identyczny"
+    # Kluczowe: response tego assertion MUSI być character-for-character
+    # identyczny z powyższymi. Impl session powinna dodać dedykowany
+    # test w Go który sprawdza equality całych response body, nie tylko
+    # body_contains.
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Authorization: Bearer storyboard-friend-slug-revoked
+      body: '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"mysloodsiewnia_search","arguments":{"query":"morze"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "Unauthorized"
+      body_does_not_contain:
+        - '\"status\": \"offline\"'
+        - 'expired'
+        - 'revoked'
+        - 'was known'
+        - 'previously'
+
+  - name: "malformed bearer (missing token part) → Unauthorized, no crash"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Authorization: Bearer
+      body: '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"mysloodsiewnia_search","arguments":{"query":"morze"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "Unauthorized"
+      body_does_not_contain:
+        - 'panic'
+        - 'nil'
+        - 'op_id'
+
+closes_failure_modes:
+  - "Response różnicuje 'token expired' vs 'token unknown' vs 'anonymous' → attacker mapuje system przez differential responses"
+  - "Revoked token dostaje inny error niż anonymous → cache TTL bug ujawnia się w prod"
+  - "Friend token layer dodaje 'friend_required' hint do unauthorized → cichy leak że system ma friend tokens (info dla external attacker)"
+  - "Malformed bearer panics zamiast Unauthorized → DoS vector przez malformed headers"
+
+known_regressions_caught:
+  - "2026-08-12 — narada nar-67cdd80179c2 W4 + contrarian Z3: revocation immediate hard cut, brak grace period, revoked = never-existed z punktu widzenia response"
+  - "2026-08-12 — Hodor Z3 landmine: repo public, wszystkie response strings są publicznym API; hint 'friend' w unauthorized to permanentny leak"

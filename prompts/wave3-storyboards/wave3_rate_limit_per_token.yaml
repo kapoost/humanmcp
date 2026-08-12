@@ -1,0 +1,139 @@
+id: mysloodsiewnia/wave3_rate_limit_per_token
+version: "1.0.0"
+title: "wave 3: rate limit per token — N-ty request w oknie zwraca 429; counter per-token, nie shared"
+category: mysloodsiewnia_bridge_wave3
+summary: "Friend token slug_b ma rate_limit_per_hour=3 (test-scale). Pierwsze 3 wywołania → 200 (offline shape). 4-te → 429 z Retry-After. Tokeny slug_a (rate 50/hr) i owner (unlimited) NIE są dotknięte — counter per-token, nie shared."
+
+narrative: |
+  Wave 3 Prerequisite (ADR-0001 sekcja "Wave 3" Prerequisite +
+  contrarian Z4, narada nar-67cdd80179c2 Maruda).
+
+  Maruda w naradzie: rate limit per token to prerequisite, nie opcja.
+  Bez tego friend token to bulk-dump narzędzie. Contrarian Z4 dopisał:
+  brak hardcoded universal default, source of truth to tokens.json
+  per-token, fallback default 30/hr (konserwatywnie).
+
+  Ten storyboard pinuje trzy invariants:
+    1. Cap egzekwowany po stronie Fly (fast path) — 429 zwrócone
+       bez round-tripa do vaultu (który tak czy tak jest offline
+       w storyboard środowisku).
+    2. Counter per-token — burn'ing slug_b nie wpływa na slug_a
+       ani na owner.
+    3. Response 429 zawiera Retry-After (żeby friend agent wiedział
+       kiedy ponowić, nie palił w kółko).
+
+  Test-scale rate limit (3 zamiast production 30-50) żeby storyboard
+  był szybki i deterministyczny. Impl runner musi wsparć per-token
+  cap override w cfg testowej (albo pozwolić na cfg.FriendTokens[slug].
+  RateLimitPerHour = 3).
+
+  Uwaga: rate limit test w prawdziwym oknie 1h byłby bez sensu w CI.
+  Impl session powinna wyeksponować clock interface / fake clock, ale
+  MINIMUM to test-scale limit + burst assertion. Sliding window
+  correctness (edge cases na przełomie okna) — osobny unit test w Go,
+  nie storyboard.
+
+kind: http
+
+setup: {}
+
+assertions:
+  - name: "slug_b request #1 → offline shape 200"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Authorization: Bearer storyboard-friend-slug-b
+      body: '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mysloodsiewnia_search","arguments":{"query":"morze","limit":1}}}'
+    expect:
+      status: 200
+      body_contains:
+        - '\"status\": \"offline\"'
+      body_does_not_contain:
+        - '\"status\":\"rate_limited\"'
+
+  - name: "slug_b request #2 → offline shape 200"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Authorization: Bearer storyboard-friend-slug-b
+      body: '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"mysloodsiewnia_search","arguments":{"query":"morze","limit":1}}}'
+    expect:
+      status: 200
+      body_contains:
+        - '\"status\": \"offline\"'
+
+  - name: "slug_b request #3 → offline shape 200 (dokładnie na cap)"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Authorization: Bearer storyboard-friend-slug-b
+      body: '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"mysloodsiewnia_search","arguments":{"query":"morze","limit":1}}}'
+    expect:
+      status: 200
+      body_contains:
+        - '\"status\": \"offline\"'
+
+  - name: "slug_b request #4 → rate_limited 429 z Retry-After"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Authorization: Bearer storyboard-friend-slug-b
+      body: '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"mysloodsiewnia_search","arguments":{"query":"morze","limit":1}}}'
+    expect:
+      status: 200
+      body_contains:
+        - '\"status\":\"rate_limited\"'
+        - 'retry_after'
+      body_does_not_contain:
+        - '\"status\": \"offline\"'
+        - 'op_id'
+
+  - name: "slug_a (osobny token) po burn'ie slug_b → offline shape 200 (counter per-token)"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Authorization: Bearer storyboard-friend-slug-a
+      body: '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"mysloodsiewnia_search","arguments":{"query":"morze","limit":1}}}'
+    expect:
+      status: 200
+      body_contains:
+        - '\"status\": \"offline\"'
+      body_does_not_contain:
+        - '\"status\":\"rate_limited\"'
+
+  - name: "owner (EditToken) po burn'ie slug_b → offline shape 200 (owner bypass'uje cap)"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Authorization: Bearer storyboard-test-token
+      body: '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"mysloodsiewnia_search","arguments":{"query":"morze","limit":1}}}'
+    expect:
+      status: 200
+      body_contains:
+        - '\"status\": \"offline\"'
+      body_does_not_contain:
+        - '\"status\":\"rate_limited\"'
+
+closes_failure_modes:
+  - "Global rate limiter (shared across tokens) → jeden zły friend rate-limituje wszystkich innych + ownera"
+  - "Cap egzekwowany dopiero po SQL query na vault-side → attacker robi bulk dump w fazie 'zanim vault się orientuje'"
+  - "429 bez Retry-After → agent friend robi tight retry loop, spala vault"
+  - "Owner EditToken respektuje cap → owner nie może naprawić incydentu bo sam siebie rate-limituje"
+  - "Sliding window bug — cap resetuje się natychmiast po ostatnim requestcie zamiast po pełnym oknie"
+
+known_regressions_caught:
+  - "2026-08-12 — narada nar-67cdd80179c2 Prerequisite (Maruda): 'friend token bez per-token cap to bulk-dump w friendly hat'"
+  - "2026-08-12 — contrarian Z4: hardcoded default 50/hr usunięty; source of truth per-token config; fallback 30/hr"
+  - "wave 1 architecture: owner bypass jest invariant — jeśli owner blokowany przez cap, incident response niemożliwy"

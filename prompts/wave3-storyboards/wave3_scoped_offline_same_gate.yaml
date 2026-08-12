@@ -1,0 +1,88 @@
+id: mysloodsiewnia/wave3_scoped_offline_same_gate
+version: "1.0.0"
+title: "wave 3: scoped friend token trafia ten sam liveness gate co owner — {status:offline}, nie 'unauthorized'"
+category: mysloodsiewnia_bridge_wave3
+summary: "Friend token z valid scope, ale vault offline (brak heartbeatu). Response MUSI być {status:offline} identyczne z owner path — nie 'unauthorized', nie 'forbidden', nie 500. Pin: friend tokeny NIE mają osobnej ścieżki błędu dla offline."
+
+narrative: |
+  Wave 3 sharing / friend tokens (ADR-0001 sekcja "Wave 3", narada
+  nar-67cdd80179c2).
+
+  Ryzyko: dodając friend token layer łatwo zrobić drugą ścieżkę
+  error handling — "friend token + offline → 503 forbidden" albo
+  "friend token + offline → 401 refresh token" — coś co daje friend'owi
+  inny sygnał niż owner. To agent-confusion: świeży agent na friend
+  token zobaczy inny błąd i będzie retryował po innym backoff'ie.
+
+  Kanoniczny wave 1 offline path (search_offline_owner_and_validation)
+  zwraca {status:offline} bez op_id. Wave 3 friend path MUSI być
+  strukturalnie identyczny — jedyna różnica to token w headerze.
+
+  Storyboard boot: nil bridge (StatusUnreachable). Zarówno owner jak
+  friend powinni dostać ten sam kształt odpowiedzi.
+
+kind: http
+
+setup: {}
+
+assertions:
+  - name: "owner + valid args + vault offline → status:offline (baseline)"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Authorization: Bearer storyboard-test-token
+      body: '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mysloodsiewnia_search","arguments":{"query":"morze","limit":3}}}'
+    expect:
+      status: 200
+      body_contains:
+        - '\"status\": \"offline\"'
+      body_does_not_contain:
+        - 'op_id'
+        - 'Unauthorized'
+
+  - name: "friend slug_a + query in scope + vault offline → status:offline (identyczny kształt)"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Authorization: Bearer storyboard-friend-slug-a
+      body: '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"mysloodsiewnia_search","arguments":{"query":"morze","limit":3}}}'
+    expect:
+      status: 200
+      body_contains:
+        - '\"status\": \"offline\"'
+      body_does_not_contain:
+        - 'op_id'
+        - 'Unauthorized'
+        - 'forbidden'
+        - 'refresh'
+
+  - name: "friend slug_a + vault offline + tool bez query args → invalid_args (bad args nadal beat gate + scope)"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+        Authorization: Bearer storyboard-friend-slug-a
+      body: '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"mysloodsiewnia_search","arguments":{}}}'
+    expect:
+      status: 200
+      body_contains:
+        - '\"status\":\"invalid_args\"'
+        - 'query is required'
+      body_does_not_contain:
+        - '\"status\": \"offline\"'
+        - 'Unauthorized'
+        - 'op_id'
+
+closes_failure_modes:
+  - "Friend token + offline dostaje 401/403/503 zamiast {status:offline} — agent-confusion, inny retry backoff"
+  - "Friend token bierze inną ścieżkę error handling niż owner — dwa mental models zamiast jednego"
+  - "invalid_args dla scoped tokena schodzi po scope check → bad args ukryte przez out_of_scope response"
+
+known_regressions_caught:
+  - "2026-08-12 — narada nar-67cdd80179c2: friend tokeny to auth layer, nie osobny transport; wszystkie downstream ścieżki (offline, invalid_args, unauthorized) MUSZĄ być identyczne dla owner i friend"
+  - "wave 1 doświadczenie (search_offline): kolejność precedencji to (1) auth, (2) validate args, (3) scope check, (4) liveness gate. Friend layer wchodzi między (1) i (3)."
