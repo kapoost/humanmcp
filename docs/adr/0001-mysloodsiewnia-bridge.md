@@ -17,6 +17,12 @@
 - **2026-08-06** — First sabotage-verify run recorded in
   `storyboards/mysloodsiewnia/SABOTAGE_LOG.md`. Storyboard `search_offline`
   flipped PASS→FAIL when gate removed — protocol works.
+- **2026-08-12** — Wave 3 design (sharing / friend tokens) accepted after
+  narada `nar-67cdd80179c2` (ghost, hodor, yuki-tanaka, mira-chen, maruda).
+  Five-way consensus on all five open questions — see the "Wave 3 — sharing
+  / friend tokens" section below for the chosen design. Implementation still
+  gated on a separate brief (`prompts/wave3-sharing.md`, TBD) and a green
+  storyboard tree before any `flyctl secrets set FRIEND_TOKEN_*` lands.
 
 ## Context
 
@@ -124,37 +130,123 @@ Adding write means resolving:
   `status:"applied"` vs `status:"queued"` — writes must honor this.
 - Cap enforcement: sliding-window on vault side, before DB write.
 
-### Wave 3+ — sharing / friend tokens (horcrux-adjacent, kapoost 2026-08-06)
+### Wave 3 — sharing / friend tokens (design accepted 2026-08-12)
+
+Narada `nar-67cdd80179c2` (ghost, hodor, yuki-tanaka, mira-chen, maruda)
+returned 5/5 consensus on every open question. This section is now the
+chosen design, not a deferral. Commit tag: `[narada:nar-67cdd80179c2]`.
 
 Today the bridge is single-tenant: one `EditToken` gates every
 `mysloodsiewnia_*` tool, and any agent presenting that token can query the
-whole corpus. When kapoost wants to share vault access with a friend
-(known scenario per `project_horcrux` + `project_hodor_tomorrow` memories),
-he wants:
+whole corpus. Wave 3 introduces per-recipient friend tokens with narrow,
+statically-auditable scopes — driven by the known horcrux scenario
+(`project_horcrux` + `project_hodor_tomorrow` memories).
 
-- **Per-recipient token** (separate from EditToken) so revocation is
-  granular — `flyctl secrets unset FRIEND_TOKEN_<slug>` cuts one recipient
-  without rotating everyone else.
-- **Scope filter per token** — e.g. Alice sees only `doc_type IN
-  ('literatura', 'note')` and can't touch invoices (`pdf`) or personal
-  notes tagged `access:private`. Enforced on both sides: Fly (token →
-  allowed scopes lookup) and vault (double-check before DB read).
-- **Audit trail per token** — who queried what, when. `stats.ndjson`
-  already has caller distinction, extend to include token identity.
-- **Rate limit per token** — friend token gets tighter cap than owner
-  (e.g. 50 req/hr vs unlimited) so a compromised friend token can't
-  scrape the whole 9k-doc corpus in minutes.
+Already scaffolded elsewhere: `content.access` field on documents
+(private/public/friends), `tokens.json` on the vault side for named friend
+tokens. Wave 3 is the wire-up: extend `IsOwnerRequestByHeaders` to
+`IsAuthorizedRequestByHeaders(scopes)`, propagate scopes to the bridge
+queue, filter at SQL time in the vault.
 
-Related work already scaffolded elsewhere: `content.access` field on
-documents (private/public/friends), `tokens.json` on vault side for
-named friend tokens. Wave 3 is the wire-up: extend
-`IsOwnerRequestByHeaders` to `IsAuthorizedRequestByHeaders(scopes)`,
-pass scopes down to bridge queue, vault filters at SQL time.
+#### W1 — scope grammar: static enum, not an expression language
 
-Blocker before implementation: **new narada**. Threat model changes
-substantively — sharing = adversarial threat model (friend's laptop
-could be stolen, they may misuse token). Warrant fresh voices before
-committing to a specific design.
+Scope is `doc_type IN (<enum values>)` where enum values are drawn from a
+fixed set (`literatura`, `note`, `pdf`, ...). JSONata / CEL / any
+expression evaluator in the authorization path was rejected 5/5:
+expressive grammar in a security boundary is a CVE waiting for a date.
+Rotating tokens for new use cases is two commits; patching a scope
+injection is a public incident on a public repo.
+
+#### W2 — audit: per-response, transactional record
+
+Extend `stats.ndjson` (or the equivalent audit sink) to record, per call:
+`token_id`, `tool`, `timestamp`, and — critically — the list of
+`doc_id`s that were returned to the caller. Hash the content, not the
+content itself: forensics needs "what came out," size cost is fine.
+
+Request-only logging is security theatre: at 3am when kapoost suspects
+a leak, "Alice asked about literatura" without "Alice received these 23
+slugs" is no evidence. Mira called out the failure mode explicitly:
+never keep request-side metadata on Fly and response-side detail on the
+vault as two logs to correlate later — write one transactional entry
+per call, on the vault side, at commit time.
+
+#### W3 — `access:private` is completely invisible to scoped tokens
+
+Not "present but unreadable." **Zero rows** in results, zero increment
+in count, zero mention in listings. A scoped token must not be able to
+infer that a private document *exists*. Metadata leak over 9k docs and
+50 req/hr is enough to reconstruct kapoost's private graph — Ghost,
+Hodor, Yuki, and Maruda were unanimous on this being the harder-to-code
+but correct choice.
+
+Concretely: vault SQL layer adds `AND access != 'private'` for scoped
+callers *before* any COUNT / LIMIT / listing operation, not after.
+
+#### W4 — revocation: immediate hard cut, no TTL grace window
+
+`flyctl secrets unset FRIEND_TOKEN_<slug>` triggers Fly restart; vault
+must invalidate the same token within the same window. **No 60s TTL
+cache** on the vault side that keeps a revoked token alive after Fly
+already refuses it. Yuki noted a 60s cache is acceptable *only* with an
+active alert on "token X used <cache_ttl>s after revoke" — kapoost has
+no such alert today, so 60s cache = 60s of hoping.
+
+Deployment atomicity (Mira, load-bearing): scope grammar and token
+lookup live in three places — Fly (token → scopes), bridge queue
+(propagate), vault (SQL filter + audit). Vault must not poll
+`tokens.json`; it must reload on either a signal from Fly (webhook on
+secret change) or SIGHUP from the vault operator. Poll model here is
+the wrong choice specifically because "revoked in Fly, honored in
+vault" is *the* case at incident time, not an edge case.
+
+Additionally: encode a hard `expires_at` inside the friend token
+payload itself, not only in the lookup table. Belt and suspenders.
+
+#### W5 — read-only, always. Write is not in wave 3.
+
+`leave_comment` and any other scoped-write primitive is a separate ADR.
+Rationale (Maruda + Ghost + Mira agreed): scoped write is roughly 3× the
+threat surface of scoped read, and the vault's own write path (wave 2)
+does not exist yet in production. Implementing scoped write on top of an
+unimplemented base write is inverted order. Sequence: wave 3 read → 30
+days observation → separate decision on scoped write.
+
+#### Prerequisite, not option: rate limit per token
+
+Maruda flagged this as a hard prerequisite: friend token without a
+per-token rate cap is a bulk-dump tool wearing a friendly hat.
+Reasonable starting cap: 50 req/hr per friend token, unlimited for
+owner `EditToken`. Enforced on the vault side (last line of defence),
+mirrored on Fly (fast path). Both cap counters are per-token, not
+shared.
+
+#### Threat model / repo hygiene note (Hodor)
+
+Repo has been public since 2026-08-05
+(memory `project_repo_public.md`). Before any wave 3 commit:
+
+- `git log --all -S "friend"` and `git log --all -S "FRIEND_TOKEN"` on
+  both this repo and the vault repo.
+- Friend slug names, per-friend scope patterns, and `tokens.json`
+  example fixtures with realistic-looking scopes must **not** land in
+  git — even for tests. Use `slug_A`, `slug_B` in fixtures.
+- Every real `FRIEND_TOKEN_*` lives in `flyctl secrets` only; the
+  vault-side counterpart lives in the same chmod 600 file family as
+  `bridge.env`, never in git.
+
+#### Open follow-ups (not blockers)
+
+- Write the wave 3 brief at `prompts/wave3-sharing.md` (mirror
+  `prompts/mysloodsiewnia-bridge.md` structure) — self-contained for a
+  fresh Plan session.
+- Contrarian sanity pass on this design before first `FRIEND_TOKEN_*`
+  ships. Narada was 5/5 in one direction; that warrants a devil's
+  advocate lap, even if the conclusion doesn't change.
+- Storyboard tree `storyboards/mysloodsiewnia/wave3_*.yaml`: at minimum
+  scoped read (positive), out-of-scope read (negative, must 403),
+  `access:private` invisibility (must return 0 rows, not "denied"),
+  revoked token (must fail before *and* after Fly restart lag).
 
 ## Non-goals
 
@@ -206,8 +298,10 @@ main would be its own regression. When reviewing a bridge PR:
 
 ## References
 
-- Narada log: `run_narada` job id `nar-4ac3506ab3bc`; fetch with
-  `fetch_narada_result` to see the five voices in full.
+- Narada logs (fetch full voices via `fetch_narada_result`):
+  - `nar-4ac3506ab3bc` — wave 1 design (2026-08-05, 5 voices)
+  - `nar-67cdd80179c2` — wave 3 sharing / friend tokens
+    (2026-08-12, 5 voices: ghost, hodor, yuki-tanaka, mira-chen, maruda)
 - Storyboards: `storyboards/mysloodsiewnia/*.yaml`.
 - Client: `services/humanmcp_bridge.py` in the mysłoodsiewnia repo.
 - Wire pattern audit (6 places for a new MCP tool): see
