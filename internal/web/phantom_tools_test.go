@@ -10,10 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kapoost/humanmcp-go/internal/auth"
-	"github.com/kapoost/humanmcp-go/internal/config"
-	"github.com/kapoost/humanmcp-go/internal/mcp"
-	"github.com/kapoost/humanmcp-go/internal/rituals"
+	mcpv2 "github.com/kapoost/humanmcp-go/internal/mcp/v2"
 )
 
 // TestDocsToolCountMatchesReality walks docs/index.html for the cardinal
@@ -145,21 +142,15 @@ func TestNoPhantomToolsInAgentDocs(t *testing.T) {
 	}
 	if len(phantoms) > 0 {
 		sort.Strings(phantoms)
-		t.Errorf("found %d phantom tool(s) — documented but NOT in mcp.Handler.ToolNames():\n%s",
+		t.Errorf("found %d phantom tool(s) — documented but NOT in mcpv2.ToolNames():\n%s",
 			len(phantoms), strings.Join(phantoms, "\n"))
 	}
 }
 
 func implementedToolSet(t *testing.T) map[string]bool {
 	t.Helper()
-	cfg := &config.Config{
-		AuthorName: "test",
-		Domain:     "test.example",
-		ContentDir: t.TempDir(),
-	}
-	h := mcp.NewHandler(cfg, nil, auth.New("test"), rituals.New(cfg))
 	out := map[string]bool{}
-	for _, n := range h.ToolNames() {
+	for _, n := range mcpv2.ToolNames() {
 		out[n] = true
 	}
 	return out

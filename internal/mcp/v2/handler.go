@@ -20,16 +20,12 @@ import (
 	"github.com/kapoost/humanmcp-go/internal/mysloodsiewnia"
 )
 
-// Source is what v2 needs from the legacy handler. Kept narrow so v2 stays
-// decoupled from wire-layer methods that are being phased out.
+// Source is what v2 needs from the shared Backend. Kept as an interface
+// (not a concrete *mcp.Backend) so v2 stays test-friendly — parity_test's
+// successor can substitute a lightweight mock.
 type Source interface {
 	LoadPersonas() []mcp.Persona
 	LoadSkills() []mcp.Skill
-	// ToolNames returns every registered MCP tool name. Used at v2 server
-	// construction to bake the tool count into the initialize instructions
-	// (matches v1 exactly since v1 owns the source of truth and v2's
-	// parity_test asserts both sides register the same names).
-	ToolNames() []string
 	Config() *config.Config
 	Store() *content.Store
 	StatStore() *content.StatStore
@@ -81,7 +77,7 @@ func New(cfg *config.Config, src Source) http.Handler {
 	// change tool/persona/skill totals).
 	instructions := mcp.RenderServerInstructions(
 		cfg.Domain,
-		len(src.ToolNames()),
+		len(ToolNames()),
 		len(src.LoadPersonas()),
 		len(src.LoadSkills()),
 	)

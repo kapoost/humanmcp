@@ -43,23 +43,20 @@ func main() {
 	bridge := mysloodsiewnia.NewBridge(liveness, bridgeQueue, cfg.VaultBridgeToken)
 	ritualWorker := rituals.New(cfg)
 	ritualWorker.Start()
-	mcpHandler := mcp.NewHandler(cfg, store, a, ritualWorker)
-	mcpHandler.SetBridge(liveness, bridgeQueue)
+	backend := mcp.NewBackend(cfg, store, a, ritualWorker)
+	backend.SetBridge(liveness, bridgeQueue)
 	webHandler := web.NewHandler(cfg, store, a)
-	webHandler.SetMCPToolCount(len(mcpHandler.ToolNames()))
+	webHandler.SetMCPToolCount(len(mcpv2.ToolNames()))
 	webHandler.SetLiveness(liveness)
 
 	mux := http.NewServeMux()
 
-	// MCP endpoint (legacy, protocolVersion 2024-11-05)
-	mux.Handle("/mcp", corsMiddleware(mcpHandler))
-
-	// MCP v2 (protocolVersion 2026-07-28, stateless Streamable HTTP via go-sdk).
-	// Mounted before the /mcp/ catch-all so the v2 path wins.
-	v2Handler := mcpv2.New(cfg, mcpHandler)
-	mux.Handle("/mcp/v2", corsMiddleware(v2Handler))
-	mux.Handle("/mcp/v2/", corsMiddleware(v2Handler))
-	mux.Handle("/mcp/", corsMiddleware(mcpHandler))
+	// MCP endpoint — protocolVersion 2026-07-28, stateless Streamable HTTP
+	// via the official go-sdk. Legacy v1 dispatch (custom JSON-RPC on the
+	// same struct) was retired in Tier C.d step 3.
+	v2Handler := mcpv2.New(cfg, backend)
+	mux.Handle("/mcp", corsMiddleware(v2Handler))
+	mux.Handle("/mcp/", corsMiddleware(v2Handler))
 
 	// Web UI + REST API
 	webHandler.RegisterRoutes(mux)
@@ -73,8 +70,7 @@ func main() {
 	log.Printf("  author:  %s", cfg.AuthorName)
 	log.Printf("  domain:  %s", cfg.Domain)
 	log.Printf("  content: %s", cfg.ContentDir)
-	log.Printf("  mcp:     http://%s/mcp", addr)
-	log.Printf("  mcp v2:  http://%s/mcp/v2 (protocol 2026-07-28, stateless)", addr)
+	log.Printf("  mcp:     http://%s/mcp (protocol 2026-07-28, stateless)", addr)
 
 	if err := http.ListenAndServe(addr, secureMiddleware(mux)); err != nil {
 		log.Fatalf("server: %v", err)

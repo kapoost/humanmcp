@@ -105,28 +105,24 @@ func runHTTP(t *testing.T, sb Storyboard) {
 	a := auth.New(cfg.EditToken)
 	h := web.NewHandler(cfg, store, a)
 	mux := http.NewServeMux()
-	// Tier C v1→v2 migration: storyboards mount v2 (Streamable HTTP via
-	// go-sdk) at /mcp — every green here proves one less thing to break
-	// when v1 is finally dropped. mcpHandler stays alive as the Source
-	// interface implementation (state, session validation, rate limits —
-	// v2 delegates back to it). Bootstrap session tokens emitted by v2
-	// are auto-captured by the runner and injected as Bearer on
-	// subsequent /mcp calls (see sessionTokenRe + runHTTPAssertion),
-	// so the collection_access_gates storyboard's bootstrap→members
-	// flow works without per-YAML surgery.
+	// After Tier C.d step 3: only the v2 SDK-based mount exists. Backend
+	// carries the shared state (stores, session validation, rate limits)
+	// that v2 delegates back to. Bootstrap session tokens emitted by v2
+	// are auto-captured by the runner and injected as Bearer on subsequent
+	// /mcp calls (see sessionTokenRe + runHTTPAssertion).
 	worker := rituals.New(cfg)
 	// NOTE: intentionally NOT calling worker.Start() — storyboards must not
 	// spawn a live narada goroutine that leaks between t.Run cases.
-	mcpHandler := mcp.NewHandler(cfg, store, a, worker)
+	backend := mcp.NewBackend(cfg, store, a, worker)
 	// SessionSecret needed by v2 bootstrap tool to emit HMAC-signed
 	// session tokens. Test-only value; prod uses env SESSION_SECRET.
 	cfg.SessionSecret = "storyboard-session-secret-not-for-prod"
-	v2Handler := mcpv2.New(cfg, mcpHandler)
+	v2Handler := mcpv2.New(cfg, backend)
 	mux.Handle("/mcp", v2Handler)
 	mux.Handle("/mcp/", v2Handler)
 	// Wire the MCP tool count into the web handler so /llms.txt can
 	// render the same number as prod.
-	h.SetMCPToolCount(len(mcpHandler.ToolNames()))
+	h.SetMCPToolCount(len(mcpv2.ToolNames()))
 	h.RegisterRoutes(mux)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)

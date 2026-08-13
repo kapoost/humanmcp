@@ -23,8 +23,8 @@ const ownerTokenID = "owner"
 //     ("", nil, false) — identical shape for all four so nothing leaks
 //     the existence, past-existence, or scope shape of friend tokens.
 //     (Wave 3 W4 + Z3 pin — see ADR-0001.)
-func (h *Handler) AuthorizeRequestByHeaders(hdr http.Header) (tokenID string, scopes []string, ok bool) {
-	if h.IsOwnerRequestByHeaders(hdr) {
+func (b *Backend) AuthorizeRequestByHeaders(hdr http.Header) (tokenID string, scopes []string, ok bool) {
+	if b.IsOwnerRequestByHeaders(hdr) {
 		return ownerTokenID, nil, true
 	}
 	authHeader := hdr.Get("Authorization")
@@ -35,11 +35,11 @@ func (h *Handler) AuthorizeRequestByHeaders(hdr http.Header) (tokenID string, sc
 	if presented == "" {
 		return "", nil, false
 	}
-	if h.cfg == nil || len(h.cfg.FriendTokens) == 0 {
+	if b.cfg == nil || len(b.cfg.FriendTokens) == 0 {
 		return "", nil, false
 	}
 	now := time.Now()
-	for slug, spec := range h.cfg.FriendTokens {
+	for slug, spec := range b.cfg.FriendTokens {
 		if spec == nil || spec.Token == "" {
 			continue
 		}
@@ -66,9 +66,9 @@ func (h *Handler) AuthorizeRequestByHeaders(hdr http.Header) (tokenID string, sc
 //
 // Wave 3 Z4 fallback: if per-token limit is unset (<=0), the bucket's
 // default limit (30/hr) applies via AllowWithLimit.
-func (h *Handler) CheckFriendTokenRateLimit(tokenID string, limitPerHour int) (allowed bool, retryAfterSecs int) {
+func (b *Backend) CheckFriendTokenRateLimit(tokenID string, limitPerHour int) (allowed bool, retryAfterSecs int) {
 	if tokenID == "" || tokenID == ownerTokenID {
 		return true, 0
 	}
-	return h.friendTokenBucket.AllowWithLimit(tokenID, limitPerHour)
+	return b.friendTokenBucket.AllowWithLimit(tokenID, limitPerHour)
 }
