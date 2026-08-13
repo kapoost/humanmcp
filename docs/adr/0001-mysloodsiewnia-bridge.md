@@ -520,12 +520,49 @@ main would be its own regression. When reviewing a bridge PR:
 3. Storyboard MUST fail. If it passes, the storyboard is vacuous.
 4. Revert the sabotage before merging.
 
+Post Tier C.d note: the sabotage target is now
+`internal/mcp/v2/mysloodsiewnia.go` — the v1 `mysloodsiewnia_tools.go`
+was deleted, so all bridge tool bodies live exclusively in v2.
+
+## Addendum — 2026-08-13: Tier C.d final v1 drop
+
+The v1 custom JSON-RPC handler set (`internal/mcp/handler.go` +
+`narada.go` + `mysloodsiewnia_tools.go` + `handler_test.go` +
+`mysloodsiewnia_write_cap_test.go` + `v2/parity_test.go`, ~4400 LOC)
+was removed. `/mcp` is now the sole mount, speaks 2026-07-28 stateless
+Streamable HTTP via the go-sdk. State (stores, sessions, rate limits,
+mysłoodsiewnia liveness) lives on `*mcp.Backend`; the async ritual
+pipeline lives on `*rituals.Worker`; `personas.Persona` is a shared
+type outside `internal/mcp`. Byte-drift on error paths is now pinned
+by `internal/mcp/v2/response_shape_test.go` (14 cases including the
+mysłoodsiewnia envelope shape asserts friend tokens key off) and the
+session-token loop by `storyboards/mcp/session_token_bearer_flow.yaml`.
+
+Commit graph (this ADR's parent tree):
+  - `5cc4216` — extract narada worker + Persona to shared packages
+  - `18417ab` — drop v1 handler — Backend is the only mount (-4023 LOC)
+  - `12b867c` — response-shape tests replace parity_test
+  - `8ef1977` — docs+storyboard sweep
+
+Effect on this ADR: `internal/mcp/mysloodsiewnia_tools.go` and its
+`_write_cap_test.go` companion are gone. The tool bodies now live
+exclusively in `internal/mcp/v2/mysloodsiewnia.go`. Rate-limit
+plumbing (`friendTokenBucket`, `AuthorizeRequestByHeaders`,
+`CheckFriendTokenRateLimit`) moved from `*Handler` to `*Backend`
+receivers but the semantics — owner bypass, per-token 1h window,
+Z4 fallback — are byte-for-byte the same. `SetBridge(liveness,
+queue)` is still the wiring surface, now on `Backend`.
+
 ## References
 
 - Narada logs (fetch full voices via `fetch_narada_result`):
   - `nar-4ac3506ab3bc` — wave 1 design (2026-08-05, 5 voices)
   - `nar-67cdd80179c2` — wave 3 sharing / friend tokens
     (2026-08-12, 5 voices: ghost, hodor, yuki-tanaka, mira-chen, maruda)
+  - `nar-675785d803c2` — Tier C.d final drop v1 (2026-08-12, 5 voices:
+    ghost, hodor, axel-brandt, hermes, eleanor-voss). Persona location
+    split — axel/hermes/eleanor's "no import cycle from rituals"
+    argument won → `internal/personas/` (not `internal/mcp/personas.go`).
 - Storyboards: `storyboards/mysloodsiewnia/*.yaml`.
 - Client: `services/humanmcp_bridge.py` in the mysłoodsiewnia repo.
 - Wire pattern audit (6 places for a new MCP tool): see
