@@ -1,0 +1,99 @@
+id: mcp/session_token_bearer_flow
+version: "1.0.0"
+title: "bootstrap_session emits SESSION_TOKEN, runner auto-injects as Bearer, members-tier tools unlock"
+category: mcp_session
+summary: "After Tier C.d dropped v1's Mcp-Session-Id map, v2 uses a stateless HMAC session token surfaced via `SESSION_TOKEN: <token>` in the bootstrap reply. This storyboard pins the full loop: anonymous is gated, bootstrap emits the token, the runner captures + injects it as Authorization: Bearer on subsequent /mcp calls, and members-tier tools then return full content."
+narrative: |
+  The collection_access_gates_via_mcp storyboard exercises the same
+  mechanism as a side-effect of its access flow, but drift in the
+  session-token loop itself would surface there as a confusing
+  "collection is empty" rather than a "session model broken".
+
+  This storyboard tests the session-token loop DIRECTLY, so drift
+  fails with a specific, named signal:
+
+  Three regression risks it guards:
+  (1) bootstrap_session reply stops carrying `SESSION_TOKEN: <token>` →
+      runner has nothing to capture → members-tier tools stay gated →
+      real agents can't unlock personas/skills after bootstrap.
+  (2) SDK request path stops honouring Authorization: Bearer <hmac> →
+      IsSessionActiveByHeaders returns false → same silent gate
+      failure as (1).
+  (3) HMAC secret rotation breaks token validation → tokens are
+      accepted but ValidateSessionToken rejects them → same failure
+      as (1) and (2), but only after a config change.
+
+  Runner-side landmine: sessionToken cache is scoped per-storyboard
+  file (see internal/storyboard/http.go's `sessionToken := ""` at
+  the top of the case loop), so bootstrapping in one file does NOT
+  leak into another. Each storyboard proves its own loop.
+
+kind: http
+
+setup:
+  personas:
+    - slug: session-flow-witness
+      title: "Session Flow Witness"
+      role: "test fixture"
+      tags: [test]
+      body: |
+        This persona exists purely as a session-gate witness for
+        storyboards/mcp/session_token_bearer_flow.yaml. Its body
+        text is what "authenticated" callers see. If a real agent
+        ever reaches this content it means the storyboard escaped
+        the temp content dir — do not surface it.
+
+assertions:
+  - name: "anonymous get_persona returns gate hint, not body"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_persona","arguments":{"slug":"session-flow-witness"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "Session Flow Witness"
+        - "Full prompt available after bootstrap_session"
+      body_does_not_contain:
+        # The full persona body MUST NOT appear before bootstrap.
+        - "session-gate witness"
+
+  - name: "bootstrap_session with a valid PoetPool code emits SESSION_TOKEN"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"bootstrap_session","arguments":{"code":"jeszcze polska nie zginęła"}}}'
+    expect:
+      status: 200
+      body_contains:
+        # The runner scans for this exact prefix to extract the
+        # token (see sessionTokenRe in internal/storyboard/http.go).
+        # If this string changes, the runner regex must change too.
+        - "SESSION_TOKEN:"
+      body_does_not_contain:
+        # If the code drift'ed we'd see the rejection text; catch
+        # it here so the failure names WHY the bootstrap didn't fire.
+        - "Niepoprawne hasło"
+
+  - name: "post-bootstrap get_persona surfaces full body (runner auto-injected Bearer)"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_persona","arguments":{"slug":"session-flow-witness"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "Session Flow Witness"
+        # Two body-tail snippets from the persona setup above —
+        # their presence proves the body is fully returned, i.e.
+        # the runner's Bearer injection reached Backend, which
+        # validated the token, which flipped authenticated=true.
+        - "session-gate witness"
+      body_does_not_contain:
+        - "Full prompt available after bootstrap_session"

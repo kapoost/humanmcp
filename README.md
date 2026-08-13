@@ -61,7 +61,6 @@ Or find it on the [Official MCP Registry](https://registry.modelcontextprotocol.
 | `remember` | Store a memory under a session code (8KB/record). Session-gated. | `remember {text: "prefers terse responses", code: "<session>"}` |
 | `recall` | Retrieve memories by session code, optional substring filter. Session-gated. | `recall {code: "<session>", query: "prefs"}` |
 | `about_humanmcp` | Server self-description — endpoints, capabilities, first-contact orientation. | `about_humanmcp {}` |
-| `about_humanmcp` | Server self-description for agent orientation | `about_humanmcp {}` |
 
 ## Web routes
 

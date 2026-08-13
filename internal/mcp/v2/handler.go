@@ -1,12 +1,13 @@
-// Package v2 is the MCP 2026-07-28 handler built on the official go-sdk.
-// It runs alongside the legacy internal/mcp Handler during the migration
-// window: /mcp keeps 2024-11-05 semantics, /mcp/v2 speaks stateless
-// Streamable HTTP with the new spec.
+// Package v2 is the humanMCP tool dispatch layer built on the official
+// go-sdk (protocolVersion 2026-07-28, stateless Streamable HTTP). It is
+// the ONLY MCP mount — the legacy custom JSON-RPC handler was removed
+// in Tier C.d. The "v2" name is preserved to keep import paths stable;
+// there is no v1 to distinguish it from anymore.
 //
-// v2 reuses state (personas, skills, stores, config) from the legacy handler
-// via exported accessors so a single Handler instance still owns loading
-// and caching. Tool bodies are duplicated on purpose — parity with v1 is
-// asserted by storyboards, not by shared render helpers.
+// State (personas, skills, stores, session/session-token, rate limits,
+// mysłoodsiewnia bridge) lives on *mcp.Backend and is reached via the
+// Source interface below so tests can substitute a mock without spinning
+// up the full backend.
 package v2
 
 import (

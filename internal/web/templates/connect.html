@@ -89,7 +89,7 @@
     try{
       const hub='https://{{.Domain}}/mcp';
       const bh={'Content-Type':'application/json','Accept':'application/json, text/event-stream'};
-      await fetch(hub,{method:'POST',headers:bh,body:JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2024-11-05',capabilities:{},clientInfo:{name:'JoinNetwork',version:'0.1'}}})});
+      await fetch(hub,{method:'POST',headers:bh,body:JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2026-07-28',capabilities:{},clientInfo:{name:'JoinNetwork',version:'0.1'}}})});
       const r=await fetch(hub,{method:'POST',headers:bh,body:JSON.stringify({jsonrpc:'2.0',id:2,method:'tools/call',params:{name:'announce_peer',arguments:{url:url}}})});
       const data=await r.json();
       const text=(data.result?.content||[]).find(b=>b.type==='text')?.text||'Done';
