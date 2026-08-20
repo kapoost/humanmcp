@@ -1,6 +1,0 @@
-{
-  "slug": "testing-philosophy",
-  "category": "workflow",
-  "title": "Filozofia testowania",
-  "body": "go test ./... -race musi być zielony przed każdym deploy.\n\n136 testów w humanMCP. Table-driven tests.\n\nTestowane obszary:\n- internal/content (9 plików testów): content loading, access gates, signature verification, message sanitization, stats, originality scoring\n- internal/mcp: MCP tool dispatch\n\nBrak testów w internal/web — do uzupełnienia.\n\nAxel Brandt (persona) jest ekspertem QA — edge cases, adversarial testing.\n\nZASADA: Nigdy nie halucinuj. Jeśli nie wiesz — powiedz nie wiem."
-}
