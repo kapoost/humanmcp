@@ -124,8 +124,11 @@ you must recognise in the user's messages:
 For a fresh project workspace, call suggest_skills(files=[...],
 languages=[...], git_origin=...) — it maps the manifest to matched
 groups (dev, humanmcp, adcp, …) and returns up to 8 suggested slugs
-with per-skill explanations. Deterministic (no LLM classify), so the
-same repo always suggests the same set.
+plus up to 5 personas, each with the reason it fired. Personas are
+derived from the matched groups (safety → hodor + ghost, adcp →
+maruda + harvey), not from the skills — the Skill schema carries no
+persona field. Hodor is always seated. Deterministic (no LLM
+classify), so the same repo always suggests the same set.
 
 RITUALS — the processing layer:
 - run_narada(context) → id. Server routes the context to 3-5 personas via a

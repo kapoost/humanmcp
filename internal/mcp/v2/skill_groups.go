@@ -132,7 +132,7 @@ func renderLoadSkillGroup(skills []mcp.Skill, name string, authenticated bool) s
 func registerSuggestSkills(s *sdk.Server, src Source) {
 	s.AddTool(&sdk.Tool{
 		Name:        "suggest_skills",
-		Description: "Deterministic manifest→tag mapping. Given files + languages + git_origin, returns up to 8 skill slugs with per-slug explanations. No LLM classification.",
+		Description: "Deterministic manifest→tag mapping. Given files + languages + git_origin, returns up to 8 skill slugs and up to 5 personas, each with the reason it fired. No LLM classification.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"files":{"type":"array","items":{"type":"string"}},"languages":{"type":"array","items":{"type":"string"}},"git_origin":{"type":"string"}}}`),
 	}, func(_ context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
 		var params struct {
@@ -143,14 +143,48 @@ func registerSuggestSkills(s *sdk.Server, src Source) {
 		if len(req.Params.Arguments) > 0 {
 			_ = json.Unmarshal(req.Params.Arguments, &params)
 		}
-		return textResult(renderSuggestSkills(src.LoadSkills(), params.Files, params.Languages, params.GitOrigin)), nil
+		return textResult(renderSuggestSkills(src.LoadSkills(), src.LoadPersonas(), params.Files, params.Languages, params.GitOrigin)), nil
 	})
 }
+
+// groupPersonas maps a matched skill group to the personas that own that
+// problem domain. Personas are derived from GROUPS, not from skills —
+// humanmcp's Skill schema is {slug,category,title,body,tags} with no persona
+// field, and adding one would mean schema drift plus a hand backfill of every
+// skill. nar-993aae928f22 explicitly chose "reuse existing tags, no schema
+// drift"; this honours that. A group is a problem domain, which is a better
+// signal anyway: `safety` firing means the repo touches secrets, so it wants
+// the guardian and the red team — not whoever happened to author a skill.
+//
+// Keep every slug in sync with content/personas/*.md. Unknown slugs are not
+// silently dropped — renderSuggestSkills reports them (see missing below), so
+// a renamed persona file surfaces as a visible gap instead of a dead suggestion.
+var groupPersonas = map[string][]string{
+	"always":         {"hodor", "hermiona"},
+	"safety":         {"hodor", "ghost", "yuki-tanaka"},
+	"dev":            {"mira-chen", "axel-brandt"},
+	"engineering":    {"hermes", "axel-brandt"},
+	"mcp":            {"zara"},
+	"ritual":         {"hermiona"},
+	"writing":        {"sophia-marchetti"},
+	"humanmcp":       {"mira-chen", "conductor"},
+	"mysloodsiewnia": {"hermiona", "tomas-reyes"},
+	"adcp":           {"maruda", "harvey"},
+	"bookkido":       {"eleanor-voss"},
+	"onaudience":     {"sophia-marchetti", "ela"},
+	"mx5":            {"kenji-mori"},
+	"s2000":          {"kenji-mori"},
+}
+
+// guardianPersona is seated for every scaffold regardless of the cap. Same
+// doctrine as the dobranoc ritual: Hodor is always loaded, because the moment
+// a project needs him is the moment nobody remembered to ask for him.
+const guardianPersona = "hodor"
 
 // renderSuggestSkills is a straight port of the v1 toolSuggestSkills logic.
 // Kept as one function on purpose: reading it top-to-bottom is easier than
 // jumping between 5 helper functions for a rule engine this small.
-func renderSuggestSkills(skills []mcp.Skill, files, languages []string, gitOrigin string) string {
+func renderSuggestSkills(skills []mcp.Skill, personas []mcp.Persona, files, languages []string, gitOrigin string) string {
 	fileSet := map[string]struct{}{}
 	for _, f := range files {
 		fileSet[strings.ToLower(strings.TrimSpace(f))] = struct{}{}
@@ -274,6 +308,83 @@ func renderSuggestSkills(skills []mcp.Skill, files, languages []string, gitOrigi
 	for _, s := range out {
 		fmt.Fprintf(&sb, "  %-30s via %s — %s\n", s.Slug, s.Group, s.Explanation)
 	}
+	// ── personas, derived from the same matched groups ───────────────────
+	// Walked in the same priority order as skills, so a project-specific
+	// persona (maruda for adcp) outranks a generic one (mira for dev) when
+	// the cap bites.
+	roster := make(map[string]string, len(personas))
+	for _, p := range personas {
+		roster[strings.ToLower(p.Slug)] = p.Role
+	}
+
+	const maxPersonas = 5
+	type personaPick struct{ Slug, Role, Group, Explanation string }
+	var picks []personaPick
+	var missing []string
+	seenPersona := map[string]struct{}{}
+
+	addPersona := func(slug, group, reason string) {
+		slug = strings.ToLower(slug)
+		if _, dup := seenPersona[slug]; dup {
+			return
+		}
+		seenPersona[slug] = struct{}{}
+		role, known := roster[slug]
+		if !known {
+			missing = append(missing, slug)
+			return
+		}
+		picks = append(picks, personaPick{slug, role, group, reason})
+	}
+
+	// Guardian is seated before the cap can crowd him out.
+	if _, matched := groupReasons["safety"]; matched {
+		addPersona(guardianPersona, "safety", strings.Join(groupReasons["safety"], "; "))
+	} else {
+		addPersona(guardianPersona, "always", "guardian is always seated")
+	}
+	for _, g := range orderedGroups {
+		if _, matched := groupReasons[g]; !matched {
+			continue
+		}
+		for _, slug := range groupPersonas[g] {
+			if len(picks) >= maxPersonas {
+				break
+			}
+			addPersona(slug, g, strings.Join(groupReasons[g], "; "))
+		}
+		if len(picks) >= maxPersonas {
+			break
+		}
+	}
+
+	fmt.Fprintf(&sb, "\nSuggested personas — capped at %d (%s always seated):\n", maxPersonas, guardianPersona)
+	if len(picks) == 0 {
+		sb.WriteString("  (none — persona roster is empty; content/personas/*.md not loaded)\n")
+	}
+	for _, p := range picks {
+		fmt.Fprintf(&sb, "  %-18s %-46s via %s — %s\n", p.Slug, truncateRole(p.Role), p.Group, p.Explanation)
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		fmt.Fprintf(&sb, "  (mapped but not in roster: %s — groupPersonas drifted from content/personas/)\n",
+			strings.Join(missing, ", "))
+	}
+
 	sb.WriteString("\nTo load them: call load_skill_group(name=<group>) for each matched group, OR get_skill(slug) individually.")
+	sb.WriteString("\nFor personas: get_persona(slug) per suggestion.")
 	return sb.String()
+}
+
+// truncateRole keeps the persona table one line per row. Roles like Zara's
+// run past 60 chars and wrap in a terminal, which turns the table into mush.
+// Counts runes, not bytes — roles carry Polish diacritics and em-dashes, and
+// a byte slice would cut one in half and emit a replacement char.
+func truncateRole(role string) string {
+	const max = 46
+	r := []rune(role)
+	if len(r) <= max {
+		return role
+	}
+	return string(r[:max-1]) + "…"
 }

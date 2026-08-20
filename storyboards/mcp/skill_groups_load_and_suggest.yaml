@@ -2,7 +2,7 @@ id: mcp/skill_groups_load_and_suggest
 version: "1.0.0"
 title: "list_skill_groups / load_skill_group / suggest_skills — group-based skill fetch (narada nar-993aae928f22)"
 category: mcp_skills
-summary: "Adds a group-tag layer on top of the flat skill catalogue. Skills carry `tags: []` (already in schema, now populated). list_skill_groups indexes them, load_skill_group returns concatenated bodies for a group name, suggest_skills maps a repo manifest to a deterministic skill set — the 'Skill Curator' backend the narada landed on."
+summary: "Adds a group-tag layer on top of the flat skill catalogue, plus group-derived persona suggestions. Skills carry `tags: []` (already in schema, now populated). list_skill_groups indexes them, load_skill_group returns concatenated bodies for a group name, suggest_skills maps a repo manifest to a deterministic skill set — the 'Skill Curator' backend the narada landed on."
 narrative: |
   Prior to 2026-07-21 humanmcp shipped 30 skills as a flat list.
   Fresh agents got the whole set dumped in bootstrap; users could
@@ -27,7 +27,47 @@ narrative: |
 kind: http
 
 setup:
-  personas: []
+  # Roster for the persona-derivation half of suggest_skills. Deliberately
+  # partial: `harvey` is mapped to the adcp group in groupPersonas but is NOT
+  # seeded here, so the drift-detection assertion below has something real to
+  # catch. Everything else mirrors content/personas/*.md.
+  personas:
+    - slug: hodor
+      title: "Hodor"
+      role: "Strażnik Drzwi — Operational Safety"
+      body: "Guardian body."
+    - slug: hermiona
+      title: "Hermiona"
+      role: "Podsumowanie"
+      body: "Summary body."
+    - slug: mira-chen
+      title: "Mira Chen"
+      role: "Principal Engineer"
+      body: "Architecture body."
+    - slug: axel-brandt
+      title: "Axel Brandt"
+      role: "QA Engineer"
+      body: "QA body."
+    - slug: conductor
+      title: "Conductor"
+      role: "Deployment Orchestrator"
+      body: "Deploy body."
+    - slug: ghost
+      title: "Ghost"
+      role: "Red Team Consultant"
+      body: "Red team body."
+    - slug: yuki-tanaka
+      title: "Yuki Tanaka"
+      role: "Blue Team Engineer — Threat Hunter"
+      body: "Blue team body."
+    - slug: maruda
+      title: "Maruda"
+      role: "Integration Pessimist — Known Pitfalls & Regression Memory"
+      body: "Pitfalls body."
+    - slug: hermes
+      title: "Hermes"
+      role: "Process Optimizer"
+      body: "Process body."
 
 assertions:
   - name: "list_skill_groups: no skills seeded → helpful hint"
@@ -249,6 +289,77 @@ assertions:
       body_contains:
         - "capped at 8"
 
+  # ── persona derivation (wizard prerequisite) ─────────────────────────────
+  # Personas come from matched GROUPS, not from skills — the Skill schema has
+  # no persona field and nar-993aae928f22 forbade schema drift. These pin the
+  # derivation so a future refactor can't quietly turn it back into "whoever
+  # authored the skill".
+
+  - name: "suggest_skills: humanmcp Go repo derives project personas from groups"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":17,"method":"tools/call","params":{"name":"suggest_skills","arguments":{"files":["go.mod","storyboards/"],"languages":["go"],"git_origin":"https://github.com/kapoost/humanmcp-server"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "Suggested personas"
+        - "capped at 5"
+        - "hodor"
+        - "mira-chen"
+        - "conductor"
+        - "via humanmcp"
+        - "Principal Engineer"
+
+  - name: "suggest_skills: guardian is seated even with no safety signal"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":18,"method":"tools/call","params":{"name":"suggest_skills","arguments":{"files":[],"languages":[]}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "hodor"
+        - "guardian is always seated"
+
+  - name: "suggest_skills: .env pulls in the security pair with the safety reason"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":19,"method":"tools/call","params":{"name":"suggest_skills","arguments":{"files":[".env"],"languages":["python"]}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "ghost"
+        - "yuki-tanaka"
+        - "via safety"
+        - ".env present (secrets nearby)"
+      body_does_not_contain:
+        # Guardian must carry the safety reason here, not the generic one.
+        - "guardian is always seated"
+
+  - name: "suggest_skills: persona mapped but absent from roster is reported, not dropped"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"suggest_skills","arguments":{"files":["package.json"],"languages":["typescript"],"git_origin":"github.com/kapoost/adcp-client"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "maruda"
+        - "via adcp"
+        # harvey is in groupPersonas["adcp"] but not seeded — a silent drop
+        # here would let groupPersonas rot against content/personas/.
+        - "mapped but not in roster: harvey"
+
   - name: "list_skills accepts tag filter"
     request:
       method: POST
@@ -265,6 +376,9 @@ assertions:
         - "sg-alpha"
 
 closes_failure_modes:
+  - "persona derivation silently drops a slug that drifted out of content/personas/, leaving a scaffold short a voice with no signal"
+  - "hodor stops being seated when no safety signal fires — the guardian goes missing exactly where nobody thought to ask for him"
+  - "someone re-derives personas from skills instead of groups, forcing a persona field into the Skill schema (the drift nar-993aae928f22 refused)"
   - "load_skill_group returns unrelated skills because tag match is missing / case-sensitive drift"
   - "suggest_skills forgets the 8-slug cap and pushes 20+ bodies into the fresh session"
   - "public-suffixed skills stop bypassing the bootstrap gate under load_skill_group"
@@ -273,3 +387,4 @@ closes_failure_modes:
 
 known_regressions_caught:
   - "2026-07-21 — narada nar-993aae928f22 recommended this shape; scenario pins the whole surface before the first CLI (projekt-scaffold) starts consuming these tools"
+  - "2026-08-20 — persona derivation added for the projekt-scaffold wizard. Original design assumed SKILL.md persona_id; humanmcp Skills have no such field (schema is slug/category/title/body/tags across all 30). Derived from groups instead — no schema drift. Sabotage-verified: dropping the roster check or the guardian seating each fails one assertion."
