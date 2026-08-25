@@ -60,7 +60,7 @@ func registerLoadSkillGroup(s *sdk.Server, src Source) {
 	s.AddTool(&sdk.Tool{
 		Name:        "load_skill_group",
 		Description: "Bulk-fetch every skill tagged with the given group name. Respects the bootstrap gate per-skill: -public suffix bypasses, everything else needs session.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}`),
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"},` + sessionTokenSchemaProp + `},"required":["name"]}`),
 	}, func(_ context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
 		var params struct {
 			Name string `json:"name"`
@@ -72,10 +72,7 @@ func registerLoadSkillGroup(s *sdk.Server, src Source) {
 			return textResult("Podaj nazwę grupy. Użyj list_skill_groups żeby zobaczyć dostępne."), nil
 		}
 		name := strings.TrimSpace(params.Name)
-		authenticated := false
-		if req.Extra != nil {
-			authenticated = src.IsSessionActiveByHeaders(req.Extra.Header)
-		}
+		authenticated := sessionActiveOrToken(src, req)
 		return textResult(renderLoadSkillGroup(src.LoadSkills(), name, authenticated)), nil
 	})
 }

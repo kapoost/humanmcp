@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -15,9 +16,9 @@ func registerRemember(s *sdk.Server, src Source) {
 	s.AddTool(&sdk.Tool{
 		Name:        "remember",
 		Description: "Persist a note under the given session code. Session-gated — bootstrap_session first. Callers sharing the code share the memory.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"},"code":{"type":"string"},"from":{"type":"string"},"tags":{"type":"array","items":{"type":"string"}}},"required":["text","code"]}`),
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"},"code":{"type":"string"},"from":{"type":"string"},"tags":{"type":"array","items":{"type":"string"}},` + sessionTokenSchemaProp + `},"required":["text","code"]}`),
 	}, func(_ context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
-		if !sessionActive(src, req) {
+		if !sessionActiveOrToken(src, req) {
 			return textResult("remember requires an active session. Call bootstrap_session first."), nil
 		}
 		var a struct {
@@ -45,9 +46,9 @@ func registerRecall(s *sdk.Server, src Source) {
 	s.AddTool(&sdk.Tool{
 		Name:        "recall",
 		Description: "List memories saved under the given code, optionally substring-filtered by query. Session-gated for symmetry with remember.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"code":{"type":"string"},"query":{"type":"string"},"limit":{"type":"integer"}},"required":["code"]}`),
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"code":{"type":"string"},"query":{"type":"string"},"limit":{"type":"integer"},` + sessionTokenSchemaProp + `},"required":["code"]}`),
 	}, func(_ context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
-		if !sessionActive(src, req) {
+		if !sessionActiveOrToken(src, req) {
 			return textResult("recall requires an active session. Call bootstrap_session first."), nil
 		}
 		var a struct {
@@ -89,3 +90,46 @@ func sessionActive(src Source, req *sdk.CallToolRequest) bool {
 	}
 	return src.IsSessionActiveByHeaders(req.Extra.Header)
 }
+
+// sessionActiveOrToken is sessionActive plus an inline-argument fallback.
+//
+// The Bearer channel assumes the client can set a per-tool-call
+// Authorization header. Several MCP clients — Claude Code among them —
+// cannot: headers are fixed at server-registration time, so the
+// SESSION_TOKEN that bootstrap_session emits has no way back to the
+// server. The visible symptom is an agent that bootstraps successfully
+// and still gets "Full prompt available after bootstrap_session" from
+// get_persona, then re-bootstraps in a loop.
+//
+// So every session-gated tool also accepts `session_token` as an
+// argument. Validation deliberately re-wraps the value as a synthetic
+// Authorization header instead of calling ValidateSessionToken directly:
+// the two channels then share one code path and cannot drift apart (a
+// header-only tightening would otherwise silently skip the arg channel).
+func sessionActiveOrToken(src Source, req *sdk.CallToolRequest) bool {
+	if sessionActive(src, req) {
+		return true
+	}
+	if req == nil {
+		return false
+	}
+	var a struct {
+		SessionToken string `json:"session_token"`
+	}
+	if len(req.Params.Arguments) > 0 {
+		_ = json.Unmarshal(req.Params.Arguments, &a)
+	}
+	token := strings.TrimSpace(a.SessionToken)
+	if token == "" {
+		return false
+	}
+	hdr := http.Header{}
+	hdr.Set("Authorization", "Bearer "+token)
+	return src.IsSessionActiveByHeaders(hdr)
+}
+
+// sessionTokenSchemaProp is the shared `session_token` property blob spliced
+// into every session-gated tool's InputSchema. Kept as one constant so a
+// wording change lands on all of them at once — an agent that learns the
+// argument from one tool must find it identical on the rest.
+const sessionTokenSchemaProp = `"session_token":{"type":"string","description":"Optional. The SESSION_TOKEN emitted by bootstrap_session. Pass it here when your client cannot set a per-call Authorization: Bearer header."}`

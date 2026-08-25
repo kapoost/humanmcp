@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -84,24 +85,183 @@ func (w *Worker) cleanupLoop() {
 
 // ── Public pipeline entrypoints (called from v1 dispatch + v2 SDK handler) ─
 
-// CreateNaradaJob routes context to configured personas and creates a
-// pending RitualJob picked up by naradaWorkerLoop. Returns the job plus
-// the selected personas list so callers can format their own "Narada
+// CreateNaradaJob picks the personas for a narada and creates a pending
+// RitualJob picked up by naradaWorkerLoop. Returns the job plus the
+// selected personas list so callers can format their own "Narada
 // started" reply.
-func (w *Worker) CreateNaradaJob(ctxText, from string) (content.RitualJob, []string, error) {
+//
+// explicit is the caller-supplied persona list. When non-empty it wins
+// outright and the keyword manifest is never consulted — the router
+// scores nothing, so a context that happens to contain "design" or
+// "log" pulls in architecture/defensive voices no matter how much
+// on-topic material surrounds them, and there was previously no way for
+// a caller who knew exactly whose expertise they wanted to say so.
+func (w *Worker) CreateNaradaJob(ctxText, from string, explicit []string) (content.RitualJob, []string, error) {
 	manifest, err := content.LoadRitualManifest(w.cfg.ContentDir, "narada")
 	if err != nil {
 		return content.RitualJob{}, nil, fmt.Errorf("Could not load narada manifest: %w", err)
 	}
-	selected := manifest.RoutePersonas(ctxText)
-	if len(selected) == 0 {
-		return content.RitualJob{}, nil, fmt.Errorf("Narada router returned no personas — check content/rituals/narada.json defaults.")
+	selected, err := w.resolveNaradaPersonas(manifest, ctxText, explicit)
+	if err != nil {
+		return content.RitualJob{}, nil, err
 	}
 	job, err := w.ritualStore.Create("narada", ctxText, selected)
 	if err != nil {
 		return content.RitualJob{}, nil, fmt.Errorf("Could not create narada job: %w", err)
 	}
 	return job, selected, nil
+}
+
+// BuildNaradaPack assembles an offline narada: the same panel selection as
+// CreateNaradaJob, but instead of queueing Sonnet calls it returns the
+// prompts themselves so the caller can run each persona as their own
+// subagent.
+//
+// Nothing is written to disk. That is the point and also the cost — an
+// offline narada has no ID, so it carries no [narada:<id>] commit tag and
+// the personas' journals never learn from it. The rendered reply says so;
+// see registerPrepareNarada.
+//
+// Worth knowing when choosing between the two: server-side personas only
+// ever see the context string, while the caller's subagents can usually
+// read the actual repository. For questions about code in front of the
+// caller, offline is frequently the better narada, not the fallback one.
+func (w *Worker) BuildNaradaPack(ctxText string, explicit []string) (content.NaradaPack, error) {
+	manifest, err := content.LoadRitualManifest(w.cfg.ContentDir, "narada")
+	if err != nil {
+		return content.NaradaPack{}, fmt.Errorf("Could not load narada manifest: %w", err)
+	}
+	selected, err := w.resolveNaradaPersonas(manifest, ctxText, explicit)
+	if err != nil {
+		return content.NaradaPack{}, err
+	}
+	pack := content.NaradaPack{
+		Context: ctxText,
+		Routed:  len(normalizeSlugs(explicit)) == 0,
+	}
+	for _, slug := range selected {
+		p, err := personas.Load(w.cfg.ContentDir, slug)
+		if err != nil {
+			// Mirror the online pipeline, which loses this one voice and
+			// still completes the job. Failing the whole pack here would
+			// mean one stale entry in default_personas takes down offline
+			// narady entirely. Recorded in Missing so the caller sees a
+			// short panel as a fact, not as the panel they asked for.
+			log.Printf("[narada-pack] skipping %s: %v", slug, err)
+			pack.Missing = append(pack.Missing, slug)
+			continue
+		}
+		recap, source := w.offlineJournalRecap(slug)
+		pack.Personas = append(pack.Personas, content.NaradaVoicePrompt{
+			Slug:          slug,
+			Title:         p.Title,
+			Role:          p.Role,
+			System:        buildSystemPrompt(p.Body, recap),
+			User:          buildUserPrompt(ctxText),
+			JournalSource: source,
+		})
+	}
+	if len(pack.Personas) == 0 {
+		return content.NaradaPack{}, fmt.Errorf("None of the selected personas could be loaded: %s. Check content/personas/ against content/rituals/narada.json.",
+			strings.Join(pack.Missing, ", "))
+	}
+	return pack, nil
+}
+
+// offlineJournalRecap is the no-LLM counterpart of summariseJournal. The
+// online path spends a Haiku call narrowing the persona's lessons to the
+// ones this context needs; with no model in the loop the honest move is to
+// ship the whole synthesised set and let the caller's subagent do the
+// narrowing — it is reading the same material with a full model anyway.
+//
+// Raw journal entries are the fallback for personas whose patterns have
+// not been synthesised yet, capped because unlike the patterns file they
+// grow without bound and would crowd out the persona's own prompt.
+func (w *Worker) offlineJournalRecap(slug string) (recap, source string) {
+	if patterns, _ := w.journalStore.ReadPatterns(slug); strings.TrimSpace(patterns.Patterns) != "" {
+		return fmt.Sprintf("Twoje utrwalone wzorce (synteza z %d wpisów, %s) — wszystkie, nie tylko te trafne dla tej narady:\n\n%s",
+			patterns.EntriesAtSynthesis,
+			patterns.SynthesisedAt.Format("2006-01-02"),
+			strings.TrimSpace(patterns.Patterns)), "patterns"
+	}
+	entries, err := w.journalStore.List(slug)
+	if err != nil || len(entries) == 0 {
+		return "", ""
+	}
+	const maxEntries = 5
+	if len(entries) > maxEntries {
+		entries = entries[:maxEntries]
+	}
+	var b strings.Builder
+	b.WriteString("Twoje ostatnie wnioski z dziennika pomyłek (najnowsze pierwsze):\n\n")
+	for _, e := range entries {
+		fmt.Fprintf(&b, "- %s (%s): %s\n", e.At.Format("2006-01-02"), e.NaradaID, oneLine(e.Reflection))
+	}
+	return strings.TrimSpace(b.String()), "journal"
+}
+
+// resolveNaradaPersonas returns the slugs a narada will run: the caller's
+// explicit list when given, otherwise the keyword-manifest route.
+//
+// An explicit list deliberately bypasses min_personas — asking for a
+// single voice is a legitimate request, and padding it from
+// default_personas would reintroduce exactly the unasked-for voices the
+// caller was trying to avoid. max_personas still applies, since each
+// persona costs one Sonnet call.
+func (w *Worker) resolveNaradaPersonas(m *content.RitualManifest, ctxText string, explicit []string) ([]string, error) {
+	requested := normalizeSlugs(explicit)
+	if len(requested) == 0 {
+		selected := m.RoutePersonas(ctxText)
+		if len(selected) == 0 {
+			return nil, fmt.Errorf("Narada router returned no personas — check content/rituals/narada.json defaults.")
+		}
+		return selected, nil
+	}
+	if len(requested) > m.MaxPersonas {
+		return nil, fmt.Errorf("Too many personas: %d requested, max is %d (one Sonnet call each). Trim the list, or raise max_personas in content/rituals/narada.json.",
+			len(requested), m.MaxPersonas)
+	}
+
+	// Unknown slugs are a hard error, not a silent drop. A caller who
+	// names five personas and silently gets three back cannot tell a
+	// typo ("contrarian" instead of "lukasz-mazur") from a router
+	// disagreement — which is the same class of invisible failure that
+	// made the keyword routing hard to diagnose in the first place.
+	roster := map[string]bool{}
+	var known []string
+	for _, p := range personas.LoadAll(w.cfg.ContentDir) {
+		roster[p.Slug] = true
+		known = append(known, p.Slug)
+	}
+	var unknown []string
+	for _, slug := range requested {
+		if !roster[slug] {
+			unknown = append(unknown, slug)
+		}
+	}
+	if len(unknown) > 0 {
+		sort.Strings(known)
+		return nil, fmt.Errorf("Unknown persona slug(s): %s. Use list_personas for slugs — they are full slugs, not display names (e.g. lukasz-mazur, not \"contrarian\"). Available: %s.",
+			strings.Join(unknown, ", "), strings.Join(known, ", "))
+	}
+	return requested, nil
+}
+
+// normalizeSlugs lowercases, trims, drops empties and dedupes while
+// preserving caller order — the order personas are listed in is the
+// order their voices come back.
+func normalizeSlugs(in []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, s := range in {
+		s = strings.TrimSpace(strings.ToLower(s))
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	return out
 }
 
 // WriteReflection runs the LLM reflection pipeline on a persona voice from
@@ -587,4 +747,3 @@ func RenderNaradaResult(job content.RitualJob) string {
 	}
 	return sb.String()
 }
-

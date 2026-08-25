@@ -56,7 +56,10 @@ func registerBootstrapSession(s *sdk.Server, src Source) {
 		if token := mcp.GenerateSessionToken(src.Config().SessionSecret); token != "" {
 			preamble := "SESSION_TOKEN: " + token + "\n" +
 				"(Send on subsequent tool calls as `Authorization: Bearer <token>` — TTL 1h.\n" +
-				" Members-tier content (list_collection, read_collection_item) is gated on this.)\n\n"
+				" If your client cannot set per-call headers (Claude Code cannot), pass the\n" +
+				" same value as the `session_token` ARGUMENT instead — accepted by get_persona,\n" +
+				" get_skill, load_skill_group, remember, recall, list_collection and\n" +
+				" read_collection_item. Do NOT re-bootstrap to work around a gate.)\n\n"
 			return textResult(preamble + body), nil
 		}
 		return textResult(body), nil
@@ -130,10 +133,33 @@ func renderBootstrapBriefing(personas []mcp.Persona, skills []mcp.Skill, domain 
 
 	sb.WriteString("---\nUse these personas to assist the user. Each has a distinct perspective.\n")
 	sb.WriteString("When the user asks for a 'narada' or writes '/narada <context>' — call the MCP tool\n")
-	sb.WriteString("run_narada(context). The server routes to 3-5 personas via keyword manifest, then\n")
-	sb.WriteString("generates each voice with Sonnet 4.6 (with a Haiku 4.5 recap of the persona's\n")
-	sb.WriteString("journal when they have prior reflections). Do NOT query multiple personas manually\n")
-	sb.WriteString("client-side — the server-side pipeline is the source of truth for narada.\n")
+	sb.WriteString("run_narada(context). A narada has two halves, and they belong in different places:\n\n")
+	sb.WriteString("  WHO SITS AT THE TABLE — yours to decide. You have the roster above and you have\n")
+	sb.WriteString("  what the user actually meant, which the server does not. Pick the personas whose\n")
+	sb.WriteString("  expertise the question needs and pass their slugs as\n")
+	sb.WriteString("  run_narada(context, personas=[\"slug\", ...]). Do this whenever the user names who\n")
+	sb.WriteString("  they want or rules someone out, and whenever the subject is clearly one domain.\n")
+	sb.WriteString("  Omitting the argument falls back to a keyword router: it substring-matches the\n")
+	sb.WriteString("  context against a fixed manifest, weighs nothing, and cannot read an exclusion —\n")
+	sb.WriteString("  'not a security question' matches the security route and seats those personas.\n")
+	sb.WriteString("  Seat someone likely to disagree, not only the obvious specialists. A panel that\n")
+	sb.WriteString("  only confirms the premise is worth less than the router you replaced.\n\n")
+	sb.WriteString("  WHAT THEY SAY — always from the server's prompts, never from your memory of\n")
+	sb.WriteString("  a persona. Two legitimate routes, and the choice is about who can see what:\n")
+	sb.WriteString("    - run_narada(context, personas=[...]) — the server speaks. Sonnet 4.6 writes\n")
+	sb.WriteString("      each voice from the persona's body plus a Haiku recap of their journal of\n")
+	sb.WriteString("      rolled-back recommendations. Recorded, so it carries a narada ID, a\n")
+	sb.WriteString("      [narada:<id>] commit tag, and feeds the journals. Poll fetch_narada_result.\n")
+	sb.WriteString("    - prepare_narada(context, personas=[...]) — YOU speak, from prompts the\n")
+	sb.WriteString("      server hands you: each persona's SYSTEM and USER block, journal included.\n")
+	sb.WriteString("      Spawn one subagent per persona, in parallel, each with its block verbatim.\n")
+	sb.WriteString("      Nothing is recorded — no ID, no commit tag, no journal learning. Use it\n")
+	sb.WriteString("      when your subagents can read what the server cannot (the repository, the\n")
+	sb.WriteString("      failing test), which for questions about code in front of you is most of\n")
+	sb.WriteString("      the time; server-side personas see only the context string.\n")
+	sb.WriteString("  What is forbidden is the third route: role-playing personas from memory and\n")
+	sb.WriteString("  calling it a narada. Their journals and their actual prompts are server-side;\n")
+	sb.WriteString("  an improvised panel is your own opinion in five costumes.\n\n")
 	sb.WriteString("When the user writes 'dobranoc' or '/dobranoc' — follow the skill dobranoc-dziennik.\n")
 	sb.WriteString("It scans git for [narada:<id>] tags with rollback/fix follow-ups and drives\n")
 	sb.WriteString("record_persona_reflection so each persona learns from what went wrong.\n")
@@ -148,7 +174,7 @@ func renderBootstrapBriefing(personas []mcp.Persona, skills []mcp.Skill, domain 
 	fmt.Fprintf(&sb, "  1. Endpoint: https://%s/mcp\n", domain)
 	sb.WriteString("  2. On every new session, call `bootstrap_session(code=<fragment>)` FIRST — auto-loads Hodor (safety) + language-style-polish. If the code has rotated, ask kapoost for a fresh one (a short Polish poetry fragment).\n")
 	sb.WriteString("  3. Trigger words to watch for in kapoost's messages:\n")
-	sb.WriteString("     - 'narada' / '/narada <context>' → call MCP `run_narada(context)`; poll `fetch_narada_result(id)` for the composed voices.\n")
+	sb.WriteString("     - 'narada' / '/narada <context>' → YOU pick the panel; the prompts always come from the server. Choose slugs whose expertise the question needs (roster: `list_personas`) and include at least one likely to push back. Omitting `personas` falls back to a keyword router that weighs nothing and cannot read an exclusion — a negated mention ('nie security') still matches the security route. Two routes: `run_narada(context, personas=[...])` → server generates the voices, recorded, poll `fetch_narada_result(id)`, carries a [narada:<id>] commit tag and feeds the personas' journals. `prepare_narada(context, personas=[...])` → server returns each persona's SYSTEM/USER prompt and YOU fan them out to one subagent each; nothing recorded, no ID, no tag — but your subagents can read the repo, which server-side personas cannot. Never improvise the personas from memory and call it a narada.\n")
 	sb.WriteString("     - 'dobranoc' / '/dobranoc' → fetch skill `dobranoc-dziennik` via `get_skill` and follow it.\n")
 	sb.WriteString("     - Polish-language reply context → language-style-polish already auto-loaded via bootstrap; keep applying it.\n")
 	sb.WriteString("     - Secrets, tokens, destructive commands → Hodor is the guardian; default-deny and confirm with kapoost first.\n")
@@ -167,8 +193,8 @@ func renderBootstrapBriefing(personas []mcp.Persona, skills []mcp.Skill, domain 
 func registerGetPersona(s *sdk.Server, src Source) {
 	s.AddTool(&sdk.Tool{
 		Name:        "get_persona",
-		Description: "Return one persona's full prompt by slug. Session-gated except for Hodor (guardian rules must always apply).",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"slug":{"type":"string"}},"required":["slug"]}`),
+		Description: "Return one persona's full prompt by slug. Session-gated except for Hodor (guardian rules must always apply). Pass session_token if your client cannot set an Authorization header.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"slug":{"type":"string"},` + sessionTokenSchemaProp + `},"required":["slug"]}`),
 	}, func(_ context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
 		var params struct {
 			Slug string `json:"slug"`
@@ -179,7 +205,7 @@ func registerGetPersona(s *sdk.Server, src Source) {
 		if params.Slug == "" {
 			return textResult("Podaj slug persony."), nil
 		}
-		authenticated := sessionActive(src, req)
+		authenticated := sessionActiveOrToken(src, req)
 		for _, p := range src.LoadPersonas() {
 			if p.Slug == params.Slug {
 				if authenticated || p.Slug == "hodor" {
@@ -199,8 +225,8 @@ func registerGetPersona(s *sdk.Server, src Source) {
 func registerGetSkill(s *sdk.Server, src Source) {
 	s.AddTool(&sdk.Tool{
 		Name:        "get_skill",
-		Description: "Return one skill's full body by slug. Session-gated except for -public suffixed skills (guardian bypass).",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"slug":{"type":"string"}},"required":["slug"]}`),
+		Description: "Return one skill's full body by slug. Session-gated except for -public suffixed skills (guardian bypass). Pass session_token if your client cannot set an Authorization header.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"slug":{"type":"string"},` + sessionTokenSchemaProp + `},"required":["slug"]}`),
 	}, func(_ context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
 		var params struct {
 			Slug string `json:"slug"`
@@ -211,7 +237,7 @@ func registerGetSkill(s *sdk.Server, src Source) {
 		if params.Slug == "" {
 			return textResult("Podaj slug skilla. Użyj list_skills."), nil
 		}
-		authenticated := sessionActive(src, req)
+		authenticated := sessionActiveOrToken(src, req)
 		for _, s := range src.LoadSkills() {
 			if s.Slug == params.Slug {
 				publiclyAccessible := strings.HasSuffix(s.Slug, "-public")

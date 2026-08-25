@@ -1482,7 +1482,7 @@ func (h *Handler) handleAgentCard(w http.ResponseWriter, r *http.Request) {
 			{"name": "feedback", "description": "leave_comment / leave_message — surface reactions and messages to the author's inbox."},
 			{"name": "licensing", "description": "request_license — declare intended use, receive terms, audit-logged."},
 			{"name": "team", "description": "list_personas / get_persona / list_skills / get_skill — 24 expert personas and 20+ instruction skills (post-session)."},
-			{"name": "rituals", "description": "run_narada / fetch_narada_result — server-side advisory that routes context to 3-5 personas via keyword manifest and generates each voice via Sonnet 4.6 in ~10-15s. get_persona_journal / record_persona_reflection — reflective loop where personas learn from their rolled-back recommendations (owner-only)."},
+			{"name": "rituals", "description": "run_narada / fetch_narada_result — server-side advisory that routes context to 3-5 personas via keyword manifest (or takes an explicit personas=[...] list) and generates each voice via Sonnet 4.6 in ~10-15s. prepare_narada — the offline variant: same panel, but returns each persona's SYSTEM/USER prompt for the calling agent to run as its own subagents; session-gated and unrecorded. get_persona_journal / record_persona_reflection — reflective loop where personas learn from their rolled-back recommendations (owner-only)."},
 		},
 		"contact": map[string]interface{}{
 			"web":  "https://" + h.cfg.Domain + "/contact",

@@ -265,8 +265,13 @@ func (b *Backend) LoadSkills() []Skill {
 // ── Rituals passthroughs (v2 Source interface) ──────────────────────────────
 
 // CreateNaradaJob delegates to the shared rituals.Worker.
-func (b *Backend) CreateNaradaJob(ctxText, from string) (content.RitualJob, []string, error) {
-	return b.ritualWorker.CreateNaradaJob(ctxText, from)
+func (b *Backend) CreateNaradaJob(ctxText, from string, explicit []string) (content.RitualJob, []string, error) {
+	return b.ritualWorker.CreateNaradaJob(ctxText, from, explicit)
+}
+
+// BuildNaradaPack delegates to the shared rituals.Worker.
+func (b *Backend) BuildNaradaPack(ctxText string, explicit []string) (content.NaradaPack, error) {
+	return b.ritualWorker.BuildNaradaPack(ctxText, explicit)
 }
 
 // WriteReflection delegates to the shared rituals.Worker.

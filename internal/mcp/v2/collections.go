@@ -17,12 +17,9 @@ func registerListCollection(s *sdk.Server, src Source) {
 	s.AddTool(&sdk.Tool{
 		Name:        "list_collection",
 		Description: "List works kapoost owns but did NOT create. Public items always; members-only surface only after session activation.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
+		InputSchema: json.RawMessage(`{"type":"object","properties":{` + sessionTokenSchemaProp + `}}`),
 	}, func(_ context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
-		bootstrapped := false
-		if req.Extra != nil {
-			bootstrapped = src.IsSessionActiveByHeaders(req.Extra.Header)
-		}
+		bootstrapped := sessionActiveOrToken(src, req)
 		items := filterCollectionItems(src.CollectionStore().List(), bootstrapped)
 		if len(items) == 0 {
 			return textResult("No collection items visible to this caller."), nil
@@ -76,7 +73,7 @@ func registerReadCollectionItem(s *sdk.Server, src Source) {
 	s.AddTool(&sdk.Tool{
 		Name:        "read_collection_item",
 		Description: "Full record for one collection item + dossier count. Access-gated: private is never visible, members needs session.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"slug":{"type":"string"}},"required":["slug"]}`),
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"slug":{"type":"string"},` + sessionTokenSchemaProp + `},"required":["slug"]}`),
 	}, func(_ context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
 		var a struct {
 			Slug string `json:"slug"`
@@ -91,10 +88,7 @@ func registerReadCollectionItem(s *sdk.Server, src Source) {
 		if err != nil {
 			return textResult("Not found: " + err.Error()), nil
 		}
-		bootstrapped := false
-		if req.Extra != nil {
-			bootstrapped = src.IsSessionActiveByHeaders(req.Extra.Header)
-		}
+		bootstrapped := sessionActiveOrToken(src, req)
 		if item.Access == "private" {
 			return textResult("Item is private; not visible to MCP callers."), nil
 		}

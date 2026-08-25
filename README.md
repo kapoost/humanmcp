@@ -62,6 +62,32 @@ Or find it on the [Official MCP Registry](https://registry.modelcontextprotocol.
 | `recall` | Retrieve memories by session code, optional substring filter. Session-gated. | `recall {code: "<session>", query: "prefs"}` |
 | `about_humanmcp` | Server self-description — endpoints, capabilities, first-contact orientation. | `about_humanmcp {}` |
 
+### Rituals — multi-persona advisory
+
+A *narada* is a panel: several personas answer the same question in their own
+voices, deliberately without reconciling. The caller picks who sits at the
+table; the server supplies the prompts.
+
+| Tool | Description | Example |
+|---|---|---|
+| `run_narada` | Server generates the voices. Async — returns a job id; poll `fetch_narada_result`. Recorded, so it carries a `[narada:<id>]` commit tag and feeds the personas' journals. Rate-limited 5/hour/IP. | `run_narada {context: "...", personas: ["eleanor-voss", "lukasz-mazur"]}` |
+| `prepare_narada` | Offline variant. Returns each persona's ready-to-run SYSTEM/USER prompt so the *caller* runs them as its own sub-agents. Session-gated, no model cost, no rate limit, nothing recorded. | `prepare_narada {context: "...", personas: ["maruda"]}` |
+| `fetch_narada_result` | Poll a `run_narada` job by id. Rate-limited 60 polls/hour/IP. | `fetch_narada_result {id: "nar-b9a725ae769a"}` |
+| `get_persona_journal` | Read a persona's raw reflection journal. Owner token required. | `get_persona_journal {slug: "maruda"}` |
+| `record_persona_reflection` | Ask a persona to write a lesson-for-itself after a rolled-back recommendation. Owner token required. | `record_persona_reflection {narada_id: "...", persona_slug: "...", error_context: "..."}` |
+
+**Panel selection.** Omit `personas` and a keyword manifest
+(`content/rituals/narada.json`) picks instead. It substring-matches in file
+order, does not weigh how central a term is, and cannot read an exclusion —
+a context stating "this is not a security question" matches the security
+route and seats those personas anyway. Pass explicit slugs
+(from `list_personas`) whenever you know which expertise the question needs.
+
+**Which one.** `run_narada` when you want the recorded loop. `prepare_narada`
+when your sub-agents can read material the server never sees — a repository,
+a failing test — because server-side personas only ever get the context
+string. What neither replaces: improvising the personas from memory.
+
 ## Web routes
 
 ### Public

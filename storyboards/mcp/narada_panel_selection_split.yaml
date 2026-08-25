@@ -1,0 +1,154 @@
+id: mcp/narada_panel_selection_split
+version: "1.0.0"
+title: "bootstrap + list_personas hand panel selection to the calling agent, keep voice generation server-side"
+category: mcp_rituals
+summary: "A narada has two halves and they belong in different places: the calling agent picks WHO sits at the table (it has the roster and the user's actual intent), the server writes WHAT they say (persona bodies + journal recaps are server-side state). This storyboard pins that split in the agent-facing copy, and pins that the old blanket ban on client-side persona work is gone."
+narrative: |
+  Four consecutive naradas (nar-b9a725ae769a, nar-e2c3081f1f73,
+  nar-810a09bfc4f1, nar-548f32e4c682) returned the identical five
+  personas across wildly different contexts. Root cause was the keyword
+  router: RoutePersonas substring-matches a fixed manifest in file
+  order, weighs nothing, stops at max_personas, and cannot read an
+  exclusion — "NIE security" written in the context matches the security
+  route and seats ghost + yuki-tanaka.
+
+  run_narada(personas=[...]) fixed the mechanism. But the bootstrap
+  briefing still told every fresh agent:
+
+      "Do NOT query multiple personas manually client-side — the
+       server-side pipeline is the source of truth for narada."
+
+  A compliant agent read that as a ban on doing team assembly at all
+  and fell back to the router — so the override existed and nobody
+  used it. That sentence conflated two different things:
+
+    - WHO sits at the table. Safe client-side, in fact better there:
+      the agent has the roster and knows what the user meant.
+    - WHAT they say. Never client-side: Sonnet 4.6 writes each voice
+      from the persona's full body plus a Haiku recap of that
+      persona's journal of rolled-back recommendations. Journals are
+      server-side state; a role-played narada silently loses them.
+
+  Regression classes this pins:
+  (1) The split collapses back into a blanket ban in a copy edit →
+      agents stop passing personas= and the router silently owns
+      selection again. Caught by body_does_not_contain on the old
+      sentence.
+  (2) The generation half is dropped while the selection half stays →
+      agents start role-playing personas and presenting the result as
+      a narada, losing the journal loop that /dobranoc feeds.
+  (3) list_personas stops naming itself as the panel menu → an agent
+      that looked up the roster has no reason to connect it to
+      run_narada and falls back to the router.
+  (4) The anti-echo instruction drops → the calling model picks a
+      panel that agrees with its own premise, which is strictly worse
+      than the dumb-but-impartial router it replaced.
+
+  Assertion strings deliberately avoid quote characters and never span
+  a newline: the runner matches against the raw JSON-encoded response
+  body, where `"` is escaped and newlines are literal \n.
+
+kind: http
+
+setup: {}
+
+assertions:
+  - name: "briefing names the selection half as the agent's own decision"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"bootstrap_session","arguments":{"code":"jeszcze polska nie zginęła"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "WHO SITS AT THE TABLE — yours to decide."
+        - "run_narada(context, personas=["
+        # Why the router cannot be trusted with a stated exclusion —
+        # this is the nar-810a09bfc4f1 failure in one line.
+        - "cannot read an exclusion"
+
+  - name: "briefing sources the voices from server prompts, never from memory"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"bootstrap_session","arguments":{"code":"jeszcze polska nie zginęła"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "WHAT THEY SAY — always from the server's prompts"
+        # Both legitimate routes must be named. Dropping either one sends
+        # agents to the third, forbidden route: improvising the personas.
+        - "run_narada(context, personas=[...]) — the server speaks"
+        - "prepare_narada(context, personas=[...]) — YOU speak"
+        - "an improvised panel is your own opinion in five costumes."
+
+  - name: "briefing states what the offline route costs"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"bootstrap_session","arguments":{"code":"jeszcze polska nie zginęła"}}}'
+    expect:
+      status: 200
+      body_contains:
+        # prepare_narada is free and unlimited, so it will be tempting as a
+        # default. If the briefing stops naming what it gives up, the
+        # journal + /dobranoc loop dies quietly instead of being chosen
+        # against — the silent-degradation class this repo has a skill for.
+        - "Nothing is recorded — no ID, no commit tag, no journal learning."
+        - "feeds the journals"
+
+  - name: "briefing tells the agent to seat a dissenting voice"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"bootstrap_session","arguments":{"code":"jeszcze polska nie zginęła"}}}'
+    expect:
+      status: 200
+      body_contains:
+        # Moving selection to the asking model trades an impartial
+        # router for a partial one. This line is the only thing
+        # standing between a narada and an echo chamber.
+        - "Seat someone likely to disagree"
+
+  - name: "the old blanket ban on client-side persona work is gone"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"bootstrap_session","arguments":{"code":"jeszcze polska nie zginęła"}}}'
+    expect:
+      status: 200
+      body_does_not_contain:
+        - "Do NOT query multiple personas manually"
+        - "the server-side pipeline is the source of truth for narada"
+
+  - name: "list_personas names itself as the panel menu — no session needed"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"list_personas","arguments":{}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "These slugs are the panel menu for run_narada(context, personas=["
+        - "at least one persona likely to"
+
+closes_failure_modes:
+  - "briefing collapses back to a blanket ban on client-side persona work, agents stop passing personas= and the keyword router silently owns selection again"
+  - "generation half is dropped from the split, agents role-play personas and present it as a narada, losing the journal + reflection loop /dobranoc depends on"
+  - "list_personas stops pointing at run_narada, so an agent that looked up the roster has no reason to use it for panel selection"
+  - "anti-echo instruction drops and the calling model seats a panel that only confirms its own premise"
+
+known_regressions_caught:
+  - "2026-08-25 — four naradas in a row (nar-b9a725ae769a, nar-e2c3081f1f73, nar-810a09bfc4f1, nar-548f32e4c682) returned the identical five personas across security, legal/billing and two UI/UX contexts; the briefing's blanket ban kept agents from using the personas= override that would have fixed it"

@@ -58,7 +58,8 @@ type Source interface {
 	CheckFetchAnswerRateLimit(string) bool
 	CheckNaradaRateLimit(string) bool
 	CheckNaradaFetchRateLimit(string) bool
-	CreateNaradaJob(context, from string) (content.RitualJob, []string, error)
+	CreateNaradaJob(context, from string, explicitPersonas []string) (content.RitualJob, []string, error)
+	BuildNaradaPack(context string, explicitPersonas []string) (content.NaradaPack, error)
 	WriteReflection(naradaID, personaSlug, errorContext string) (string, error)
 	SynthesisePersonaPatternsBySlug(slug string) (content.PersonaPatterns, int, error)
 
@@ -144,6 +145,7 @@ func New(cfg *config.Config, src Source) http.Handler {
 
 	// rituals
 	registerRunNarada(server, src)
+	registerPrepareNarada(server, src)
 	registerFetchNaradaResult(server, src)
 	registerGetPersonaJournal(server, src)
 	registerRecordPersonaReflection(server, src)

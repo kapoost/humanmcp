@@ -47,6 +47,40 @@ type RitualJob struct {
 	Error       string         `json:"error,omitempty"`
 }
 
+// NaradaVoicePrompt is one persona's ready-to-run prompt pair for an
+// offline narada — exactly what the server would have sent to Sonnet,
+// handed to the caller instead so their own subagent can speak the part.
+//
+// JournalSource records where Recap came from ("patterns", "journal", or
+// "" for a persona with neither). The online pipeline runs a Haiku pass to
+// pick the 2-4 patterns relevant to this context; offline there is no
+// model to run, so the whole set ships and the caller sees which it is.
+type NaradaVoicePrompt struct {
+	Slug          string `json:"slug"`
+	Title         string `json:"title"`
+	Role          string `json:"role"`
+	System        string `json:"system"`
+	User          string `json:"user"`
+	JournalSource string `json:"journal_source,omitempty"`
+}
+
+// NaradaPack is the offline narada handoff: a panel plus the material to
+// run it. Deliberately NOT persisted — no job ID, no [narada:<id>] tag, no
+// journal feedback. An offline narada is a loan of the personas, not a
+// recorded sitting.
+// Missing holds slugs the panel selected but whose persona file could not
+// be read — a manifest referencing a persona that was deleted from
+// content/personas/. Reported rather than dropped: the online pipeline
+// loses exactly one voice in that case, so the offline pack must not fail
+// the whole sitting, but it must also not quietly hand back a smaller
+// panel than the caller asked for.
+type NaradaPack struct {
+	Context  string              `json:"context"`
+	Routed   bool                `json:"routed"` // true when the keyword manifest picked the panel
+	Personas []NaradaVoicePrompt `json:"personas"`
+	Missing  []string            `json:"missing,omitempty"`
+}
+
 // RitualStore persists ritual jobs on disk and tracks in-flight jobs so a
 // running worker can update state without racing with readers.
 type RitualStore struct {

@@ -52,7 +52,14 @@ claude.ai (web / pro):
   Settings → Integrations → Add MCP Server → URL: https://%s/mcp
 
 After adding, the fresh session should:
-  1. Call bootstrap_session(code=<Polish fragment>) FIRST
+  1. Call bootstrap_session(code=<Polish fragment>) FIRST, then keep the
+     SESSION_TOKEN from the top of that reply for the rest of the session.
+     Send it as "Authorization: Bearer <token>" if your client lets you set
+     per-call headers; if it does not (Claude Code does not), pass the same
+     value as the "session_token" ARGUMENT to any session-gated tool —
+     get_persona, get_skill, load_skill_group, remember, recall,
+     list_collection, read_collection_item. Never re-run bootstrap_session
+     just to get past a gate; the token you already hold is valid for 1h.
   2. Save the PERSIST FOR NEXT SESSION block from that response to durable memory
      (Claude Code auto-memory, Claude Agent SDK memory, or this server's
      remember/recall MCP tools scoped to the session code).
@@ -105,8 +112,8 @@ TOOL FAMILIES (call tools/list for full tool schema):
                skill fetch by tag (humanmcp, adcp, dev, safety, …) and
                deterministic repo-manifest → skill mapping. See SKILL
                GROUPS below.
-- rituals:     run_narada, fetch_narada_result, get_persona_journal,
-               record_persona_reflection (see RITUALS)
+- rituals:     run_narada, prepare_narada, fetch_narada_result,
+               get_persona_journal, record_persona_reflection (see RITUALS)
 - provenance:  list_provenance, read_provenance (artwork chain of custody)
 - collections: list_collection, read_collection_item
 - blobs:       list_blobs, read_blob
@@ -131,11 +138,34 @@ persona field. Hodor is always seated. Deterministic (no LLM
 classify), so the same repo always suggests the same set.
 
 RITUALS — the processing layer:
-- run_narada(context) → id. Server routes the context to 3-5 personas via a
-  keyword manifest, then Sonnet 4.6 generates each persona's recommendation
-  in their own voice (with a Haiku 4.5 recap of that persona's journal
-  when they have one). Returns in ~10-15s for 5 personas in parallel. Poll
-  fetch_narada_result(id) to retrieve.
+- run_narada(context, personas?) → id. Two halves, deliberately split:
+  YOU choose who sits at the table; the SERVER writes what they say.
+  Pass personas=["slug",...] (roster: list_personas) whenever you can tell
+  which expertise the question needs — you have the user's actual intent,
+  the server does not. Include at least one persona likely to disagree; a
+  panel picked purely to agree with the premise is worth less than no panel.
+  Omit the argument and a keyword router picks instead: it substring-matches
+  the context against a fixed manifest, does not weigh how central a term
+  is, and cannot read an exclusion — "not a security question" matches the
+  security route and seats those personas anyway. Rewording the context to
+  get a different team only reshuffles keyword hits; pass the slugs instead.
+  The server generates the voices: Sonnet 4.6 writes each persona from their
+  full body plus a Haiku 4.5 recap of their journal of rolled-back
+  recommendations. Returns in ~10-15s for 5 personas in parallel. Poll
+  fetch_narada_result(id) to retrieve. Recorded, so it carries a narada ID
+  and feeds the journals.
+- prepare_narada(context, personas?) → the offline variant. Instead of
+  generating voices, the server returns each persona's ready-to-run SYSTEM
+  and USER prompt (journal included) and YOU run them — one subagent per
+  persona, in parallel, each block verbatim. Session-gated, no LLM cost, no
+  rate limit. Nothing is recorded: no narada ID, no [narada:<id>] commit
+  tag, no journal learning, so do not invent an ID for it. Prefer it when
+  your subagents can read material the server cannot — a repository, a
+  failing test, local files — since server-side personas only ever see the
+  context string. Prefer run_narada when you want the recorded loop.
+  What is never acceptable is the third option: role-playing the personas
+  from memory and presenting that as a narada. Both tools exist so you
+  never have to.
 - Personas have journals — reflections written after their recommendations
   were rolled back. get_persona_journal(slug) reads them (owner-only).
   record_persona_reflection(narada_id, persona_slug, error_context) appends

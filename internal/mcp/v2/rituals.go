@@ -17,8 +17,8 @@ import (
 func registerRunNarada(s *sdk.Server, src Source) {
 	s.AddTool(&sdk.Tool{
 		Name:        "run_narada",
-		Description: "Create an async narada job: server routes context to 3-5 personas via keyword manifest, then generates each voice via Sonnet 4.6 (Haiku 4.5 for journal recaps). Returns job ID for polling.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"context":{"type":"string"},"from":{"type":"string"}},"required":["context"]}`),
+		Description: "Create an async narada job: server routes context to 3-5 personas via keyword manifest, then generates each voice via Sonnet 4.6 (Haiku 4.5 for journal recaps). Returns job ID for polling. Pass `personas` to pick the voices yourself and skip the router entirely — the router matches keywords only and cannot read a request to include or exclude someone written in the context.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"context":{"type":"string"},"from":{"type":"string"},"personas":{"type":"array","items":{"type":"string"},"description":"Optional. Explicit persona slugs (from list_personas) to consult. When present the keyword manifest is not used and these exact personas answer, in this order. Omit for automatic keyword routing."}},"required":["context"]}`),
 	}, func(_ context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
 		ip := ""
 		if req.Extra != nil {
@@ -29,8 +29,9 @@ func registerRunNarada(s *sdk.Server, src Source) {
 			return textResult("Too many naradas from this caller — limit is 5 per hour. Try again later."), nil
 		}
 		var a struct {
-			Context string `json:"context"`
-			From    string `json:"from"`
+			Context  string   `json:"context"`
+			From     string   `json:"from"`
+			Personas []string `json:"personas"`
 		}
 		if len(req.Params.Arguments) > 0 {
 			_ = json.Unmarshal(req.Params.Arguments, &a)
@@ -45,11 +46,22 @@ func registerRunNarada(s *sdk.Server, src Source) {
 		if len(a.From) > 64 {
 			a.From = a.From[:64]
 		}
-		job, personas, err := src.CreateNaradaJob(a.Context, a.From)
+		job, personas, err := src.CreateNaradaJob(a.Context, a.From, a.Personas)
 		if err != nil {
 			return textResult(err.Error()), nil
 		}
+		// Name the selection mode. When the router chose, say so and point
+		// at the override: an agent whose user asked for specific voices
+		// and got keyword-matched ones otherwise has no way to know the
+		// escape hatch exists, and re-running with a reworded context only
+		// shuffles the same keyword hits.
+		selection := "Personas were chosen by the keyword manifest (no `personas` argument given).\nIf these are the wrong voices, re-run with personas=[\"slug\",...] — the router\nmatches keywords only and does not read include/exclude requests in the context."
+		if len(a.Personas) > 0 {
+			selection = "Personas were taken from your `personas` argument — the keyword manifest was skipped."
+		}
 		reply := fmt.Sprintf(`Narada started. %d personas selected: %s
+
+%s
 
 ID: %s
 Created: %s
@@ -61,11 +73,100 @@ Typical wall-time: 30-90s for 3-5 personas in parallel.
 COMMIT TAG: when you implement any persona's recommendation and later commit
 the code, include %q in the commit-message subject or body. /dobranoc uses
 that tag to match rollbacks back to the recommending persona.`,
-			len(personas), strings.Join(personas, ", "),
+			len(personas), strings.Join(personas, ", "), selection,
 			job.ID, job.CreatedAt.Format("2006-01-02 15:04 UTC"), job.ID,
 			"[narada:"+job.ID+"]")
 		return textResult(reply), nil
 	})
+}
+
+// ── prepare_narada (offline) ────────────────────────────────────────────────
+
+// Session-gated on purpose: the pack contains full persona bodies for the
+// whole panel, which get_persona hands out only to bootstrapped callers.
+// An open prepare_narada would be a five-at-a-time bypass of that gate.
+func registerPrepareNarada(s *sdk.Server, src Source) {
+	s.AddTool(&sdk.Tool{
+		Name:        "prepare_narada",
+		Description: "Offline narada: returns the panel plus each persona's ready-to-run SYSTEM/USER prompts so YOU run them as your own subagents, instead of the server generating voices. No LLM cost, no rate limit, nothing recorded — no narada ID and no journal feedback. Prefer this over run_narada when your subagents can read material the server cannot (a repository, local files) or when the server has no API key. Session-gated.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"context":{"type":"string"},"personas":{"type":"array","items":{"type":"string"},"description":"Optional. Explicit persona slugs (from list_personas). When present the keyword manifest is not used. Omit for automatic keyword routing."},` + sessionTokenSchemaProp + `},"required":["context"]}`),
+	}, func(_ context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+		if !sessionActiveOrToken(src, req) {
+			return textResult("prepare_narada requires an active session — it returns full persona prompts. Call bootstrap_session first, then pass the token as session_token."), nil
+		}
+		var a struct {
+			Context  string   `json:"context"`
+			Personas []string `json:"personas"`
+		}
+		if len(req.Params.Arguments) > 0 {
+			_ = json.Unmarshal(req.Params.Arguments, &a)
+		}
+		a.Context = strings.TrimSpace(a.Context)
+		if a.Context == "" {
+			return nil, fmt.Errorf("context is required")
+		}
+		if len(a.Context) > 4000 {
+			a.Context = a.Context[:4000]
+		}
+		pack, err := src.BuildNaradaPack(a.Context, a.Personas)
+		if err != nil {
+			return textResult(err.Error()), nil
+		}
+		return textResult(renderNaradaPack(pack)), nil
+	})
+}
+
+func renderNaradaPack(pack content.NaradaPack) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "NARADA PACK (offline) — %d personas. You run them; the server does not.\n\n", len(pack.Personas))
+
+	if pack.Routed {
+		sb.WriteString("Panel: chosen by the keyword manifest (no `personas` argument given). It\n")
+		sb.WriteString("substring-matches and cannot read an exclusion — re-run with personas=[...]\n")
+		sb.WriteString("if these are the wrong voices.\n\n")
+	} else {
+		sb.WriteString("Panel: taken from your `personas` argument.\n\n")
+	}
+
+	sb.WriteString("HOW TO RUN IT\n")
+	sb.WriteString("  1. Spawn ONE subagent per persona, all in parallel. Give each the SYSTEM\n")
+	sb.WriteString("     block below verbatim as its instructions and the USER block as its task.\n")
+	sb.WriteString("  2. Do NOT merge personas into a single agent and do NOT answer in their\n")
+	sb.WriteString("     names yourself. The value is in independent passes; one agent playing\n")
+	sb.WriteString("     five parts produces one opinion wearing five hats.\n")
+	sb.WriteString("  3. Let your subagents read what the server cannot — the repository, the\n")
+	sb.WriteString("     failing test, the actual file. That is this mode's whole advantage over\n")
+	sb.WriteString("     run_narada, where personas see only the context string.\n")
+	sb.WriteString("  4. Present every voice. They are built to disagree; reconciling them into\n")
+	sb.WriteString("     one consensus paragraph throws away what you paid for.\n\n")
+
+	if len(pack.Missing) > 0 {
+		fmt.Fprintf(&sb, "SHORT PANEL — %d persona(s) were selected but could not be loaded: %s.\nThey are missing from content/personas/. The rest of the panel is intact.\n\n",
+			len(pack.Missing), strings.Join(pack.Missing, ", "))
+	}
+
+	sb.WriteString("NOT RECORDED — this narada exists only in your session. There is no narada\n")
+	sb.WriteString("ID, so do not invent a [narada:<id>] commit tag for it, and the personas'\n")
+	sb.WriteString("journals will not learn from what they say here. Use run_narada(context,\n")
+	sb.WriteString("personas=[...]) when you want the recorded pipeline and the reflection loop.\n")
+
+	for i, p := range pack.Personas {
+		fmt.Fprintf(&sb, "\n%s\n=== %d/%d — %s", strings.Repeat("=", 70), i+1, len(pack.Personas), p.Slug)
+		if p.Title != "" || p.Role != "" {
+			fmt.Fprintf(&sb, " (%s — %s)", p.Title, p.Role)
+		}
+		sb.WriteString("\n")
+		switch p.JournalSource {
+		case "patterns":
+			sb.WriteString("Journal: synthesised patterns included in SYSTEM, unfiltered.\n")
+		case "journal":
+			sb.WriteString("Journal: raw reflections included in SYSTEM (patterns not synthesised yet).\n")
+		default:
+			sb.WriteString("Journal: none — this persona has no recorded mistakes yet.\n")
+		}
+		fmt.Fprintf(&sb, "\n--- SYSTEM ---\n%s\n\n--- USER ---\n%s\n", p.System, p.User)
+	}
+	return sb.String()
 }
 
 // ── fetch_narada_result ─────────────────────────────────────────────────────

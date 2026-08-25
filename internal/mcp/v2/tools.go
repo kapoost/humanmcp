@@ -58,6 +58,7 @@ func ToolNames() []string {
 		"fetch_answer",
 		// rituals
 		"run_narada",
+		"prepare_narada",
 		"fetch_narada_result",
 		"get_persona_journal",
 		"record_persona_reflection",

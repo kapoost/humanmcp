@@ -11,7 +11,7 @@
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="humanMCP — your work, signed, readable by AI">
-<meta name="twitter:description" content="Publish your art with cryptographic proof of authorship. 41 MCP tools. Ed25519 signed. Open source.">
+<meta name="twitter:description" content="Publish your art with cryptographic proof of authorship. 42 MCP tools. Ed25519 signed. Open source.">
 <link rel="canonical" href="https://kapoost.github.io/humanmcp">
 <meta name="robots" content="index, follow">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -654,7 +654,7 @@ footer a:hover { color: var(--ink); }
 <!-- ── STRIP ── -->
 <div class="strip">
   <span class="strip-item"><span class="strip-dot"></span> Ed25519 signed</span>
-  <span class="strip-item"><span class="strip-dot"></span> 41 MCP tools</span>
+  <span class="strip-item"><span class="strip-dot"></span> 42 MCP tools</span>
   <span class="strip-item"><span class="strip-dot"></span> 6 license types</span>
   <span class="strip-item"><span class="strip-dot"></span> AI personas &amp; skills</span>
   <span class="strip-item"><span class="strip-dot"></span> Go · zero dependencies</span>
@@ -750,7 +750,7 @@ footer a:hover { color: var(--ink); }
           <div class="feature-card" data-num="05">
             <div class="feature-icon">BOT</div>
             <div class="feature-title">AI-native</div>
-            <div class="feature-body">41 MCP tools. Agents read, verify, license, comment, ask questions, check provenance, and remember context across sessions — on your terms.</div>
+            <div class="feature-body">42 MCP tools. Agents read, verify, license, comment, ask questions, check provenance, and remember context across sessions — on your terms.</div>
           </div>
           <div class="feature-card" data-num="06">
             <div class="feature-icon">SAT</div>
@@ -955,6 +955,15 @@ footer a:hover { color: var(--ink); }
       <div class="tool-item"><div class="tool-name">mysloodsiewnia_search</div><div class="tool-desc">Owner-only: full-text search on kapoost's local corpus</div></div>
       <div class="tool-item"><div class="tool-name">mysloodsiewnia_get</div><div class="tool-desc">Owner-only: fetch one document from the vault by slug</div></div>
       <div class="tool-item"><div class="tool-name">mysloodsiewnia_list</div><div class="tool-desc">Owner-only: enumerate vault docs by type — for browsing without FTS</div></div>
+    </div>
+
+    <div style="font-family:var(--mono);font-size:.7rem;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin:2.5rem 0 .5rem;">Rituals</div>
+    <div class="tools-grid">
+      <div class="tool-item"><div class="tool-name">run_narada</div><div class="tool-desc">Convene a panel — several personas answer the same question in their own voices. Server generates them; returns a job id</div></div>
+      <div class="tool-item"><div class="tool-name">prepare_narada</div><div class="tool-desc">Same panel, handed over as ready-to-run prompts so the calling agent runs each persona as its own sub-agent</div></div>
+      <div class="tool-item"><div class="tool-name">fetch_narada_result</div><div class="tool-desc">Poll a narada job — returns every voice once the panel has spoken</div></div>
+      <div class="tool-item"><div class="tool-name">get_persona_journal</div><div class="tool-desc">Owner-only: read what a persona wrote after its advice was rolled back</div></div>
+      <div class="tool-item"><div class="tool-name">record_persona_reflection</div><div class="tool-desc">Owner-only: ask a persona to write a lesson-for-itself into its journal</div></div>
     </div>
   </div>
 </section>

@@ -42,7 +42,7 @@ func renderAbout(cfg *config.Config) string {
 	fmt.Fprintln(&b, "  3. Ask the user for the session code (a Polish poetry fragment)")
 	fmt.Fprintln(&b, "  4. Call bootstrap_session(code) for full team + skills")
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "Tool families (41 tools total — call tools/list for full schema):")
+	fmt.Fprintln(&b, "Tool families (42 tools total — call tools/list for full schema):")
 	fmt.Fprintln(&b, "  - content:    list_content, read_content, get_certificate, verify_content")
 	fmt.Fprintln(&b, "  - access:     request_access, submit_answer, request_license")
 	fmt.Fprintln(&b, "  - feedback:   leave_comment, leave_message")
@@ -52,7 +52,14 @@ func renderAbout(cfg *config.Config) string {
 	fmt.Fprintln(&b, "  - memory:     remember, recall (session-scoped, cross-conversation state)")
 	fmt.Fprintln(&b, "  - rituals:    run_narada + fetch_narada_result — server-side advisory that")
 	fmt.Fprintln(&b, "                routes context to 3-5 personas and generates each voice via")
-	fmt.Fprintln(&b, "                Sonnet 4.6 in ~10-15s. Personas have journals of past mistakes.")
+	fmt.Fprintln(&b, "                Sonnet 4.6 in ~10-15s. Pass personas=[slug,...] to pick the")
+	fmt.Fprintln(&b, "                voices yourself; the router keyword-matches and cannot read")
+	fmt.Fprintln(&b, "                an include/exclude request written in the context.")
+	fmt.Fprintln(&b, "                prepare_narada — same panel, but returns each persona's")
+	fmt.Fprintln(&b, "                SYSTEM/USER prompt for you to run as your own subagents.")
+	fmt.Fprintln(&b, "                Session-gated, free, unrecorded. Better when your agents can")
+	fmt.Fprintln(&b, "                read a repository the server never sees.")
+	fmt.Fprintln(&b, "                Personas have journals of past mistakes.")
 	fmt.Fprintln(&b, "                get_persona_journal + record_persona_reflection (owner-only).")
 	fmt.Fprintln(&b, "  - provenance: list_provenance, read_provenance (for artwork pieces)")
 	fmt.Fprintln(&b, "  - team:       list_personas, get_persona, list_skills, get_skill (post-session)")
@@ -203,6 +210,14 @@ func renderListPersonas(personas []mcp.Persona) string {
 	for _, p := range personas {
 		sb.WriteString(fmt.Sprintf("  %-20s %s — %s\n", p.Slug, p.Title, p.Role))
 	}
+	// This roster is the menu a caller picks a narada panel from, so it
+	// says so here. An agent that reaches list_personas has already
+	// decided it needs to know who exists; leaving the next step implicit
+	// is what sent earlier callers back to the keyword router.
+	sb.WriteString("\nThese slugs are the panel menu for run_narada(context, personas=[\"slug\", ...]).\n")
+	sb.WriteString("Pick the expertise the question needs, plus at least one persona likely to\n")
+	sb.WriteString("disagree. Omitting the argument falls back to a keyword router that weighs\n")
+	sb.WriteString("nothing and cannot read an exclusion written in the context.\n")
 	sb.WriteString("\nFull prompts available after bootstrap_session (ask user for session code).")
 	return sb.String()
 }
