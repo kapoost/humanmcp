@@ -77,11 +77,13 @@ table; the server supplies the prompts.
 | `record_persona_reflection` | Ask a persona to write a lesson-for-itself after a rolled-back recommendation. Owner token required. | `record_persona_reflection {narada_id: "...", persona_slug: "...", error_context: "..."}` |
 
 **Panel selection.** Omit `personas` and a keyword manifest
-(`content/rituals/narada.json`) picks instead. It substring-matches in file
-order, does not weigh how central a term is, and cannot read an exclusion —
-a context stating "this is not a security question" matches the security
-route and seats those personas anyway. Pass explicit slugs
-(from `list_personas`) whenever you know which expertise the question needs.
+(`content/rituals/narada.json`) picks instead. It ranks routes by how many
+keywords match and anchors matches to word starts, so a term buried in an
+unrelated word no longer counts as evidence. What it still cannot do is read
+an exclusion — a context stating "this is not a security question" matches
+the security route and seats those personas anyway — or know which voices a
+particular decision needs. Pass explicit slugs (from `list_personas`)
+whenever you do.
 
 **Which one.** `run_narada` when you want the recorded loop. `prepare_narada`
 when your sub-agents can read material the server never sees — a repository,

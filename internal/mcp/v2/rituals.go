@@ -122,8 +122,8 @@ func renderNaradaPack(pack content.NaradaPack) string {
 
 	if pack.Routed {
 		sb.WriteString("Panel: chosen by the keyword manifest (no `personas` argument given). It\n")
-		sb.WriteString("substring-matches and cannot read an exclusion — re-run with personas=[...]\n")
-		sb.WriteString("if these are the wrong voices.\n\n")
+		sb.WriteString("ranks routes by keyword hits but still cannot read an exclusion — re-run with\n")
+		sb.WriteString("personas=[...] if these are the wrong voices.\n\n")
 	} else {
 		sb.WriteString("Panel: taken from your `personas` argument.\n\n")
 	}

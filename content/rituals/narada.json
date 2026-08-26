@@ -2,105 +2,470 @@
   "type": "narada",
   "title": "Narada — decyzja wielogłosowa",
   "description": "Wybiera 3-5 person do konsultacji na podstawie słów kluczowych w kontekście. Każda persona zwraca rekomendację swoim głosem.",
-  "default_personas": ["mira-chen", "hermes", "george-carlin"],
+  "default_personas": [
+    "mira-chen",
+    "hermes",
+    "george-carlin"
+  ],
   "min_personas": 3,
   "max_personas": 5,
   "keyword_routes": [
     {
-      "keywords": ["secret", "token", "credentials", "credential", "password", "haslo", "sekret", "leak", "wyciek", "audit", "audyt", ".env", "keychain", "klucz", "kluczy", "rotacja", "rotacji", "jws", "jwt", "hmac", "podpis"],
-      "personas": ["ghost", "hodor"]
+      "keywords": [
+        "secret",
+        "token",
+        "credentials",
+        "credential",
+        "password",
+        "haslo",
+        "sekret",
+        "leak",
+        "wyciek",
+        "audit",
+        "audyt",
+        ".env",
+        "keychain",
+        "klucz",
+        "kluczy",
+        "rotacja",
+        "rotacji",
+        "jws",
+        "jwt",
+        "hmac",
+        "podpis"
+      ],
+      "personas": [
+        "ghost",
+        "hodor"
+      ]
     },
     {
-      "keywords": ["security", "bezpieczenstwo", "threat", "attack", "attacker", "exploit", "vuln", "cve"],
-      "personas": ["ghost", "yuki-tanaka"]
+      "keywords": [
+        "security",
+        "bezpieczenstwo",
+        "threat",
+        "attack",
+        "attacker",
+        "exploit",
+        "vuln",
+        "cve"
+      ],
+      "personas": [
+        "ghost",
+        "yuki-tanaka"
+      ]
     },
     {
-      "keywords": ["defensive", "detection", "anomaly", "incident", "hunting", "mitre", "log", "logi", "monitoring"],
-      "personas": ["yuki-tanaka"]
+      "keywords": [
+        "defensive",
+        "detection",
+        "anomaly",
+        "incident",
+        "hunting",
+        "mitre",
+        "logi",
+        "monitoring",
+        "logs",
+        "log analysis",
+        "logowan"
+      ],
+      "personas": [
+        "yuki-tanaka"
+      ]
     },
     {
-      "keywords": ["architecture", "architektura", "design", "system", "refactor", "refaktor", "abstraction", "tradeoff", "diagram"],
-      "personas": ["mira-chen", "maruda"]
+      "keywords": [
+        "architecture",
+        "architektura",
+        "design",
+        "system",
+        "refactor",
+        "refaktor",
+        "abstraction",
+        "tradeoff",
+        "diagram"
+      ],
+      "personas": [
+        "mira-chen",
+        "maruda"
+      ]
     },
     {
-      "keywords": ["dependency", "integration", "integracja", "migration", "migracja", "rate limit", "cold start", "outage", "pitfall", "pulapka"],
-      "personas": ["maruda"]
+      "keywords": [
+        "dependency",
+        "integration",
+        "integracja",
+        "migration",
+        "migracja",
+        "rate limit",
+        "cold start",
+        "outage",
+        "pitfall",
+        "pulapka"
+      ],
+      "personas": [
+        "maruda"
+      ]
     },
     {
-      "keywords": ["deploy", "deployment", "rollout", "rollback", "canary", "blue-green", "feature flag", "flag", "release"],
-      "personas": ["conductor", "maruda"]
+      "keywords": [
+        "deploy",
+        "deployment",
+        "rollout",
+        "rollback",
+        "canary",
+        "blue-green",
+        "feature flag",
+        "flag",
+        "release"
+      ],
+      "personas": [
+        "conductor",
+        "maruda"
+      ]
     },
     {
-      "keywords": ["test", "testing", "regression", "regresja", "qa", "coverage", "edge case", "ci"],
-      "personas": ["axel-brandt"]
+      "keywords": [
+        "test",
+        "testing",
+        "regression",
+        "regresja",
+        "qa",
+        "coverage",
+        "edge case",
+        "ci/cd",
+        "github actions",
+        "pipeline ci"
+      ],
+      "personas": [
+        "axel-brandt"
+      ]
     },
     {
-      "keywords": ["decision", "decyzja", "rapid", "options", "opcje", "stalled", "silent assent", "closure"],
-      "personas": ["hermes"]
+      "keywords": [
+        "decision",
+        "decyzja",
+        "rapid",
+        "options",
+        "opcje",
+        "stalled",
+        "silent assent",
+        "closure"
+      ],
+      "personas": [
+        "hermes"
+      ]
     },
     {
-      "keywords": ["docs", "documentation", "dokumentacja", "readme", "hard truth", "prawda", "intent", "ambiguous"],
-      "personas": ["hermiona"]
+      "keywords": [
+        "docs",
+        "documentation",
+        "dokumentacja",
+        "readme",
+        "hard truth",
+        "prawda",
+        "intent",
+        "ambiguous"
+      ],
+      "personas": [
+        "hermiona"
+      ]
     },
     {
-      "keywords": ["ux", "ui", "interface", "interfejs", "accessibility", "a11y", "design system", "interaction"],
-      "personas": ["eleanor-voss"]
+      "keywords": [
+        "ux",
+        "ui",
+        "interface",
+        "interfejs",
+        "accessibility",
+        "a11y",
+        "wcag",
+        "aria",
+        "design system",
+        "interaction",
+        "redesign",
+        "typografi",
+        "typography",
+        "krój pisma",
+        "dostępno",
+        "użyteczno",
+        "makieta",
+        "wireframe",
+        "layout",
+        "układ ekranu",
+        "hierarchia wizualna",
+        "mobile-first",
+        "breakpoint",
+        "punkty załamania",
+        "touch target",
+        "cel dotykow",
+        "celów dotykowych",
+        "obciążenie poznawcze",
+        "cognitive load",
+        "architektura informacji",
+        "information architecture",
+        "eye tracking",
+        "kontrast",
+        "czytelno"
+      ],
+      "personas": [
+        "eleanor-voss"
+      ]
     },
     {
-      "keywords": ["legal", "prawo", "license", "licencja", "copyright", "prawa autorskie", "contract", "umowa"],
-      "personas": ["harvey"]
+      "keywords": [
+        "legal",
+        "prawo",
+        "prawn",
+        "license",
+        "licencj",
+        "licencja",
+        "copyright",
+        "prawa autorskie",
+        "contract",
+        "umowa",
+        "umowy",
+        "rodo",
+        "gdpr",
+        "dane osobowe",
+        "prywatno",
+        "regulamin",
+        "compliance",
+        "roszcz",
+        "billing",
+        "faktur",
+        "rozliczen",
+        "subskrypcj",
+        "cennik"
+      ],
+      "personas": [
+        "harvey"
+      ]
     },
     {
-      "keywords": ["prompt", "prompt engineering", "llm", "model", "gpt", "claude", "haiku", "sonnet", "opus", "mcp", "cost", "koszt"],
-      "personas": ["zara"]
+      "keywords": [
+        "prompt",
+        "prompt engineering",
+        "llm",
+        "model",
+        "gpt",
+        "claude",
+        "haiku",
+        "sonnet",
+        "opus",
+        "mcp",
+        "cost",
+        "koszt"
+      ],
+      "personas": [
+        "zara"
+      ]
     },
     {
-      "keywords": ["data", "schema", "pipeline", "duckdb", "arrow", "parquet", "embedding", "vector", "ml", "inference"],
-      "personas": ["tomas-reyes"]
+      "keywords": [
+        "data",
+        "schema",
+        "pipeline",
+        "duckdb",
+        "arrow",
+        "parquet",
+        "embedding",
+        "vector",
+        "ml",
+        "inference"
+      ],
+      "personas": [
+        "tomas-reyes"
+      ]
     },
     {
-      "keywords": ["voice", "voice-first", "conversation", "conversational", "audio", "speech", "dialog"],
-      "personas": ["sophia-marchetti"]
+      "keywords": [
+        "voice",
+        "voice-first",
+        "conversation",
+        "conversational",
+        "audio",
+        "speech",
+        "dialog"
+      ],
+      "personas": [
+        "sophia-marchetti"
+      ]
     },
     {
-      "keywords": ["localization", "l10n", "i18n", "translation", "tlumaczenie", "japanese", "japonski"],
-      "personas": ["kenji-mori"]
+      "keywords": [
+        "localization",
+        "l10n",
+        "i18n",
+        "translation",
+        "tlumaczenie",
+        "japanese",
+        "japonski"
+      ],
+      "personas": [
+        "kenji-mori"
+      ]
     },
     {
-      "keywords": ["contrarian", "contrary", "unanimous", "agreeable", "counterargument", "assumption", "assumptions", "watpliwosc"],
-      "personas": ["lukasz-mazur"]
+      "keywords": [
+        "contrarian",
+        "contrary",
+        "unanimous",
+        "agreeable",
+        "counterargument",
+        "assumption",
+        "assumptions",
+        "watpliwosc"
+      ],
+      "personas": [
+        "lukasz-mazur"
+      ]
     },
     {
-      "keywords": ["style", "polish", "polski", "polszczyzna", "jezyk", "borrowing", "kalka"],
-      "personas": ["ela"]
+      "keywords": [
+        "style",
+        "polish",
+        "polski",
+        "polszczyzna",
+        "jezyk",
+        "borrowing",
+        "kalka"
+      ],
+      "personas": [
+        "ela"
+      ]
     },
     {
-      "keywords": ["humor", "satire", "satyra", "irony", "ironia", "uncomfortable truth", "obserwacja"],
-      "personas": ["george-carlin"]
+      "keywords": [
+        "humor",
+        "satire",
+        "satyra",
+        "irony",
+        "ironia",
+        "uncomfortable truth",
+        "obserwacja"
+      ],
+      "personas": [
+        "george-carlin"
+      ]
     },
     {
-      "keywords": ["research", "badanie", "badania", "źródło", "zrodlo", "źródeł", "zrodel", "weryfik", "hallucin", "halucyn", "nauka", "science", "biolog", "bio", "medycz"],
-      "personas": ["julka"]
+      "keywords": [
+        "research",
+        "badanie",
+        "badania",
+        "źródło",
+        "zrodlo",
+        "źródeł",
+        "zrodel",
+        "weryfik",
+        "hallucin",
+        "halucyn",
+        "nauka",
+        "science",
+        "biolog",
+        "bio",
+        "medycz"
+      ],
+      "personas": [
+        "julka"
+      ]
     },
     {
-      "keywords": ["calendar", "kalendarz", "google calendar", "gemini", "notebooklm", "google docs", "event", "eventy", "timeblock", "harmonogram"],
-      "personas": ["niko"]
+      "keywords": [
+        "calendar",
+        "kalendarz",
+        "google calendar",
+        "gemini",
+        "notebooklm",
+        "google docs",
+        "event",
+        "eventy",
+        "timeblock",
+        "harmonogram"
+      ],
+      "personas": [
+        "niko"
+      ]
     },
     {
-      "keywords": ["rust", "alternatywa technologiczna", "alt-tech", "wybór stacku", "stack challenge", "reevaluate"],
-      "personas": ["rasta"]
+      "keywords": [
+        "rust",
+        "alternatywa technologiczna",
+        "alt-tech",
+        "wybór stacku",
+        "stack challenge",
+        "reevaluate"
+      ],
+      "personas": [
+        "rasta"
+      ]
     },
     {
-      "keywords": ["doktryna", "doctrine", "plan operacyjny", "operational plan", "checklist operacyjna", "mentor", "wojskow", "spec ops", "strategia", "OODA"],
-      "personas": ["sentinel"]
+      "keywords": [
+        "doktryna",
+        "doctrine",
+        "plan operacyjny",
+        "operational plan",
+        "checklist operacyjna",
+        "mentor",
+        "wojskow",
+        "spec ops",
+        "strategia",
+        "OODA"
+      ],
+      "personas": [
+        "sentinel"
+      ]
     },
     {
-      "keywords": ["muzyka", "music", "garageband", "garage band", "tonacja", "harmonia", "akord", "kompozycja", "nuty", "utwór", "utwor", "instrument", "aranżacja", "aranzacja"],
-      "personas": ["teo"]
+      "keywords": [
+        "muzyka",
+        "music",
+        "garageband",
+        "garage band",
+        "tonacja",
+        "harmonia",
+        "akord",
+        "kompozycja",
+        "nuty",
+        "utwór",
+        "utwor",
+        "instrument",
+        "aranżacja",
+        "aranzacja"
+      ],
+      "personas": [
+        "teo"
+      ]
     },
     {
-      "keywords": ["dieta", "jedzenie", "posiłek", "posilek", "makro", "mikro", "zdrowie", "health", "metaboli", "hrv", "sen", "glukoza", "insulina", "ciśnienie", "cisnienie", "sport", "trening", "regeneracja", "sam-o-poczucie", "samopoczucie", "kortyzol"],
-      "personas": ["vita"]
+      "keywords": [
+        "dieta",
+        "jedzenie",
+        "posiłek",
+        "posilek",
+        "makro",
+        "mikro",
+        "zdrowie",
+        "health",
+        "metaboli",
+        "hrv",
+        "sen",
+        "glukoza",
+        "insulina",
+        "ciśnienie",
+        "cisnienie",
+        "sport",
+        "trening",
+        "regeneracja",
+        "sam-o-poczucie",
+        "samopoczucie",
+        "kortyzol"
+      ],
+      "personas": [
+        "vita"
+      ]
     }
   ]
 }

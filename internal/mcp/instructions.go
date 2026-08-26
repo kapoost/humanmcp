@@ -144,11 +144,12 @@ RITUALS — the processing layer:
   which expertise the question needs — you have the user's actual intent,
   the server does not. Include at least one persona likely to disagree; a
   panel picked purely to agree with the premise is worth less than no panel.
-  Omit the argument and a keyword router picks instead: it substring-matches
-  the context against a fixed manifest, does not weigh how central a term
-  is, and cannot read an exclusion — "not a security question" matches the
-  security route and seats those personas anyway. Rewording the context to
-  get a different team only reshuffles keyword hits; pass the slugs instead.
+  Omit the argument and a keyword router picks instead. It ranks routes by
+  how many manifest keywords match and only matches at word starts, so a
+  stray term no longer decides the panel — but it still cannot read an
+  exclusion: "not a security question" matches the security route and seats
+  those personas anyway. Rewording the context to get a different team only
+  reshuffles keyword hits; pass the slugs instead.
   The server generates the voices: Sonnet 4.6 writes each persona from their
   full body plus a Haiku 4.5 recap of their journal of rolled-back
   recommendations. Returns in ~10-15s for 5 personas in parallel. Poll

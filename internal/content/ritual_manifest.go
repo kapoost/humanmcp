@@ -5,23 +5,28 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // RitualManifest defines how a ritual routes context to personas. One
 // manifest per ritual type, loaded from content/rituals/<type>.json.
 type RitualManifest struct {
-	Type            string          `json:"type"`
-	Title           string          `json:"title"`
-	Description     string          `json:"description"`
-	DefaultPersonas []string        `json:"default_personas"`
-	MinPersonas     int             `json:"min_personas"`
-	MaxPersonas     int             `json:"max_personas"`
-	KeywordRoutes   []KeywordRoute  `json:"keyword_routes"`
+	Type            string         `json:"type"`
+	Title           string         `json:"title"`
+	Description     string         `json:"description"`
+	DefaultPersonas []string       `json:"default_personas"`
+	MinPersonas     int            `json:"min_personas"`
+	MaxPersonas     int            `json:"max_personas"`
+	KeywordRoutes   []KeywordRoute `json:"keyword_routes"`
 }
 
-// KeywordRoute maps a set of keywords to a set of personas. Any keyword
-// substring-matching the context (case-insensitive) triggers all personas.
+// KeywordRoute maps a set of keywords to a set of personas. A keyword
+// counts as a hit when it appears at the start of a word in the context
+// (case-insensitive); the number of distinct hits is what ranks the route
+// against the others. See RoutePersonas.
 type KeywordRoute struct {
 	Keywords []string `json:"keywords"`
 	Personas []string `json:"personas"`
@@ -48,14 +53,57 @@ func LoadRitualManifest(contentDir, typ string) (*RitualManifest, error) {
 }
 
 // RoutePersonas returns the deduplicated ordered list of persona slugs to
-// consult for the given context. Order: keyword-matched routes in manifest
-// order, then default_personas as filler up to min_personas. Capped at
-// max_personas.
+// consult for the given context.
+//
+// Routes are ranked by how many distinct keywords they match, not by their
+// position in the manifest. Order used to be priority: the first routes in
+// narada.json won every contest and the loop stopped once max_personas was
+// full, so the security routes (positions 1-3) crowded out UX (10) and
+// legal (11) on every context that mentioned a key in passing. Manifest
+// order now only breaks ties between routes with equal evidence.
+//
+// Matching is anchored to the start of a word. It stays open-ended on the
+// right so stem keywords keep catching inflections — "klucz" still matches
+// "kluczy", "weryfik" still matches "weryfikacja" — but a keyword can no
+// longer be found buried inside an unrelated word. That was not a marginal
+// bug: "ci" (from CI/CD) matched "obciążenie" and "dostępności", so the two
+// most UX-central words in a design question routed to the QA persona,
+// while "log" matched "dialog" and "ml" matched "html".
 func (m *RitualManifest) RoutePersonas(context string) []string {
 	ctx := strings.ToLower(context)
+
+	type rankedRoute struct {
+		personas []string
+		hits     int
+		order    int
+	}
+	var ranked []rankedRoute
+	for i, route := range m.KeywordRoutes {
+		hits := 0
+		counted := map[string]bool{}
+		for _, kw := range route.Keywords {
+			kw = strings.ToLower(strings.TrimSpace(kw))
+			if kw == "" || counted[kw] {
+				continue
+			}
+			counted[kw] = true
+			if containsAtWordStart(ctx, kw) {
+				hits++
+			}
+		}
+		if hits > 0 {
+			ranked = append(ranked, rankedRoute{personas: route.Personas, hits: hits, order: i})
+		}
+	}
+	sort.SliceStable(ranked, func(a, b int) bool {
+		if ranked[a].hits != ranked[b].hits {
+			return ranked[a].hits > ranked[b].hits
+		}
+		return ranked[a].order < ranked[b].order
+	})
+
 	seen := map[string]bool{}
 	var out []string
-
 	add := func(slug string) {
 		slug = strings.TrimSpace(strings.ToLower(slug))
 		if slug == "" || seen[slug] {
@@ -65,22 +113,13 @@ func (m *RitualManifest) RoutePersonas(context string) []string {
 		out = append(out, slug)
 	}
 
-	for _, route := range m.KeywordRoutes {
+	for _, r := range ranked {
 		if len(out) >= m.MaxPersonas {
 			break
 		}
-		for _, kw := range route.Keywords {
-			kw = strings.ToLower(strings.TrimSpace(kw))
-			if kw == "" {
-				continue
-			}
-			if strings.Contains(ctx, kw) {
-				for _, p := range route.Personas {
-					add(p)
-					if len(out) >= m.MaxPersonas {
-						break
-					}
-				}
+		for _, p := range r.personas {
+			add(p)
+			if len(out) >= m.MaxPersonas {
 				break
 			}
 		}
@@ -98,4 +137,29 @@ func (m *RitualManifest) RoutePersonas(context string) []string {
 		out = out[:m.MaxPersonas]
 	}
 	return out
+}
+
+// containsAtWordStart reports whether kw occurs in ctx at the start of a
+// word — i.e. preceded by something that is not a letter or a digit.
+//
+// Deliberately not a full word-boundary check on both ends: several
+// manifest keywords are stems ("weryfik", "medycz", "metaboli", "aranż")
+// that only work because they match the head of a longer word.
+func containsAtWordStart(ctx, kw string) bool {
+	for from := 0; from < len(ctx); {
+		i := strings.Index(ctx[from:], kw)
+		if i < 0 {
+			return false
+		}
+		at := from + i
+		if at == 0 {
+			return true
+		}
+		prev, _ := utf8.DecodeLastRuneInString(ctx[:at])
+		if !unicode.IsLetter(prev) && !unicode.IsDigit(prev) {
+			return true
+		}
+		from = at + 1
+	}
+	return false
 }

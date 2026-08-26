@@ -216,8 +216,8 @@ func renderListPersonas(personas []mcp.Persona) string {
 	// is what sent earlier callers back to the keyword router.
 	sb.WriteString("\nThese slugs are the panel menu for run_narada(context, personas=[\"slug\", ...]).\n")
 	sb.WriteString("Pick the expertise the question needs, plus at least one persona likely to\n")
-	sb.WriteString("disagree. Omitting the argument falls back to a keyword router that weighs\n")
-	sb.WriteString("nothing and cannot read an exclusion written in the context.\n")
+	sb.WriteString("disagree. Omitting the argument falls back to a keyword router — it ranks by\n")
+	sb.WriteString("keyword hits, but cannot read an exclusion written in the context.\n")
 	sb.WriteString("\nFull prompts available after bootstrap_session (ask user for session code).")
 	return sb.String()
 }
