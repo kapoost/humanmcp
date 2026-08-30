@@ -19,6 +19,7 @@ import (
 	"github.com/kapoost/humanmcp-go/internal/content"
 	"github.com/kapoost/humanmcp-go/internal/mcp"
 	"github.com/kapoost/humanmcp-go/internal/mysloodsiewnia"
+	"unicode/utf8"
 )
 
 // Source is what v2 needs from the shared Backend. Kept as an interface
@@ -161,6 +162,21 @@ func New(cfg *config.Config, src Source) http.Handler {
 	return sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server {
 		return server
 	}, &sdk.StreamableHTTPOptions{Stateless: true})
+}
+
+// clip cuts s to at most max bytes without splitting a rune. Every tool that
+// bounds a caller-supplied string used to byte-slice it, which is correct only
+// while the cut lands on ASCII. These fields are routinely Polish: a 4000-byte
+// cut inside "ą" leaves invalid UTF-8 that reaches the persona's USER block —
+// and the agent reading it — as U+FFFD.
+func clip(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	for max > 0 && !utf8.RuneStart(s[max]) {
+		max--
+	}
+	return s[:max]
 }
 
 func textResult(text string) *sdk.CallToolResult {

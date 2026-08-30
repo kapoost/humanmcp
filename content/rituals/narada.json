@@ -37,7 +37,8 @@
       "personas": [
         "ghost",
         "hodor"
-      ]
+      ],
+      "pinned": true
     },
     {
       "keywords": [

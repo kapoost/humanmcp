@@ -40,12 +40,8 @@ func registerRunNarada(s *sdk.Server, src Source) {
 		if a.Context == "" {
 			return nil, fmt.Errorf("context is required")
 		}
-		if len(a.Context) > 4000 {
-			a.Context = a.Context[:4000]
-		}
-		if len(a.From) > 64 {
-			a.From = a.From[:64]
-		}
+		a.Context = clip(a.Context, 4000)
+		a.From = clip(a.From, 64)
 		job, personas, err := src.CreateNaradaJob(a.Context, a.From, a.Personas)
 		if err != nil {
 			return textResult(err.Error()), nil
@@ -56,7 +52,7 @@ func registerRunNarada(s *sdk.Server, src Source) {
 		// escape hatch exists, and re-running with a reworded context only
 		// shuffles the same keyword hits.
 		selection := "Personas were chosen by the keyword manifest (no `personas` argument given).\nIf these are the wrong voices, re-run with personas=[\"slug\",...] — the router\nmatches keywords only and does not read include/exclude requests in the context."
-		if len(a.Personas) > 0 {
+		if hasExplicitPersonas(a.Personas) {
 			selection = "Personas were taken from your `personas` argument — the keyword manifest was skipped."
 		}
 		reply := fmt.Sprintf(`Narada started. %d personas selected: %s
@@ -78,6 +74,22 @@ that tag to match rollbacks back to the recommending persona.`,
 			"[narada:"+job.ID+"]")
 		return textResult(reply), nil
 	})
+}
+
+// hasExplicitPersonas reports whether the caller actually named anyone. It
+// mirrors the worker's normalizeSlugs, which is what decides between the
+// router and the argument: an array of blank strings — a templated slot that
+// resolved empty — is not an override, and the keyword manifest picks the
+// panel. Branching on len() alone told the agent its argument had been used
+// while the router had in fact chosen, which is exactly the claim an agent
+// has no way to check.
+func hasExplicitPersonas(in []string) bool {
+	for _, s := range in {
+		if strings.TrimSpace(s) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // ── prepare_narada (offline) ────────────────────────────────────────────────
@@ -105,9 +117,7 @@ func registerPrepareNarada(s *sdk.Server, src Source) {
 		if a.Context == "" {
 			return nil, fmt.Errorf("context is required")
 		}
-		if len(a.Context) > 4000 {
-			a.Context = a.Context[:4000]
-		}
+		a.Context = clip(a.Context, 4000)
 		pack, err := src.BuildNaradaPack(a.Context, a.Personas)
 		if err != nil {
 			return textResult(err.Error()), nil
@@ -295,9 +305,7 @@ func registerRecordPersonaReflection(s *sdk.Server, src Source) {
 		if a.NaradaID == "" || a.PersonaSlug == "" || a.ErrorContext == "" {
 			return textResult("narada_id, persona_slug and error_context are all required"), nil
 		}
-		if len(a.ErrorContext) > 1000 {
-			a.ErrorContext = a.ErrorContext[:1000]
-		}
+		a.ErrorContext = clip(a.ErrorContext, 1000)
 		if !src.LLMAvailable() {
 			return textResult("LLM unavailable (no API key). Reflection not written."), nil
 		}

@@ -156,6 +156,12 @@ func registerSuggestSkills(s *sdk.Server, src Source) {
 // Keep every slug in sync with content/personas/*.md. Unknown slugs are not
 // silently dropped — renderSuggestSkills reports them (see missing below), so
 // a renamed persona file surfaces as a visible gap instead of a dead suggestion.
+//
+// Every key here must also be produced by a rule in renderSuggestSkills, or
+// the mapping is decoration: the personas behind it can never be suggested.
+// "writing" is the one deliberate exception — there is no honest file or
+// origin signal for "this repo is prose", and sophia-marchetti is reachable
+// through onaudience. It stays mapped so a future rule has somewhere to land.
 var groupPersonas = map[string][]string{
 	"always":         {"hodor", "hermiona"},
 	"safety":         {"hodor", "ghost", "yuki-tanaka"},
@@ -211,6 +217,15 @@ func renderSuggestSkills(skills []mcp.Skill, personas []mcp.Persona, files, lang
 		{"dev", "language=python", langHas("python") || langHas("py")},
 		{"engineering", "storyboards/ directory present", fileHas("storyboards/") || fileHas("storyboards")},
 		{"safety", ".env present (secrets nearby)", fileHas(".env") || fileHas(".env.example")},
+		// The groups below exist as skill tags and had personas mapped to
+		// them, but nothing here ever produced them — so zara and kenji-mori
+		// could not be suggested for any repo at all. A group with no rule is
+		// a persona that silently does not exist.
+		{"mcp", ".mcp.json present", fileHas(".mcp.json") || fileHas("mcp.json")},
+		{"mcp", "git origin names an MCP server", originContains("mcp")},
+		{"ritual", "rituals/ manifests present", fileHas("content/rituals/") || fileHas("content/rituals") || fileHas("rituals/") || fileHas("rituals")},
+		{"mx5", "git origin matches mx5", originContains("mx5")},
+		{"s2000", "git origin matches s2000", originContains("s2000")},
 		{"humanmcp", "git origin matches kapoost/humanmcp*", originContains("kapoost/humanmcp")},
 		{"mysloodsiewnia", "git origin matches mysloodsiewnia", originContains("mysloodsiewnia")},
 		{"adcp", "git origin matches adcp / abzu / purrsonality", originContains("adcp") || originContains("abzu") || originContains("purrsonality")},

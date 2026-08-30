@@ -68,6 +68,14 @@ setup:
       title: "Hermes"
       role: "Process Optimizer"
       body: "Process body."
+    - slug: zara
+      title: "Zara"
+      role: "AI Systems Engineer"
+      body: "Prompt engineering body."
+    - slug: kenji-mori
+      title: "Kenji Mori"
+      role: "Localization & Craft"
+      body: "Craft body."
 
 assertions:
   - name: "list_skill_groups: no skills seeded → helpful hint"
@@ -360,6 +368,22 @@ assertions:
         # here would let groupPersonas rot against content/personas/.
         - "mapped but not in roster: harvey"
 
+  - name: "suggest_skills: mcp + mx5 groups are reachable at all"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"suggest_skills","arguments":{"files":[".mcp.json"],"languages":["go"],"git_origin":"github.com/kapoost/mx5-garage"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "SUGGESTED SKILLS"
+        - ".mcp.json present"
+        - "git origin matches mx5"
+        - "zara"
+        - "kenji-mori"
+
   - name: "list_skills accepts tag filter"
     request:
       method: POST
@@ -376,6 +400,7 @@ assertions:
         - "sg-alpha"
 
 closes_failure_modes:
+  - "a group is mapped to personas in groupPersonas but produced by no rule, so those personas can never be suggested for any repo — the mapping reads as coverage while zara and kenji-mori were unreachable"
   - "persona derivation silently drops a slug that drifted out of content/personas/, leaving a scaffold short a voice with no signal"
   - "hodor stops being seated when no safety signal fires — the guardian goes missing exactly where nobody thought to ask for him"
   - "someone re-derives personas from skills instead of groups, forcing a persona field into the Skill schema (the drift nar-993aae928f22 refused)"

@@ -108,12 +108,63 @@ func TestSessionTokenArgumentChannel(t *testing.T) {
 // The argument is advertised on every gated tool, not just get_persona —
 // an agent that learns it from one tool will reach for it on the rest, and
 // a tool that silently ignores it looks like an expired session.
+// The schema is only half the contract: both the server instructions and the
+// bootstrap preamble enumerate the tools that take the argument, and an agent
+// following the enumeration literally calls anything missing from it without a
+// token. prepare_narada was gated for a whole release while absent from both
+// lists. This pins the enumerations against the schemas, so the next gated
+// tool cannot be added to one and forgotten in the others.
+func TestSessionTokenEnumerationsMatchSchemas(t *testing.T) {
+	h, cfg := gateFixture(t)
+	listed := callV2ToolsList(t, h)
+
+	// Both texts mention plenty of tool names elsewhere, so the assertion has
+	// to look inside the enumeration itself — otherwise it passes on any
+	// unrelated mention and pins nothing.
+	instructions := between(t,
+		mcp.RenderServerInstructions("example.test", 42, 20, 30),
+		"ARGUMENT to any session-gated tool", "Never re-run bootstrap_session")
+	preamble := between(t,
+		callV2Tool(t, h, "bootstrap_session", map[string]any{"code": cfg.SessionSecret}, nil),
+		"ARGUMENT instead", "Do NOT re-bootstrap")
+
+	for tool, schema := range listed {
+		if !strings.Contains(schema, "session_token") {
+			continue
+		}
+		if !strings.Contains(instructions, tool) {
+			t.Errorf("%s takes session_token but is missing from the enumeration in RenderServerInstructions:\n%s", tool, instructions)
+		}
+		if !strings.Contains(preamble, tool) {
+			t.Errorf("%s takes session_token but is missing from the enumeration in the bootstrap preamble:\n%s", tool, preamble)
+		}
+	}
+}
+
+// between returns the slice of text between two markers, failing the test if
+// either marker moved — a silently empty slice would make the assertion above
+// vacuously true, which is the failure mode it exists to prevent.
+func between(t *testing.T, text, start, end string) string {
+	t.Helper()
+	i := strings.Index(text, start)
+	if i < 0 {
+		t.Fatalf("start marker %q not found — the enumeration was reworded", start)
+	}
+	rest := text[i+len(start):]
+	j := strings.Index(rest, end)
+	if j < 0 {
+		t.Fatalf("end marker %q not found — the enumeration was reworded", end)
+	}
+	return rest[:j]
+}
+
 func TestSessionTokenArgumentAdvertisedOnGatedTools(t *testing.T) {
 	h, _ := gateFixture(t)
 	listed := callV2ToolsList(t, h)
 	for _, tool := range []string{
 		"get_persona", "get_skill", "load_skill_group",
 		"remember", "recall", "list_collection", "read_collection_item",
+		"prepare_narada",
 	} {
 		schema, ok := listed[tool]
 		if !ok {

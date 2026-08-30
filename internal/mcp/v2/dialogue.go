@@ -36,15 +36,9 @@ func registerAskHuman(s *sdk.Server, src Source) {
 		if len(req.Params.Arguments) > 0 {
 			_ = json.Unmarshal(req.Params.Arguments, &a)
 		}
-		if len(a.Question) > 1000 {
-			a.Question = a.Question[:1000]
-		}
-		if len(a.Context) > 500 {
-			a.Context = a.Context[:500]
-		}
-		if len(a.From) > 64 {
-			a.From = a.From[:64]
-		}
+		a.Question = clip(a.Question, 1000)
+		a.Context = clip(a.Context, 500)
+		a.From = clip(a.From, 64)
 		q, err := src.QuestionStore().Create(a.From, a.Context, a.Question)
 		if err != nil {
 			return textResult("Could not create question: " + err.Error()), nil

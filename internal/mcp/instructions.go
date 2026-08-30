@@ -57,8 +57,8 @@ After adding, the fresh session should:
      Send it as "Authorization: Bearer <token>" if your client lets you set
      per-call headers; if it does not (Claude Code does not), pass the same
      value as the "session_token" ARGUMENT to any session-gated tool —
-     get_persona, get_skill, load_skill_group, remember, recall,
-     list_collection, read_collection_item. Never re-run bootstrap_session
+     get_persona, get_skill, load_skill_group, prepare_narada, remember,
+     recall, list_collection, read_collection_item. Never re-run bootstrap_session
      just to get past a gate; the token you already hold is valid for 1h.
   2. Save the PERSIST FOR NEXT SESSION block from that response to durable memory
      (Claude Code auto-memory, Claude Agent SDK memory, or this server's

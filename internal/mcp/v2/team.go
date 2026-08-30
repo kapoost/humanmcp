@@ -58,8 +58,9 @@ func registerBootstrapSession(s *sdk.Server, src Source) {
 				"(Send on subsequent tool calls as `Authorization: Bearer <token>` — TTL 1h.\n" +
 				" If your client cannot set per-call headers (Claude Code cannot), pass the\n" +
 				" same value as the `session_token` ARGUMENT instead — accepted by get_persona,\n" +
-				" get_skill, load_skill_group, remember, recall, list_collection and\n" +
-				" read_collection_item. Do NOT re-bootstrap to work around a gate.)\n\n"
+				" get_skill, load_skill_group, prepare_narada, remember, recall,\n" +
+				" list_collection and read_collection_item. Do NOT re-bootstrap to work\n" +
+				" around a gate.)\n\n"
 			return textResult(preamble + body), nil
 		}
 		return textResult(body), nil

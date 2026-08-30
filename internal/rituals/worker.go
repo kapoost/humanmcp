@@ -101,7 +101,7 @@ func (w *Worker) CreateNaradaJob(ctxText, from string, explicit []string) (conte
 	if err != nil {
 		return content.RitualJob{}, nil, fmt.Errorf("Could not load narada manifest: %w", err)
 	}
-	selected, err := w.resolveNaradaPersonas(manifest, ctxText, explicit)
+	selected, err := w.resolveNaradaPersonas(manifest, ctxText, explicit, capCostsModelCalls)
 	if err != nil {
 		return content.RitualJob{}, nil, err
 	}
@@ -131,7 +131,7 @@ func (w *Worker) BuildNaradaPack(ctxText string, explicit []string) (content.Nar
 	if err != nil {
 		return content.NaradaPack{}, fmt.Errorf("Could not load narada manifest: %w", err)
 	}
-	selected, err := w.resolveNaradaPersonas(manifest, ctxText, explicit)
+	selected, err := w.resolveNaradaPersonas(manifest, ctxText, explicit, capPackSize)
 	if err != nil {
 		return content.NaradaPack{}, err
 	}
@@ -200,15 +200,28 @@ func (w *Worker) offlineJournalRecap(slug string) (recap, source string) {
 	return strings.TrimSpace(b.String()), "journal"
 }
 
+// naradaCapReason is why max_personas binds on the calling path. The online
+// pipeline pays one Sonnet call per persona; prepare_narada makes no model
+// calls at all and is bounded by the size of the pack it has to return.
+// The number is the same, the reason is not — and a tool that advertises
+// "no LLM cost" while rejecting a sixth persona for costing a Sonnet call
+// hands the agent a justification it can check and find false.
+type naradaCapReason string
+
+const (
+	capCostsModelCalls naradaCapReason = "one Sonnet call each"
+	capPackSize        naradaCapReason = "the offline pack ships a full persona body per voice"
+)
+
 // resolveNaradaPersonas returns the slugs a narada will run: the caller's
 // explicit list when given, otherwise the keyword-manifest route.
 //
 // An explicit list deliberately bypasses min_personas — asking for a
 // single voice is a legitimate request, and padding it from
 // default_personas would reintroduce exactly the unasked-for voices the
-// caller was trying to avoid. max_personas still applies, since each
-// persona costs one Sonnet call.
-func (w *Worker) resolveNaradaPersonas(m *content.RitualManifest, ctxText string, explicit []string) ([]string, error) {
+// caller was trying to avoid. max_personas still applies, but for a
+// different reason on each path — see naradaCapReason.
+func (w *Worker) resolveNaradaPersonas(m *content.RitualManifest, ctxText string, explicit []string, capReason naradaCapReason) ([]string, error) {
 	requested := normalizeSlugs(explicit)
 	if len(requested) == 0 {
 		selected := m.RoutePersonas(ctxText)
@@ -218,8 +231,8 @@ func (w *Worker) resolveNaradaPersonas(m *content.RitualManifest, ctxText string
 		return selected, nil
 	}
 	if len(requested) > m.MaxPersonas {
-		return nil, fmt.Errorf("Too many personas: %d requested, max is %d (one Sonnet call each). Trim the list, or raise max_personas in content/rituals/narada.json.",
-			len(requested), m.MaxPersonas)
+		return nil, fmt.Errorf("Too many personas: %d requested, max is %d (%s). Trim the list, or raise max_personas in content/rituals/narada.json.",
+			len(requested), m.MaxPersonas, capReason)
 	}
 
 	// Unknown slugs are a hard error, not a silent drop. A caller who

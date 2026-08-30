@@ -30,6 +30,13 @@ type RitualManifest struct {
 type KeywordRoute struct {
 	Keywords []string `json:"keywords"`
 	Personas []string `json:"personas"`
+	// Pinned seats this route's personas ahead of every ranked route the
+	// moment it matches at all, regardless of how few keywords it hit.
+	// Same doctrine as the guardian in suggest_skills: the context that
+	// mentions a credential in passing is exactly the one where nobody
+	// remembered to ask for Hodor, and evidence-ranking would let a
+	// keyword-dense UX question take all five seats.
+	Pinned bool `json:"pinned"`
 }
 
 // LoadRitualManifest reads a manifest from content/rituals/<type>.json.
@@ -62,6 +69,13 @@ func LoadRitualManifest(contentDir, typ string) (*RitualManifest, error) {
 // legal (11) on every context that mentioned a key in passing. Manifest
 // order now only breaks ties between routes with equal evidence.
 //
+// One exception, ahead of ranking: a route marked "pinned" is seated on any
+// hit at all. Ranking alone would let five keyword-dense routes take every
+// seat in a context whose single security keyword is the one that matters —
+// "czy token sesji wolno logować?" at the end of a product review returned a
+// panel with neither ghost nor hodor. Evidence decides who else sits; it does
+// not get to decide whether the guardians sit.
+//
 // Matching is anchored to the start of a word. It stays open-ended on the
 // right so stem keywords keep catching inflections — "klucz" still matches
 // "kluczy", "weryfik" still matches "weryfikacja" — but a keyword can no
@@ -76,6 +90,7 @@ func (m *RitualManifest) RoutePersonas(context string) []string {
 		personas []string
 		hits     int
 		order    int
+		pinned   bool
 	}
 	var ranked []rankedRoute
 	for i, route := range m.KeywordRoutes {
@@ -92,10 +107,13 @@ func (m *RitualManifest) RoutePersonas(context string) []string {
 			}
 		}
 		if hits > 0 {
-			ranked = append(ranked, rankedRoute{personas: route.Personas, hits: hits, order: i})
+			ranked = append(ranked, rankedRoute{personas: route.Personas, hits: hits, order: i, pinned: route.Pinned})
 		}
 	}
 	sort.SliceStable(ranked, func(a, b int) bool {
+		if ranked[a].pinned != ranked[b].pinned {
+			return ranked[a].pinned
+		}
 		if ranked[a].hits != ranked[b].hits {
 			return ranked[a].hits > ranked[b].hits
 		}
@@ -145,7 +163,19 @@ func (m *RitualManifest) RoutePersonas(context string) []string {
 // Deliberately not a full word-boundary check on both ends: several
 // manifest keywords are stems ("weryfik", "medycz", "metaboli", "aranż")
 // that only work because they match the head of a longer word.
+//
+// A keyword that does not itself begin with a letter or digit is matched
+// anywhere: the anchor is a test on the character before the keyword, and
+// for ".env" that character is the dot, so requiring a word start would
+// mean ".env" matches " .env" but not "config.env" — silently dropping the
+// evidence in the route where a miss costs most.
 func containsAtWordStart(ctx, kw string) bool {
+	if kw == "" {
+		return false
+	}
+	if first, _ := utf8.DecodeRuneInString(kw); !unicode.IsLetter(first) && !unicode.IsDigit(first) {
+		return strings.Contains(ctx, kw)
+	}
 	for from := 0; from < len(ctx); {
 		i := strings.Index(ctx[from:], kw)
 		if i < 0 {

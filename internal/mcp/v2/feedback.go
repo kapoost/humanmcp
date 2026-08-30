@@ -32,9 +32,7 @@ func registerLeaveComment(s *sdk.Server, src Source) {
 			return nil, errors.New("slug and text are required")
 		}
 		text := a.Text
-		if len(text) > 280 {
-			text = text[:280]
-		}
+		text = clip(text, 280)
 		m, err := src.MsgStore().Save(a.From, text, a.Slug)
 		if err != nil {
 			return textResult("Could not save comment: " + err.Error()), nil
@@ -75,12 +73,8 @@ func registerLeaveMessage(s *sdk.Server, src Source) {
 		if a.Text == "" || a.Context == "" {
 			return nil, errors.New("text and context required (context = why you are writing / which piece / which task)")
 		}
-		if len(a.Context) > 500 {
-			a.Context = a.Context[:500]
-		}
-		if len(a.Contact) > 200 {
-			a.Contact = a.Contact[:200]
-		}
+		a.Context = clip(a.Context, 500)
+		a.Contact = clip(a.Contact, 200)
 
 		var body strings.Builder
 		body.WriteString("[context] " + a.Context + "\n")

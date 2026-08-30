@@ -109,6 +109,62 @@ func TestRouteSecurityContextUnchanged(t *testing.T) {
 	firstIs(t, got, "ghost")
 }
 
+// The guardians must survive competition, not just a context that is entirely
+// about security. Ranking by keyword hits has no notion of "this one matters
+// more": five routes with denser vocabulary took every seat while the context
+// asked, in as many words, whether a session token may be logged. That is the
+// one miss the router cannot afford, so route 0 is pinned in narada.json.
+func TestRouteSecurityPinnedUnderCompetition(t *testing.T) {
+	m, _ := LoadRitualManifest("../../content", "narada")
+	got := m.RoutePersonas(
+		`Przegląd produktu przed premierą: decyzja i opcje co do zakresu (decision), ` +
+			`dokumentacja i readme (documentation), interfejs i ux (accessibility), ` +
+			`umowa i licencja dla klienta (license), prompt i model llm w backendzie. ` +
+			`Przy okazji: czy token sesji wolno logować?`)
+	if !containsSlug(got, "ghost") || !containsSlug(got, "hodor") {
+		t.Errorf("keyword-dense context crowded out the pinned guardians: %v", got)
+	}
+	if len(got) > m.MaxPersonas {
+		t.Errorf("pinning broke the cap: %d > %d (%v)", len(got), m.MaxPersonas, got)
+	}
+}
+
+// Pinning is conditional on a hit — a route that matches nothing stays out,
+// or every narada would seat the guardians and the cap would be meaningless.
+func TestRoutePinnedRouteStillNeedsAHit(t *testing.T) {
+	m, _ := LoadRitualManifest("../../content", "narada")
+	got := m.RoutePersonas("typografia, kontrast, WCAG, makieta, użyteczność, breakpoint")
+	if containsSlug(got, "hodor") {
+		t.Errorf("pinned route seated without a keyword hit: %v", got)
+	}
+}
+
+// A keyword whose first character is punctuation cannot be anchored on that
+// character — the anchor tests what precedes the keyword, and for ".env" that
+// is the dot itself. Before this, ".env" matched " .env" but not "config.env"
+// or "staging.env", losing evidence in the pinned security route.
+func TestRouteKeywordStartingWithPunctuation(t *testing.T) {
+	cases := []struct {
+		ctx, kw string
+		want    bool
+	}{
+		{"przenieś z config.env do keychaina", ".env", true},
+		{"plik .env leży w repo", ".env", true},
+		{"deploy staging.env na fly", ".env", true},
+		{"zwykły tekst bez zmiennych", ".env", false},
+		{"", ".env", false},
+		{"cokolwiek", "", false},
+		// The stem behaviour the anchor exists for must survive.
+		{"weryfikacja podpisu", "weryfik", true},
+		{"obciążenie i dostępność", "ci", false},
+	}
+	for _, c := range cases {
+		if got := containsAtWordStart(c.ctx, c.kw); got != c.want {
+			t.Errorf("containsAtWordStart(%q, %q) = %v, want %v", c.ctx, c.kw, got, c.want)
+		}
+	}
+}
+
 func containsSlug(hay []string, needle string) bool {
 	for _, h := range hay {
 		if h == needle {
