@@ -743,7 +743,7 @@ input[type=radio]:checked + .type-label{border-color:var(--accent);background:va
         <option value="cc-by-nc"   {{if .Piece}}{{if eq .Piece.License "cc-by-nc"}}selected{{end}}{{end}}>CC BY-NC — non-commercial only</option>
         <option value="commercial" {{if .Piece}}{{if eq .Piece.License "commercial"}}selected{{end}}{{end}}>commercial — pay to use</option>
         <option value="exclusive"  {{if .Piece}}{{if eq .Piece.License "exclusive"}}selected{{end}}{{end}}>exclusive — contact to negotiate</option>
-        <option value="all-rights" {{if .Piece}}{{if eq .Piece.License "all-rights"}}selected{{end}}{{end}}>all rights — IP for sale</option>
+        <option value="all-rights" {{if .Piece}}{{if eq .Piece.License "all-rights"}}selected{{end}}{{end}}>all rights — quotation with credit, no full IP sale</option>
       </select>
     </div>
     <div>

@@ -14,15 +14,15 @@ import (
 type LicenseType string
 
 const (
-	LicenseFree       LicenseType = "free"        // read, share, attribute — no commercial use
-	LicenseCCBY       LicenseType = "cc-by"        // Creative Commons Attribution 4.0
-	LicenseCCBYSA     LicenseType = "cc-by-sa"     // CC BY ShareAlike
-	LicenseCCBYNC     LicenseType = "cc-by-nc"     // CC BY Non-Commercial
-	LicenseCCBYND     LicenseType = "cc-by-nd"     // CC BY No-Derivatives
-	LicenseCC0        LicenseType = "cc0"          // Public Domain — NO attribution required
-	LicenseCommercial LicenseType = "commercial"   // pay N sats for commercial use
-	LicenseExclusive  LicenseType = "exclusive"    // contact to negotiate transfer
-	LicenseAllRights  LicenseType = "all-rights"   // full IP sale available
+	LicenseFree       LicenseType = "free"       // read, share, attribute — no commercial use
+	LicenseCCBY       LicenseType = "cc-by"      // Creative Commons Attribution 4.0
+	LicenseCCBYSA     LicenseType = "cc-by-sa"   // CC BY ShareAlike
+	LicenseCCBYNC     LicenseType = "cc-by-nc"   // CC BY Non-Commercial
+	LicenseCCBYND     LicenseType = "cc-by-nd"   // CC BY No-Derivatives
+	LicenseCC0        LicenseType = "cc0"        // Public Domain — NO attribution required
+	LicenseCommercial LicenseType = "commercial" // pay N sats for commercial use
+	LicenseExclusive  LicenseType = "exclusive"  // contact to negotiate transfer
+	LicenseAllRights  LicenseType = "all-rights" // full IP sale available
 )
 
 // LicenseRequiresAttribution is the load-bearing question: if someone uses
@@ -55,31 +55,31 @@ func LicenseRequiresAttribution(l LicenseType) bool {
 // Score: 0.0 (generic/uniform) → 1.0 (highly original/distinctive)
 type OriginalityIndex struct {
 	// Component scores (each 0.0-1.0)
-	Burstiness      float64 `json:"burstiness"`       // sentence length variation (Fano Factor)
-	LexicalDensity  float64 `json:"lexical_density"`  // vocabulary richness (TTR corrected)
-	ShannonEntropy  float64 `json:"shannon_entropy"`  // character-level unpredictability
-	StructuralSig   float64 `json:"structural_sig"`   // line length signature
+	Burstiness     float64 `json:"burstiness"`      // sentence length variation (Fano Factor)
+	LexicalDensity float64 `json:"lexical_density"` // vocabulary richness (TTR corrected)
+	ShannonEntropy float64 `json:"shannon_entropy"` // character-level unpredictability
+	StructuralSig  float64 `json:"structural_sig"`  // line length signature
 
 	// Derived
-	Combined        float64 `json:"combined"`         // weighted composite 0.0-1.0
-	Grade           string  `json:"grade"`            // S / A / B / C / D
-	WordCount       int     `json:"word_count"`
-	SentenceCount   int     `json:"sentence_count"`
-	UniqueWords     int     `json:"unique_words"`
-	Notes           string  `json:"notes"`            // human-readable explanation
+	Combined      float64 `json:"combined"` // weighted composite 0.0-1.0
+	Grade         string  `json:"grade"`    // S / A / B / C / D
+	WordCount     int     `json:"word_count"`
+	SentenceCount int     `json:"sentence_count"`
+	UniqueWords   int     `json:"unique_words"`
+	Notes         string  `json:"notes"` // human-readable explanation
 }
 
 // Copyright holds the IP metadata embedded in a piece
 type Copyright struct {
-	Author       string          `json:"author"`
-	Title        string          `json:"title"`
-	Created      time.Time       `json:"created"`
-	ContentHash  string          `json:"content_hash"`  // sha256(body)
-	Signature    string          `json:"signature"`      // ed25519
-	License      LicenseType     `json:"license"`
-	PriceSats    int             `json:"price_sats"`    // 0 = free
-	Originality  OriginalityIndex `json:"originality"`
-	PublicKey    string          `json:"public_key"`
+	Author      string           `json:"author"`
+	Title       string           `json:"title"`
+	Created     time.Time        `json:"created"`
+	ContentHash string           `json:"content_hash"` // sha256(body)
+	Signature   string           `json:"signature"`    // ed25519
+	License     LicenseType      `json:"license"`
+	PriceSats   int              `json:"price_sats"` // 0 = free
+	Originality OriginalityIndex `json:"originality"`
+	PublicKey   string           `json:"public_key"`
 }
 
 // ComputeOriginality calculates the originality index for a body of text.
@@ -103,7 +103,9 @@ func ComputeOriginality(text string) OriginalityIndex {
 	var sentLens []float64
 	for _, s := range lines {
 		w := len(strings.Fields(s))
-		if w > 0 { sentLens = append(sentLens, float64(w)) }
+		if w > 0 {
+			sentLens = append(sentLens, float64(w))
+		}
 	}
 	var burstScore float64
 	if len(sentLens) >= 3 {
@@ -140,7 +142,10 @@ func ComputeOriginality(text string) OriginalityIndex {
 	freq := make(map[rune]int)
 	totalChars := 0
 	for _, r := range text {
-		if !unicode.IsSpace(r) { freq[r]++; totalChars++ }
+		if !unicode.IsSpace(r) {
+			freq[r]++
+			totalChars++
+		}
 	}
 	var shannon float64
 	if totalChars > 0 {
@@ -181,11 +186,16 @@ func ComputeOriginality(text string) OriginalityIndex {
 	idx.Combined = round2(combined)
 
 	switch {
-	case combined >= 0.72: idx.Grade = "S"
-	case combined >= 0.58: idx.Grade = "A"
-	case combined >= 0.44: idx.Grade = "B"
-	case combined >= 0.30: idx.Grade = "C"
-	default:               idx.Grade = "D"
+	case combined >= 0.72:
+		idx.Grade = "S"
+	case combined >= 0.58:
+		idx.Grade = "A"
+	case combined >= 0.44:
+		idx.Grade = "B"
+	case combined >= 0.30:
+		idx.Grade = "C"
+	default:
+		idx.Grade = "D"
 	}
 
 	idx.Notes = buildNotes(idx)
@@ -306,8 +316,13 @@ func licenseTerms(l LicenseType, price int) string {
 		return "TERMS: Exclusive rights available. Contact author to negotiate.\n" +
 			"This work may not be used commercially without a signed agreement.\n"
 	case LicenseAllRights:
-		return "TERMS: Full IP transfer available. Author is open to selling all rights.\n" +
-			"Contact to discuss terms and price.\n"
+		// Do 2026-09-21 ten zapis zapraszał do kupna pełni praw. Nieaktualny:
+		// kapoost pełnego IP nie sprzedaje. Cytowanie jest natomiast mile
+		// widziane — pod warunkiem podania źródła, bo to jedyna rzecz, której
+		// autor naprawdę wymaga.
+		return "TERMS: All rights reserved. Full IP is NOT for sale.\n" +
+			"Quotation is welcome with attribution: name the author and cite the source.\n" +
+			"Reproduction in full, or any other use, needs the author's permission — ask via ask_human.\n"
 	default:
 		return "TERMS: All rights reserved. Contact author for any use beyond reading.\n"
 	}
@@ -374,16 +389,24 @@ func nonEmptyLines(text string) []string {
 }
 
 func mean(vals []float64) float64 {
-	if len(vals) == 0 { return 0 }
+	if len(vals) == 0 {
+		return 0
+	}
 	sum := 0.0
-	for _, v := range vals { sum += v }
+	for _, v := range vals {
+		sum += v
+	}
 	return sum / float64(len(vals))
 }
 
 func variance(vals []float64, m float64) float64 {
-	if len(vals) == 0 { return 0 }
+	if len(vals) == 0 {
+		return 0
+	}
 	sum := 0.0
-	for _, v := range vals { sum += (v - m) * (v - m) }
+	for _, v := range vals {
+		sum += (v - m) * (v - m)
+	}
 	return sum / float64(len(vals))
 }
 

@@ -9,13 +9,19 @@ import (
 
 func TestOriginalityEmptyText(t *testing.T) {
 	idx := ComputeOriginality("")
-	if idx.Grade != "D" { t.Errorf("empty should be D, got %s", idx.Grade) }
-	if idx.Combined != 0 { t.Errorf("empty should be 0, got %.2f", idx.Combined) }
+	if idx.Grade != "D" {
+		t.Errorf("empty should be D, got %s", idx.Grade)
+	}
+	if idx.Combined != 0 {
+		t.Errorf("empty should be 0, got %.2f", idx.Combined)
+	}
 }
 
 func TestOriginalityShortText(t *testing.T) {
 	idx := ComputeOriginality("Hello world.")
-	if idx.WordCount != 2 { t.Errorf("word count: got %d", idx.WordCount) }
+	if idx.WordCount != 2 {
+		t.Errorf("word count: got %d", idx.WordCount)
+	}
 }
 
 func TestOriginalityPoemVsGeneric(t *testing.T) {
@@ -61,8 +67,8 @@ Another short one.`
 func TestOriginalityGradeAssignment(t *testing.T) {
 	// Force different combined scores and verify grade
 	cases := []struct {
-		text        string
-		minGrade    string
+		text     string
+		minGrade string
 	}{
 		// Rich diverse text should score at least C
 		{`The quick brown fox jumps over lazy dogs.
@@ -84,8 +90,12 @@ Round the rugged rocks the ragged rascal ran.`, "C"},
 func TestOriginalityWordCount(t *testing.T) {
 	text := "one two three four five"
 	idx := ComputeOriginality(text)
-	if idx.WordCount != 5 { t.Errorf("word count: got %d, want 5", idx.WordCount) }
-	if idx.UniqueWords != 5 { t.Errorf("unique: got %d, want 5", idx.UniqueWords) }
+	if idx.WordCount != 5 {
+		t.Errorf("word count: got %d, want 5", idx.WordCount)
+	}
+	if idx.UniqueWords != 5 {
+		t.Errorf("unique: got %d, want 5", idx.UniqueWords)
+	}
 }
 
 func TestOriginalityDuplicateWords(t *testing.T) {
@@ -136,18 +146,24 @@ This is consistent and uniform in its structure throughout.`)
 func TestContentHashConsistent(t *testing.T) {
 	h1 := ContentHash("hello world")
 	h2 := ContentHash("hello world")
-	if h1 != h2 { t.Error("same content should produce same hash") }
+	if h1 != h2 {
+		t.Error("same content should produce same hash")
+	}
 }
 
 func TestContentHashDiffers(t *testing.T) {
 	h1 := ContentHash("hello world")
 	h2 := ContentHash("hello world!")
-	if h1 == h2 { t.Error("different content should produce different hash") }
+	if h1 == h2 {
+		t.Error("different content should produce different hash")
+	}
 }
 
 func TestContentHashLength(t *testing.T) {
 	h := ContentHash("test")
-	if len(h) != 64 { t.Errorf("sha256 hex should be 64 chars, got %d", len(h)) }
+	if len(h) != 64 {
+		t.Errorf("sha256 hex should be 64 chars, got %d", len(h))
+	}
 }
 
 // --- BuildCopyright tests ---
@@ -163,11 +179,21 @@ func TestBuildCopyright(t *testing.T) {
 	}
 	c := BuildCopyright(p, "kapoost", "pubkey123")
 
-	if c.Author != "kapoost" { t.Errorf("author: %s", c.Author) }
-	if c.Title != "Test Poem" { t.Errorf("title: %s", c.Title) }
-	if c.ContentHash == "" { t.Error("hash should not be empty") }
-	if c.Originality.Combined < 0 { t.Error("originality should be >= 0") }
-	if c.License != "cc-by" { t.Errorf("license: %s", c.License) }
+	if c.Author != "kapoost" {
+		t.Errorf("author: %s", c.Author)
+	}
+	if c.Title != "Test Poem" {
+		t.Errorf("title: %s", c.Title)
+	}
+	if c.ContentHash == "" {
+		t.Error("hash should not be empty")
+	}
+	if c.Originality.Combined < 0 {
+		t.Error("originality should be >= 0")
+	}
+	if c.License != "cc-by" {
+		t.Errorf("license: %s", c.License)
+	}
 }
 
 // --- FormatCertificate tests ---
@@ -226,7 +252,6 @@ func TestFormatCertificateLicenseTerms(t *testing.T) {
 	}
 }
 
-
 // TestEveryLicenseImpliesAttribution locks the contract that every license
 // humanmcp issues — except the explicit CC0 public-domain dedication —
 // requires the author to be credited.
@@ -265,3 +290,38 @@ func TestEveryLicenseImpliesAttribution(t *testing.T) {
 	// unknown license default-quietly to either side of the question.
 }
 
+// Certyfikat all-rights do 2026-09-21 zapraszał do kupna pełni praw
+// („Full IP transfer available. Author is open to selling all rights").
+// Kapoost pełnego IP nie sprzedaje, a cytowanie ze wskazaniem źródła jest
+// mile widziane. Certyfikat jedzie do agentów przy każdym get_certificate,
+// więc nieaktualna deklaracja to zaproszenie do rozmowy, której nie będzie.
+func TestAllRightsTermsDoNotOfferIPForSale(t *testing.T) {
+	terms := licenseTerms(LicenseAllRights, 0)
+
+	for _, forbidden := range []string{
+		"Full IP transfer", "open to selling", "discuss terms and price",
+	} {
+		if strings.Contains(terms, forbidden) {
+			t.Errorf("warunki all-rights nadal zawierają %q:\n%s", forbidden, terms)
+		}
+	}
+	for _, required := range []string{
+		"NOT for sale", "Quotation is welcome", "attribution", "ask_human",
+	} {
+		if !strings.Contains(terms, required) {
+			t.Errorf("warunki all-rights nie zawierają %q:\n%s", required, terms)
+		}
+	}
+}
+
+// Kontrola pozytywna: CC-BY pozostaje nietknięte. Zmiana dotyczyła jednej
+// licencji, więc reszta musi brzmieć dokładnie tak jak przedtem.
+func TestCCBYTermsUnchanged(t *testing.T) {
+	terms := licenseTerms(LicenseCCBY, 0)
+	if !strings.Contains(terms, "Creative Commons Attribution 4.0") {
+		t.Errorf("warunki CC-BY zmienione przy okazji:\n%s", terms)
+	}
+	if strings.Contains(terms, "NOT for sale") {
+		t.Errorf("tekst all-rights wyciekł do CC-BY:\n%s", terms)
+	}
+}
