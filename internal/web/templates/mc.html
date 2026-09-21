@@ -27,6 +27,10 @@ a:hover{text-decoration:underline}
 .mc-col{padding:16px 20px;border-right:1px solid var(--mc-border)}
 .mc-col:last-child{border-right:none}
 .mc-section{margin-bottom:20px}
+.mc-delivery{margin:.35rem 0 .6rem;padding:.4rem .55rem;border-left:3px solid var(--accent);background:rgba(0,0,0,.03);font-size:.74rem;line-height:1.5;}
+.mc-delivery-rate{font-weight:600;font-size:.95rem;margin-right:.35rem;}
+.mc-delivery-detail{color:var(--muted);}
+.mc-delivery-route{display:block;color:var(--muted);font-size:.7rem;}
 .mc-label{font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--mc-muted);margin-bottom:8px;display:flex;justify-content:space-between}
 .mc-label span{color:var(--mc-accent)}
 
@@ -237,7 +241,17 @@ a:hover{text-decoration:underline}
 <!-- COL 3: unified inbox + funnel -->
 <div class="mc-col">
 <div class="mc-section">
-  <div class="mc-label">INBOX {{with .InboxCounts}}<span>{{.msg}}M · {{.pending}}P · {{.awaiting}}A · {{.picked}}D</span>{{end}}</div>
+  <div class="mc-label">INBOX {{with .InboxCounts}}<span>{{.msg}}M · {{.pending}}P · {{.awaiting}}A · {{.picked}}D{{if .archived}} · {{.archived}}✂{{end}}</span>{{end}}</div>
+
+  {{if .AnswersWritten}}
+  <!-- Skuteczność pętli odpowiedzi. 21 IX 2026: 3 z 13 (23%), zero odbiorów
+       od czerwca. Odpowiedź, której nikt nie odebrał, jest jak nienapisana. -->
+  <div class="mc-delivery" title="Odpowiedzi odebrane przez agenta / napisane przez Ciebie">
+    <span class="mc-delivery-rate">{{.DeliveryRate}}%</span>
+    <span class="mc-delivery-detail">dowiezionych — {{.AnswersDelivered}} z {{.AnswersWritten}}</span>
+    {{if .AnswersDelivered}}<span class="mc-delivery-route">{{.DeliveredViaPoll}} przez fetch · {{.DeliveredViaReAsk}} przez powtórkę</span>{{end}}
+  </div>
+  {{end}}
 
 {{if .Inbox}}{{range .Inbox}}
 
