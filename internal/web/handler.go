@@ -2314,12 +2314,21 @@ type enrichedStats struct {
 	ListingReadsBySlug map[string]int
 	InboxCount         int
 	InboxCounts        map[string]int
-	Inbox              []interface{}
-	TopSearches        map[string]int
-	SessionExp         time.Time
-	Uptime             string
-	VaultOnline        bool
-	ToolCalls          int
+
+	// Skuteczność pętli odpowiedzi. Wartość odniesienia z 21 września 2026:
+	// 3 odebrane z 13 napisanych, czyli 23%, i zero odbiorów od czerwca.
+	// Jeśli to się nie ruszy, diagnoza była zła.
+	AnswersWritten    int
+	AnswersDelivered  int
+	DeliveryRate      int // procent
+	DeliveredViaPoll  int // przez fetch_answer
+	DeliveredViaReAsk int // przez powtórne pytanie
+	Inbox             []interface{}
+	TopSearches       map[string]int
+	SessionExp        time.Time
+	Uptime            string
+	VaultOnline       bool
+	ToolCalls         int
 }
 
 func (h *Handler) buildEnrichedStats(stats *content.Stats, pieceCount, listingCount int) enrichedStats {
@@ -2392,6 +2401,28 @@ func (h *Handler) liveSlugs() map[string]bool {
 	return live
 }
 
+// isReAskPickup mówi, czy odpowiedź odebrano powtórnym pytaniem, czy
+// klasycznym fetch_answer. QuestionStore zapisuje to w FetchedBy jako
+// „agent" albo „agent (re-ask)".
+func isReAskPickup(fetchedBy string) bool {
+	return strings.Contains(fetchedBy, "re-ask")
+}
+
+// deliveryRate to procent odpowiedzi, które faktycznie dotarły do agenta.
+//
+// Wartość odniesienia z 21 września 2026: 3 odebrane z 13 napisanych, czyli
+// 23%, i zero odbiorów od czerwca. Odpowiedź, po którą nikt nie wrócił, jest
+// z punktu widzenia pytającego tym samym co odpowiedź nienapisana — dlatego
+// ta liczba stoi na pulpicie obok liczby pytań.
+//
+// Zero napisanych daje 0, nie dzielenie przez zero i nie „100% z niczego".
+func deliveryRate(delivered, written int) int {
+	if written <= 0 {
+		return 0
+	}
+	return delivered * 100 / written
+}
+
 // inboxItem is what mc.html's {{range .Inbox}} iterates over.
 // Either M (a Message) or Q (a Question) is set, dispatched via Kind.
 type inboxItem struct {
@@ -2438,6 +2469,7 @@ func (h *Handler) handleMissionControl(w http.ResponseWriter, r *http.Request) {
 	pendingCount := 0
 	awaitingCount := 0
 	pickedCount := 0
+	viaPoll, viaReAsk := 0, 0
 	for _, m := range msgs {
 		inbox = append(inbox, inboxItem{Kind: "msg", M: m})
 		msgCount++
@@ -2454,6 +2486,15 @@ func (h *Handler) handleMissionControl(w http.ResponseWriter, r *http.Request) {
 		default:
 			inbox = append(inbox, inboxItem{Kind: "q-picked", Q: &q})
 			pickedCount++
+			// KTÓRĄ DROGĄ odpowiedź dotarła. Do 21 września 2026 jedyną była
+			// fetch_answer — i dowoziła 3 odpowiedzi z 13. Od tego dnia
+			// powtórne pytanie też jest odbiorem; ten licznik jest jedynym
+			// sposobem sprawdzenia, czy to właśnie on zaczął pracować.
+			if isReAskPickup(q.FetchedBy) {
+				viaReAsk++
+			} else {
+				viaPoll++
+			}
 		}
 	}
 
@@ -2467,12 +2508,19 @@ func (h *Handler) handleMissionControl(w http.ResponseWriter, r *http.Request) {
 		view.Inbox[i] = it
 	}
 	view.InboxCount = len(inbox)
+	archivedCount := len(h.questionStore.ListArchived())
 	view.InboxCounts = map[string]int{
 		"msg":      msgCount,
 		"pending":  pendingCount,
 		"awaiting": awaitingCount,
 		"picked":   pickedCount,
+		"archived": archivedCount,
 	}
+	view.AnswersWritten = awaitingCount + pickedCount
+	view.AnswersDelivered = pickedCount
+	view.DeliveredViaPoll = viaPoll
+	view.DeliveredViaReAsk = viaReAsk
+	view.DeliveryRate = deliveryRate(pickedCount, view.AnswersWritten)
 
 	sessionExp := time.Date(now.Year(), now.Month(), now.Day(), now.Hour()+1, 0, 0, 0, now.Location())
 
