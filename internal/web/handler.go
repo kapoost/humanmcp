@@ -42,7 +42,7 @@ type Handler struct {
 	// liveness reflects the vault's last-known reachability. Nil until
 	// SetLiveness is called by main.go; when nil, IsOnline reports false so
 	// dashboards don't lie about a channel that doesn't exist yet.
-	liveness          *mysloodsiewnia.Liveness
+	liveness *mysloodsiewnia.Liveness
 
 	// IP-based sliding-window rate limiter for the anonymous /contact form.
 	// Generous limit so a real human refining their message isn't blocked,
@@ -53,12 +53,12 @@ type Handler struct {
 
 func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler {
 	h := &Handler{
-		cfg:           cfg,
-		store:         store,
-		auth:          a,
-		msgStore:      content.NewMessageStore(cfg.ContentDir),
-		statStore:     content.NewStatStore(cfg.ContentDir),
-		blobStore:     content.NewBlobStore(cfg.ContentDir),
+		cfg:               cfg,
+		store:             store,
+		auth:              a,
+		msgStore:          content.NewMessageStore(cfg.ContentDir),
+		statStore:         content.NewStatStore(cfg.ContentDir),
+		blobStore:         content.NewBlobStore(cfg.ContentDir),
 		listingStore:      content.NewListingStore(cfg.ContentDir),
 		questionStore:     content.NewQuestionStore(cfg.ContentDir),
 		subscriptionStore: content.NewSubscriptionStore(cfg.ContentDir),
@@ -286,7 +286,6 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("/timestamp-all", h.auth.RequireOwner(http.HandlerFunc(h.handleTimestampAll)))
 	mux.Handle("/timestamp-upgrade-all", h.auth.RequireOwner(http.HandlerFunc(h.handleTimestampUpgradeAll)))
 
-
 	// Skills API (owner only)
 	mux.Handle("/api/skills", h.auth.RequireOwner(http.HandlerFunc(h.handleAPISkills)))
 	mux.Handle("/api/skills/", h.auth.RequireOwner(http.HandlerFunc(h.handleAPISkills)))
@@ -316,6 +315,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	// Both bare path (form-based POST from templates) and trailing-slash
 	// (legacy / URL-based id) work — handler reads id from either.
 	mux.Handle("/questions/answer", h.auth.RequireOwner(http.HandlerFunc(h.handleAnswerQuestion)))
+	mux.Handle("/questions/archive", h.auth.RequireOwner(http.HandlerFunc(h.handleArchiveQuestion)))
+	mux.Handle("/questions/unarchive", h.auth.RequireOwner(http.HandlerFunc(h.handleUnarchiveQuestion)))
 	mux.Handle("/questions/answer/", h.auth.RequireOwner(http.HandlerFunc(h.handleAnswerQuestion)))
 	mux.HandleFunc("/for-agents", h.handleForAgents)
 	mux.HandleFunc("/subscribe", h.handleSubscribeForm)
@@ -627,9 +628,13 @@ func (h *Handler) handlePiece(w http.ResponseWriter, r *http.Request) {
 		ua := r.Header.Get("User-Agent")
 		ref := r.Header.Get("Referer")
 		country := r.Header.Get("Fly-Region")
-		if country == "" { country = r.Header.Get("X-Country") }
+		if country == "" {
+			country = r.Header.Get("X-Country")
+		}
 		ip := r.Header.Get("Fly-Client-IP")
-		if ip == "" { ip = r.RemoteAddr }
+		if ip == "" {
+			ip = r.RemoteAddr
+		}
 		vh := content.VisitorHash(ip, time.Now().Format("2006-01-02"))
 		h.statStore.Record(content.Event{
 			Type:        content.EventRead,
@@ -753,11 +758,11 @@ func (h *Handler) handleUnlock(w http.ResponseWriter, r *http.Request) {
 		VisitorHash: vh,
 	})
 	h.render(w, "piece.html", map[string]interface{}{
-		"Author":       h.cfg.AuthorName,
-		"Piece":        p,
-		"IsLocked":     true,
-		"WrongAnswer":  true,
-		"IsOwner":      false,
+		"Author":      h.cfg.AuthorName,
+		"Piece":       p,
+		"IsLocked":    true,
+		"WrongAnswer": true,
+		"IsOwner":     false,
 	})
 }
 
@@ -835,7 +840,6 @@ func (h *Handler) handleAPIContent(w http.ResponseWriter, r *http.Request) {
 
 // --- Login/logout ---
 
-
 func (h *Handler) countPersonas() int {
 	dir := filepath.Join(h.cfg.ContentDir, "personas")
 	entries, err := os.ReadDir(dir)
@@ -870,7 +874,10 @@ func (h *Handler) handleAPIBlobs(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		b, err := h.blobStore.Get(slug)
-		if err != nil { jsonError(w, "not found", 404); return }
+		if err != nil {
+			jsonError(w, "not found", 404)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(b)
 
@@ -882,7 +889,8 @@ func (h *Handler) handleAPIBlobs(w http.ResponseWriter, r *http.Request) {
 		// Try JSON body first
 		if r.Header.Get("Content-Type") == "application/json" {
 			if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-				jsonError(w, "invalid json", 400); return
+				jsonError(w, "invalid json", 400)
+				return
 			}
 		} else {
 			// Form fields
@@ -895,7 +903,7 @@ func (h *Handler) handleAPIBlobs(w http.ResponseWriter, r *http.Request) {
 			b.Schema = r.FormValue("schema")
 			b.Encoding = r.FormValue("encoding")
 			b.TextData = r.FormValue("text_data")
-			b.FileRef = r.FormValue("file_ref")  // preserve existing file reference
+			b.FileRef = r.FormValue("file_ref") // preserve existing file reference
 			if dim := r.FormValue("dimensions"); dim != "" {
 				fmt.Sscanf(dim, "%d", &b.Dimensions)
 			}
@@ -914,13 +922,21 @@ func (h *Handler) handleAPIBlobs(w http.ResponseWriter, r *http.Request) {
 					b.MimeType = header.Header.Get("Content-Type")
 				}
 				ref, err := h.blobStore.StoreFile(b.Slug, header.Filename, data)
-				if err != nil { jsonError(w, "file save error: "+err.Error(), 500); return }
+				if err != nil {
+					jsonError(w, "file save error: "+err.Error(), 500)
+					return
+				}
 				b.FileRef = ref
 			}
 		}
 
-		if slug != "" && b.Slug == "" { b.Slug = slug }
-		if b.Slug == "" { jsonError(w, "slug required", 400); return }
+		if slug != "" && b.Slug == "" {
+			b.Slug = slug
+		}
+		if b.Slug == "" {
+			jsonError(w, "slug required", 400)
+			return
+		}
 
 		// Auto-sign blob
 		if h.signingKey != nil {
@@ -930,14 +946,16 @@ func (h *Handler) handleAPIBlobs(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err := h.blobStore.Save(&b); err != nil {
-			jsonError(w, err.Error(), 500); return
+			jsonError(w, err.Error(), 500)
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "saved", "slug": b.Slug})
 
 	case http.MethodDelete:
 		if err := h.blobStore.Delete(slug); err != nil {
-			jsonError(w, "not found", 404); return
+			jsonError(w, "not found", 404)
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
@@ -967,9 +985,13 @@ func (h *Handler) handleNew(w http.ResponseWriter, r *http.Request) {
 		} else if r.FormValue("slug") != "" {
 			p.Slug = r.FormValue("slug")
 		}
-		if p.Type == "" { p.Type = "note" }
+		if p.Type == "" {
+			p.Type = "note"
+		}
 		p.License = r.FormValue("license")
-		if ps := r.FormValue("price_sats"); ps != "" { fmt.Sscanf(ps, "%d", &p.PriceSats) }
+		if ps := r.FormValue("price_sats"); ps != "" {
+			fmt.Sscanf(ps, "%d", &p.PriceSats)
+		}
 		if tags := r.FormValue("tags"); tags != "" {
 			for _, t := range strings.Split(tags, ",") {
 				if s := strings.TrimSpace(t); s != "" {
@@ -977,14 +999,17 @@ func (h *Handler) handleNew(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		if p.Title == "" { p.Title = firstLine(p.Body) }
+		if p.Title == "" {
+			p.Title = firstLine(p.Body)
+		}
 		if h.signingKey != nil {
 			if sig, err := content.SignPiece(&p, h.signingKey); err == nil {
 				p.Signature = sig
 			}
 		}
 		if err := h.store.Save(&p); err != nil {
-			http.Error(w, err.Error(), 500); return
+			http.Error(w, err.Error(), 500)
+			return
 		}
 		http.Redirect(w, r, "/p/"+p.Slug, http.StatusSeeOther)
 		return
@@ -998,24 +1023,32 @@ func (h *Handler) handleNew(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleEdit(w http.ResponseWriter, r *http.Request) {
 	slug := strings.TrimPrefix(r.URL.Path, "/edit/")
-	if slug == "" { http.Redirect(w, r, "/new", http.StatusSeeOther); return }
+	if slug == "" {
+		http.Redirect(w, r, "/new", http.StatusSeeOther)
+		return
+	}
 
 	if r.Method == http.MethodPost {
 		r.ParseMultipartForm(50 << 20)
 		h.store.Load()
 		p, err := h.store.GetForEdit(slug)
-		if err != nil { http.Error(w, "not found", 404); return }
-		p.Title       = r.FormValue("title")
-		p.Type        = r.FormValue("type")
-		p.Access      = content.AccessLevel(r.FormValue("access"))
-		p.Gate        = content.GateType(r.FormValue("gate"))
-		p.License      = r.FormValue("license")
-		if ps := r.FormValue("price_sats"); ps != "" { fmt.Sscanf(ps, "%d", &p.PriceSats) }
-		p.Challenge   = r.FormValue("challenge")
-		p.Answer      = r.FormValue("answer")
+		if err != nil {
+			http.Error(w, "not found", 404)
+			return
+		}
+		p.Title = r.FormValue("title")
+		p.Type = r.FormValue("type")
+		p.Access = content.AccessLevel(r.FormValue("access"))
+		p.Gate = content.GateType(r.FormValue("gate"))
+		p.License = r.FormValue("license")
+		if ps := r.FormValue("price_sats"); ps != "" {
+			fmt.Sscanf(ps, "%d", &p.PriceSats)
+		}
+		p.Challenge = r.FormValue("challenge")
+		p.Answer = r.FormValue("answer")
 		p.Description = r.FormValue("description")
-		p.Body        = r.FormValue("body")
-		p.Tags        = nil
+		p.Body = r.FormValue("body")
+		p.Tags = nil
 		if tags := r.FormValue("tags"); tags != "" {
 			for _, t := range strings.Split(tags, ",") {
 				if s := strings.TrimSpace(t); s != "" {
@@ -1023,14 +1056,17 @@ func (h *Handler) handleEdit(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		if p.Title == "" { p.Title = firstLine(p.Body) }
+		if p.Title == "" {
+			p.Title = firstLine(p.Body)
+		}
 		if h.signingKey != nil {
 			if sig, err := content.SignPiece(p, h.signingKey); err == nil {
 				p.Signature = sig
 			}
 		}
 		if err := h.store.Save(p); err != nil {
-			http.Error(w, err.Error(), 500); return
+			http.Error(w, err.Error(), 500)
+			return
 		}
 		http.Redirect(w, r, "/p/"+slug, http.StatusSeeOther)
 		return
@@ -1038,7 +1074,10 @@ func (h *Handler) handleEdit(w http.ResponseWriter, r *http.Request) {
 
 	h.store.Load()
 	p, err := h.store.GetForEdit(slug)
-	if err != nil { http.Error(w, "not found", 404); return }
+	if err != nil {
+		http.Error(w, "not found", 404)
+		return
+	}
 	h.render(w, "new.html", map[string]interface{}{
 		"Author":  h.cfg.AuthorName,
 		"Bio":     h.cfg.AuthorBio,
@@ -1048,7 +1087,10 @@ func (h *Handler) handleEdit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleDelete(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost { http.Redirect(w, r, "/", http.StatusSeeOther); return }
+	if r.Method != http.MethodPost {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
 	slug := strings.TrimPrefix(r.URL.Path, "/delete/")
 	h.store.Load()
 	h.store.Delete(slug)
@@ -1373,8 +1415,12 @@ func slugify(s string) string {
 		}
 	}
 	result := strings.Trim(b.String(), "-")
-	if len(result) > 50 { result = result[:50] }
-	if result == "" { result = fmt.Sprintf("post-%d", time.Now().Unix()) }
+	if len(result) > 50 {
+		result = result[:50]
+	}
+	if result == "" {
+		result = fmt.Sprintf("post-%d", time.Now().Unix())
+	}
 	return result
 }
 
@@ -1382,7 +1428,9 @@ func firstLine(s string) string {
 	if idx := strings.IndexByte(s, '\n'); idx > 0 {
 		return strings.TrimSpace(s[:idx])
 	}
-	if len(s) > 60 { return s[:60] }
+	if len(s) > 60 {
+		return s[:60]
+	}
 	return strings.TrimSpace(s)
 }
 
@@ -1472,7 +1520,7 @@ func (h *Handler) handleAgentCard(w http.ResponseWriter, r *http.Request) {
 		"version":     "0.1.0",
 		"url":         "https://" + h.cfg.Domain,
 		"endpoints": map[string]interface{}{
-			"mcp":     "https://" + h.cfg.Domain + "/mcp",
+			"mcp":       "https://" + h.cfg.Domain + "/mcp",
 			"discovery": "https://" + h.cfg.Domain + "/.well-known/mcp-server.json",
 		},
 		"capabilities": []map[string]interface{}{
@@ -2043,10 +2091,10 @@ func (h *Handler) handleArtworks(w http.ResponseWriter, r *http.Request) {
 	}
 	items, _ := h.provenanceStore.List(content.OwnerPiece, slug)
 	h.render(w, "artwork.html", map[string]interface{}{
-		"Author":          h.cfg.AuthorName,
-		"IsOwner":         h.auth.IsOwner(r),
-		"Piece":           p,
-		"Provenance":      items,
+		"Author":     h.cfg.AuthorName,
+		"IsOwner":    h.auth.IsOwner(r),
+		"Piece":      p,
+		"Provenance": items,
 		"ProvenanceTypes": []string{
 			string(content.ProvenanceCertificate),
 			string(content.ProvenanceInvoice),
@@ -2063,8 +2111,9 @@ func (h *Handler) handleArtworks(w http.ResponseWriter, r *http.Request) {
 
 // handleProvenanceMutation routes POST under /artworks/<slug>/provenance.
 // Two shapes:
-//   sub == ""               → POST upload new item (multipart)
-//   sub == "/<id>/delete"   → POST delete an item
+//
+//	sub == ""               → POST upload new item (multipart)
+//	sub == "/<id>/delete"   → POST delete an item
 func (h *Handler) handleProvenanceMutation(w http.ResponseWriter, r *http.Request, slug, sub string) {
 	if !h.auth.IsOwner(r) {
 		http.Redirect(w, r, "/login", http.StatusFound)
@@ -2100,10 +2149,10 @@ func (h *Handler) handleProvenanceMutation(w http.ResponseWriter, r *http.Reques
 	item := content.ProvenanceItem{
 		OwnerKind: content.OwnerPiece,
 		OwnerSlug: slug,
-		Type:        content.ProvenanceType(r.FormValue("type")),
-		IssuedBy:    strings.TrimSpace(r.FormValue("issued_by")),
-		Title:       strings.TrimSpace(r.FormValue("title")),
-		Notes:       strings.TrimSpace(r.FormValue("notes")),
+		Type:      content.ProvenanceType(r.FormValue("type")),
+		IssuedBy:  strings.TrimSpace(r.FormValue("issued_by")),
+		Title:     strings.TrimSpace(r.FormValue("title")),
+		Notes:     strings.TrimSpace(r.FormValue("notes")),
 	}
 	if ia := r.FormValue("issued_at"); ia != "" {
 		for _, layout := range []string{"2006-01-02", time.RFC3339, "2006-01-02 15:04"} {
@@ -2522,6 +2571,7 @@ func (h *Handler) handleQuestions(w http.ResponseWriter, r *http.Request) {
 		"Pending":  pending,
 		"Awaiting": awaiting,
 		"Picked":   picked,
+		"Archived": h.questionStore.ListArchived(),
 	})
 }
 
@@ -2556,6 +2606,44 @@ func (h *Handler) handleAnswerQuestion(w http.ResponseWriter, r *http.Request) {
 	if err := h.questionStore.Answer(id, answer); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
+	}
+	http.Redirect(w, r, "/questions", http.StatusFound)
+}
+
+// handleArchiveQuestion zdejmuje pytanie z kolejki. To przeniesienie pliku do
+// questions/archived/, nie usunięcie — kolejka bywa jedynym śladem, że ktoś
+// zapytał, więc sprzątanie musi być odwracalne.
+func (h *Handler) handleArchiveQuestion(w http.ResponseWriter, r *http.Request) {
+	h.mutateQuestionArchive(w, r, h.questionStore.Archive)
+}
+
+func (h *Handler) handleUnarchiveQuestion(w http.ResponseWriter, r *http.Request) {
+	h.mutateQuestionArchive(w, r, h.questionStore.Unarchive)
+}
+
+func (h *Handler) mutateQuestionArchive(w http.ResponseWriter, r *http.Request, op func(string) error) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	ids := r.Form["question_id"]
+	if len(ids) == 0 {
+		http.Error(w, "question_id required", 400)
+		return
+	}
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if err := op(id); err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
 	}
 	http.Redirect(w, r, "/questions", http.StatusFound)
 }

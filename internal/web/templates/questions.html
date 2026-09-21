@@ -21,6 +21,9 @@
 .q-form textarea{width:100%;padding:.5rem .7rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);font-size:.88rem;resize:vertical;font-family:inherit;min-height:60px;}
 .q-form textarea:focus{outline:none;border-color:var(--accent);}
 .q-form button{margin-top:.4rem;padding:.35rem 1rem;border:none;border-radius:4px;background:var(--accent);color:#fff;cursor:pointer;font-size:.82rem;}
+.q-archive{display:inline-block;margin-top:.4rem;}
+.q-archive button{padding:.3rem .7rem;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--muted);cursor:pointer;font-size:.78rem;}
+.q-archive button:hover{color:var(--fg);border-color:var(--fg);}
 </style>
 </head>
 <body>
@@ -46,6 +49,10 @@
       <input type="hidden" name="question_id" value="{{.ID}}">
       <textarea name="answer" placeholder="Your answer..." rows="3"></textarea>
       <button type="submit">Answer</button>
+    </form>
+    <form method="POST" action="/questions/archive" class="q-archive">
+      <input type="hidden" name="question_id" value="{{.ID}}">
+      <button type="submit" title="Zdejmij z kolejki — plik zostaje, da się cofnąć">archive</button>
     </form>
   </div>
   {{end}}
@@ -84,6 +91,25 @@
     <div class="q-text">{{.Question}}</div>
     {{if .Context}}<div class="q-context">{{.Context}}</div>{{end}}
     <div class="q-answer">{{.Answer}}</div>
+  </div>
+  {{end}}
+</div>
+{{end}}
+
+{{if .Archived}}
+<div class="q-section">
+  <div class="q-section-title">Archived — taken off the queue, nothing deleted</div>
+  {{range .Archived}}
+  <div class="q-item">
+    <div class="q-meta">
+      {{if .From}}<span class="q-from">{{.From}}</span>{{end}}
+      <span>asked {{formatDate .AskedAt}}</span>
+    </div>
+    <div class="q-text">{{.Question}}</div>
+    <form method="POST" action="/questions/unarchive" class="q-archive">
+      <input type="hidden" name="question_id" value="{{.ID}}">
+      <button type="submit">restore</button>
+    </form>
   </div>
   {{end}}
 </div>
