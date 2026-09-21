@@ -149,11 +149,11 @@ func TestV2ResponseShapes(t *testing.T) {
 		// Content tool text — read_content on missing slug returns
 		// a specific "not found" tail that agents surface to users.
 		{
-			name: "get_persona_journal_missing_slug_owner",
-			tool: "get_persona_journal",
-			args: map[string]any{},
+			name:    "get_persona_journal_missing_slug_owner",
+			tool:    "get_persona_journal",
+			args:    map[string]any{},
 			headers: map[string]string{"Authorization": "Bearer testtoken"},
-			want: "slug is required",
+			want:    "slug is required",
 		},
 	}
 

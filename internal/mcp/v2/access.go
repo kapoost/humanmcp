@@ -228,12 +228,31 @@ func renderLicense(p *content.Piece, intendedUse, authorName string) string {
 	case content.LicenseCommercial:
 		fmt.Fprintf(&sb, "STATUS: Requires payment of %d sats for commercial use.\n", p.PriceSats)
 		sb.WriteString("Lightning payment support coming soon. Use leave_message to arrange.\n")
-	case content.LicenseExclusive, content.LicenseAllRights:
+	case content.LicenseAllRights:
+		// Musi mówić to samo co certyfikat (internal/content/copyright.go).
+		// Do 21 września 2026 oba zapraszały do kupna pełni praw; certyfikat
+		// zmieniliśmy, a to zostało — dwa miejsca opisujące tę samą licencję
+		// sprzecznie.
+		sb.WriteString("STATUS: Full IP is NOT for sale.\n")
+		sb.WriteString("Quoting is permitted with attribution — credit: " +
+			authorName + " — " + p.Title + "\n")
+		sb.WriteString("Reproducing the whole piece needs the author's permission: ask_human.\n")
+	case content.LicenseExclusive:
 		sb.WriteString("STATUS: Contact author to negotiate rights.\n")
-		sb.WriteString("Use leave_message to initiate conversation.\n")
+		sb.WriteString("Use ask_human — it has an answer channel; leave_message does not.\n")
 	default:
 		sb.WriteString("STATUS: All rights reserved. Contact author.\n")
 	}
-	sb.WriteString("\nThis request has been logged for audit purposes.\n")
+	// „Zalogowane do celów audytowych" brzmi jak sprawa w toku i każe czekać
+	// na potwierdzenie, którego nie będzie. Ana Adams złożyła ten sam wniosek
+	// na utwór CC-BY trzy razy w ciągu sześciu dni, za każdym razem
+	// dostawszy „Permitted with attribution".
+	if license == content.LicenseCCBY || license == content.LicenseFree ||
+		license == content.LicenseCCBYNC {
+		sb.WriteString("\nThe answer above is final — nothing is pending and " +
+			"no human sign-off is coming. Logged for the audit trail only.\n")
+	} else {
+		sb.WriteString("\nLogged for the audit trail.\n")
+	}
 	return sb.String()
 }

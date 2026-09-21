@@ -151,7 +151,7 @@ func TestAnonymousCallerIsNotSentToSessionGatedMemory(t *testing.T) {
 // od razu, zamiast kazać czekać na człowieka.
 func TestAskHumanPointsAtThePieceItMentions(t *testing.T) {
 	h, _ := gateFixtureWithPieces(t,
-		[4]string{"private-parts", "deka-log", "public", "Wspólny mianownik."})
+		[5]string{"private-parts", "deka-log", "public", "Wspólny mianownik.", ""})
 
 	out := callV2Tool(t, h, "ask_human", map[string]any{
 		"from":     "researcher",
@@ -175,7 +175,7 @@ func TestAskHumanPointsAtThePieceItMentions(t *testing.T) {
 // od własności intelektualnej.
 func TestAskHumanDoesNotHintOnOrdinaryWords(t *testing.T) {
 	h, _ := gateFixtureWithPieces(t,
-		[4]string{"love", "nie miłość", "public", "Nie to samo."})
+		[5]string{"love", "nie miłość", "public", "Nie to samo.", ""})
 
 	out := callV2Tool(t, h, "ask_human", map[string]any{
 		"from":     "reader",
@@ -191,7 +191,7 @@ func TestAskHumanDoesNotHintOnOrdinaryWords(t *testing.T) {
 // v2 nie dotyka utworów, więc nikomu to nie przeszkadzało. Podpowiedź
 // o slugu musi widzieć prawdziwą treść, więc tutaj zasiewamy pliki i
 // wołamy Load() PRZED zbudowaniem serwera.
-func gateFixtureWithPieces(t *testing.T, pieces ...[4]string) (http.Handler, *config.Config) {
+func gateFixtureWithPieces(t *testing.T, pieces ...[5]string) (http.Handler, *config.Config) {
 	t.Helper()
 	dir := t.TempDir()
 	for _, sub := range []string{"personas", "skills", "blobs", "collections",
@@ -200,9 +200,13 @@ func gateFixtureWithPieces(t *testing.T, pieces ...[4]string) (http.Handler, *co
 			t.Fatalf("mkdir %s: %v", sub, err)
 		}
 	}
-	for _, p := range pieces { // slug, title, access, body
+	for _, p := range pieces { // slug, title, access, body, license (opcjonalna)
 		md := "---\nslug: " + p[0] + "\ntitle: " + p[1] + "\ntype: poem\naccess: " + p[2] +
-			"\npublished: 2026-03-31\n---\n\n" + p[3]
+			"\npublished: 2026-03-31\n"
+		if p[4] != "" {
+			md += "license: " + p[4] + "\n"
+		}
+		md += "---\n\n" + p[3]
 		if err := os.WriteFile(filepath.Join(dir, p[0]+".md"), []byte(md), 0o644); err != nil {
 			t.Fatalf("write piece: %v", err)
 		}
@@ -269,7 +273,7 @@ func TestExplicitFromWinsOverClientInfo(t *testing.T) {
 // powstała.
 func TestSearchContentRecordsSearchEventWithQuery(t *testing.T) {
 	h, cfg := gateFixtureWithPieces(t,
-		[4]string{"private-parts", "deka-log", "public", "Wspólny mianownik."})
+		[5]string{"private-parts", "deka-log", "public", "Wspólny mianownik.", ""})
 
 	callV2Tool(t, h, "search_content", map[string]any{"query": "mianownik"}, nil)
 
