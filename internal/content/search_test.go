@@ -158,3 +158,93 @@ func slugsOf(hits []SearchHit) []string {
 	}
 	return out
 }
+
+// Podpowiedź o slugu ma sens tylko wtedy, gdy jest pewna. Dopasowanie po
+// podciągu wysłało w tym repozytorium „commit" do prawnika od IP (klucz
+// „mit") i „author" do red teamu (klucz „auth"). Tutaj stawka jest mniejsza
+// — to jedno zdanie w odpowiedzi — ale zasada ta sama: lepiej nie
+// podpowiedzieć niż podpowiedzieć bzdurę.
+func mentionFixture(t *testing.T) *Store {
+	t.Helper()
+	dir := t.TempDir()
+	writeMD(t, dir, "deka.md", `---
+slug: private-parts
+title: deka-log
+type: poem
+access: public
+published: 2026-03-31
+---
+
+Wspólny mianownik.`)
+	writeMD(t, dir, "love.md", `---
+slug: love
+title: nie miłość
+type: poem
+access: public
+published: 2026-03-31
+---
+
+Nie to samo.`)
+	writeMD(t, dir, "piosenki.md", `---
+slug: piosenki
+title: Piosenka1.txt
+type: poem
+access: public
+published: 2026-03-31
+---
+
+Refren.`)
+	s := NewStore(dir)
+	if err := s.Load(); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	return s
+}
+
+func TestMentionedPiecesFindsRealReferences(t *testing.T) {
+	s := mentionFixture(t)
+	cases := []struct{ text, want string }{
+		{"What is the exact title of your poem with slug 'private-parts'?", "private-parts"},
+		{"I'm writing an analysis of your poem \"deka-log\"", "private-parts"},
+		{"Widziałem https://kapoost.humanmcp.net/p/piosenki — czyje to?", "piosenki"},
+		{"pytanie o wiersz nie miłość", "love"},
+	}
+	for _, c := range cases {
+		got := s.MentionedPieces(c.text)
+		if len(got) != 1 || got[0].Slug != c.want {
+			t.Errorf("%q → %v, oczekiwano [%s]", c.text[:40], slugsOfPieces(got), c.want)
+		}
+	}
+}
+
+// Najważniejsze: słowa, które przypadkiem są slugami, nie mogą podpowiadać.
+func TestMentionedPiecesIgnoresOrdinaryWords(t *testing.T) {
+	for _, text := range []string{
+		"I love your work, it moved me",
+		"Do you write love poems?",
+		"czy masz jakieś piosenki o morzu?",
+		"this is a private matter, parts of it are unclear",
+	} {
+		if got := mentionFixture(t).MentionedPieces(text); len(got) != 0 {
+			t.Errorf("%q fałszywie podpowiedziało %v", text, slugsOfPieces(got))
+		}
+	}
+}
+
+// „slug" albo „/p/" w pytaniu zmienia sytuację: wtedy nawet zwykłe słowo
+// jest wskazaniem utworu, bo autor pytania mówi wprost, o czym mówi.
+func TestMentionedPiecesHonoursExplicitSlugContext(t *testing.T) {
+	s := mentionFixture(t)
+	got := s.MentionedPieces("what does the piece with slug love contain?")
+	if len(got) != 1 || got[0].Slug != "love" {
+		t.Errorf("jawny kontekst sluga → %v", slugsOfPieces(got))
+	}
+}
+
+func slugsOfPieces(ps []*Piece) []string {
+	out := make([]string, 0, len(ps))
+	for _, p := range ps {
+		out = append(out, p.Slug)
+	}
+	return out
+}
