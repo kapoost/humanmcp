@@ -158,3 +158,77 @@ func snippetAround(body, term string) string {
 	}
 	return out
 }
+
+// containsToken sprawdza obecność igły jako samodzielnego tokenu. Go używa
+// RE2, które nie ma spojrzeń wstecz, więc granice sprawdzamy ręcznie.
+func containsToken(haystack, needle string) bool {
+	if needle == "" {
+		return false
+	}
+	for from := 0; ; {
+		i := strings.Index(haystack[from:], needle)
+		if i < 0 {
+			return false
+		}
+		i += from
+		beforeOK := i == 0 || !isWordish(rune(haystack[i-1]))
+		after := i + len(needle)
+		afterOK := after >= len(haystack) || !isWordish(rune(haystack[after]))
+		if beforeOK && afterOK {
+			return true
+		}
+		from = i + 1
+	}
+}
+
+func isWordish(r rune) bool {
+	return r == '-' || r == '_' ||
+		(r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
+}
+
+// slugLooksLikeSlug odróżnia identyfikator od zwykłego wyrazu. „private-parts"
+// i „1775059694" to slugi; „love" i „piosenki" to polskie i angielskie słowa,
+// które w zdaniu znaczą coś innego niż utwór.
+func slugLooksLikeSlug(slug string) bool {
+	return strings.ContainsAny(slug, "-0123456789")
+}
+
+// MentionedPieces zwraca utwory, o których pytanie NA PEWNO wspomina.
+//
+// Służy do dopisania jednego zdania do odpowiedzi ask_human: „to jest
+// publiczne, read_content(slug=…) zwraca to teraz". Dwa z ośmiu pytań
+// oczekujących 21 września 2026 pytały o tytuł utworu spod znanego sluga —
+// czyli o coś, co list_content zwraca od ręki.
+//
+// Celowo ostrożne. Dopasowanie po podciągu wysyłało w tym repozytorium
+// „commit" do prawnika od IP (klucz „mit"), więc tutaj: slug liczy się tylko
+// wtedy, gdy WYGLĄDA na slug (ma myślnik albo cyfrę) albo gdy pytanie samo
+// używa słowa „slug" lub ścieżki „/p/". Tytuł musi mieć co najmniej pięć
+// znaków. Lepiej nie podpowiedzieć niż podpowiedzieć bzdurę.
+func (s *Store) MentionedPieces(text string) []*Piece {
+	t := normalizeForSearch(text)
+	if t == "" {
+		return nil
+	}
+	slugContext := strings.Contains(t, "slug") || strings.Contains(t, "/p/")
+
+	var out []*Piece
+	seen := map[string]bool{}
+	for _, p := range s.List(false) {
+		slug := normalizeForSearch(p.Slug)
+		title := normalizeForSearch(p.Title)
+
+		hit := false
+		if (slugLooksLikeSlug(slug) || slugContext) && containsToken(t, slug) {
+			hit = true
+		}
+		if !hit && len([]rune(title)) >= 5 && containsToken(t, title) {
+			hit = true
+		}
+		if hit && !seen[p.Slug] {
+			seen[p.Slug] = true
+			out = append(out, p)
+		}
+	}
+	return out
+}

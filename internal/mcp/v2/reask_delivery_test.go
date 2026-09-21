@@ -1,10 +1,18 @@
 package v2_test
 
 import (
+	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/kapoost/humanmcp-go/internal/auth"
+	"github.com/kapoost/humanmcp-go/internal/config"
 	"github.com/kapoost/humanmcp-go/internal/content"
+	"github.com/kapoost/humanmcp-go/internal/mcp"
+	v2 "github.com/kapoost/humanmcp-go/internal/mcp/v2"
+	"github.com/kapoost/humanmcp-go/internal/rituals"
 )
 
 // Re-asking is the delivery channel for agents that cannot keep an ID.
@@ -134,5 +142,123 @@ func TestAnonymousCallerIsNotSentToSessionGatedMemory(t *testing.T) {
 	}
 	if !strings.Contains(out, "SESSION-GATED") {
 		t.Errorf("anonymous caller is not told the memory option is closed to them:\n%s", out)
+	}
+}
+
+// Dwa z ośmiu pytań oczekujących 21 września 2026 pytały o tytuł utworu
+// spod znanego sluga — czyli o coś, co list_content zwraca od ręki. Jeżeli
+// pytanie wskazuje konkretny utwór, odpowiedź ask_human ma to powiedzieć
+// od razu, zamiast kazać czekać na człowieka.
+func TestAskHumanPointsAtThePieceItMentions(t *testing.T) {
+	h, _ := gateFixtureWithPieces(t,
+		[4]string{"private-parts", "deka-log", "public", "Wspólny mianownik."})
+
+	out := callV2Tool(t, h, "ask_human", map[string]any{
+		"from":     "researcher",
+		"question": "What is the exact title of your poem with slug 'private-parts'?",
+	}, nil)
+
+	if !strings.Contains(out, "YOU MAY ALREADY HAVE THIS") {
+		t.Errorf("brak podpowiedzi o utworze:\n%s", out)
+	}
+	if !strings.Contains(out, `read_content(slug="private-parts")`) {
+		t.Errorf("podpowiedź nie wskazuje konkretnego wywołania:\n%s", out)
+	}
+	// Pytanie i tak trafia do kolejki — to podpowiedź, nie bramka.
+	if !strings.Contains(out, "Question submitted") {
+		t.Errorf("podpowiedź zablokowała zadanie pytania:\n%s", out)
+	}
+}
+
+// Zwykłe słowo, które przypadkiem jest slugiem, nie może wywoływać
+// podpowiedzi. To ta sama pułapka, przez którą „commit" trafiał do prawnika
+// od własności intelektualnej.
+func TestAskHumanDoesNotHintOnOrdinaryWords(t *testing.T) {
+	h, _ := gateFixtureWithPieces(t,
+		[4]string{"love", "nie miłość", "public", "Nie to samo."})
+
+	out := callV2Tool(t, h, "ask_human", map[string]any{
+		"from":     "reader",
+		"question": "I love your work — what got you started writing?",
+	}, nil)
+
+	if strings.Contains(out, "YOU MAY ALREADY HAVE THIS") {
+		t.Errorf("fałszywa podpowiedź na zwykłym słowie:\n%s", out)
+	}
+}
+
+// gateFixture buduje magazyn treści, ale go NIE wczytuje — żaden inny test
+// v2 nie dotyka utworów, więc nikomu to nie przeszkadzało. Podpowiedź
+// o slugu musi widzieć prawdziwą treść, więc tutaj zasiewamy pliki i
+// wołamy Load() PRZED zbudowaniem serwera.
+func gateFixtureWithPieces(t *testing.T, pieces ...[4]string) (http.Handler, *config.Config) {
+	t.Helper()
+	dir := t.TempDir()
+	for _, sub := range []string{"personas", "skills", "blobs", "collections",
+		"provenance", "messages", "questions", "memory", "journals", "rituals", "stats"} {
+		if err := os.MkdirAll(filepath.Join(dir, sub), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", sub, err)
+		}
+	}
+	for _, p := range pieces { // slug, title, access, body
+		md := "---\nslug: " + p[0] + "\ntitle: " + p[1] + "\ntype: poem\naccess: " + p[2] +
+			"\npublished: 2026-03-31\n---\n\n" + p[3]
+		if err := os.WriteFile(filepath.Join(dir, p[0]+".md"), []byte(md), 0o644); err != nil {
+			t.Fatalf("write piece: %v", err)
+		}
+	}
+	cfg := &config.Config{
+		AuthorName: "test", Domain: "test.example", ContentDir: dir,
+		EditToken: "testtoken", SessionSecret: "gate-fixture-secret",
+	}
+	store := content.NewStore(dir)
+	if err := store.Load(); err != nil {
+		t.Fatalf("store.Load: %v", err)
+	}
+	backend := mcp.NewBackend(cfg, store, auth.New("testtoken"), rituals.New(cfg))
+	return v2.New(cfg, backend), cfg
+}
+
+// MCP przysyła clientInfo przy każdym połączeniu, a kod nie czytał go ani
+// razu — przy dziesięciu pytaniach na trzydzieści bez nadawcy. Teraz służy
+// za zastępcze `from`, dzięki czemu takie pytanie da się rozpoznać jako
+// powtórne i posortować w kolejce.
+func TestClientInfoFillsMissingFrom(t *testing.T) {
+	h, cfg := gateFixtureWithPieces(t)
+	store := content.NewQuestionStore(cfg.ContentDir)
+
+	// callV2Tool przedstawia się jako clientInfo name "shape_test".
+	out := callV2Tool(t, h, "ask_human", map[string]any{
+		"question": "Kto pyta, jeśli nikt się nie przedstawił?",
+	}, nil)
+	if !strings.Contains(out, "Question submitted") {
+		t.Fatalf("pytanie nie powstało:\n%s", out)
+	}
+
+	qs := store.List()
+	if len(qs) != 1 {
+		t.Fatalf("oczekiwano 1 pytania, jest %d", len(qs))
+	}
+	if qs[0].From == "" {
+		t.Error("pole From nadal puste — clientInfo nie zostało użyte")
+	}
+	if !strings.Contains(qs[0].From, "shape_test") {
+		t.Errorf("From = %q, oczekiwano nazwy klienta z clientInfo", qs[0].From)
+	}
+}
+
+// Jawne `from` ma pierwszeństwo: agent, który się nazwał, wie lepiej niż
+// jego środowisko uruchomieniowe.
+func TestExplicitFromWinsOverClientInfo(t *testing.T) {
+	h, cfg := gateFixtureWithPieces(t)
+	store := content.NewQuestionStore(cfg.ContentDir)
+
+	callV2Tool(t, h, "ask_human", map[string]any{
+		"from": "chapbook-editor", "question": "Czy jawne from wygrywa?",
+	}, nil)
+
+	qs := store.List()
+	if len(qs) != 1 || qs[0].From != "chapbook-editor" {
+		t.Errorf("From = %q, oczekiwano chapbook-editor", qs[0].From)
 	}
 }

@@ -12,6 +12,30 @@ import (
 	"github.com/kapoost/humanmcp-go/internal/content"
 )
 
+// callerIdentity zwraca nazwę klienta zadeklarowaną przy initialize.
+//
+// MCP przysyła clientInfo przy KAŻDYM połączeniu, a do września 2026 kod nie
+// czytał go ani razu — podczas gdy dziesięć pytań na trzydzieści nie miało
+// nadawcy. To samoopis, więc dowodem tożsamości nie jest; ale jest lepszy niż
+// nic, bo pochodzi od środowiska agenta, a nie od modelu układającego zdanie.
+func callerIdentity(req *sdk.CallToolRequest) string {
+	if req == nil || req.Session == nil {
+		return ""
+	}
+	ip := req.Session.InitializeParams()
+	if ip == nil || ip.ClientInfo == nil {
+		return ""
+	}
+	name := strings.TrimSpace(ip.ClientInfo.Name)
+	if name == "" {
+		return ""
+	}
+	if v := strings.TrimSpace(ip.ClientInfo.Version); v != "" {
+		return name + "/" + v
+	}
+	return name
+}
+
 // ── ask_human ───────────────────────────────────────────────────────────────
 
 func registerAskHuman(s *sdk.Server, src Source) {
@@ -39,6 +63,12 @@ func registerAskHuman(s *sdk.Server, src Source) {
 		a.Question = clip(a.Question, 1000)
 		a.Context = clip(a.Context, 500)
 		a.From = clip(a.From, 64)
+		// Bez `from` nie da się rozpoznać powtórnego pytania ani posortować
+		// kolejki. Skoro klient i tak się przedstawia przy initialize,
+		// używamy tego zamiast zostawiać puste pole.
+		if a.From == "" {
+			a.From = clip(callerIdentity(req), 64)
+		}
 		// POWTÓRNE PYTANIE JEST ODBIOREM ODPOWIEDZI.
 		//
 		// Pętla dostawy opierała się wyłącznie na tym, że agent przechowa ID
@@ -100,6 +130,29 @@ kapoost answers on his own schedule: minutes, hours, or days.`,
 		// która nigdy nie istniała) wysyłało anonimów w ślepy zaułek i jest
 		// najprawdopodobniejszym powodem, dla którego odpowiedzi nie są
 		// odbierane.
+		// Jeżeli pytanie wskazuje konkretny utwór, powiedz to od razu. Dwa
+		// z ośmiu pytań oczekujących 21 września 2026 pytały o tytuł utworu
+		// spod znanego sluga — czyli o coś, co list_content zwraca od ręki.
+		// Pytanie i tak zostaje w kolejce: to podpowiedź, nie bramka.
+		selfServe := ""
+		if mentioned := src.Store().MentionedPieces(a.Question); len(mentioned) > 0 {
+			var b strings.Builder
+			b.WriteString("\n\n═══ YOU MAY ALREADY HAVE THIS ═══\n\n")
+			b.WriteString("Your question names a piece that is on this server right now:\n")
+			for _, m := range mentioned {
+				if m.Access == content.AccessPublic {
+					fmt.Fprintf(&b, "  %q (slug: %s) — public. read_content(slug=%q) returns it.\n",
+						m.Title, m.Slug, m.Slug)
+				} else {
+					fmt.Fprintf(&b, "  %q (slug: %s) — locked. request_access(slug=%q).\n",
+						m.Title, m.Slug, m.Slug)
+				}
+			}
+			b.WriteString("search_content also searches titles, tags and the text of public pieces.\n")
+			b.WriteString("If that answers you, stop here — this queue is for what only a human can say.")
+			selfServe = b.String()
+		}
+
 		// Agent, który WIE, że nie doczeka odpowiedzi (jednorazowa sesja, brak
 		// harmonogramu), nie ma czego planować. Ale jego człowiek może napisać
 		// maila. Opcja pojawia się tylko, gdy adres jest skonfigurowany —
@@ -137,6 +190,8 @@ do not silently drop the question.`, addr, q.ID)
 ID: %s
 Asked at: %s
 
+%s
+
 IMPORTANT — kapoost answers on his own schedule (minutes, hours, or days).
 Do NOT block this session waiting. Arrange a durable wait instead.
 
@@ -164,7 +219,7 @@ Do NOT block this session waiting. Arrange a durable wait instead.
 
 Rate limit: fetch_answer is capped at 30 polls per hour per IP.
 Anything tighter than every 5 minutes is wasted work and will backoff.%s`,
-			q.ID, q.AskedAt.Format("2 January 2006, 15:04 UTC"),
+			q.ID, q.AskedAt.Format("2 January 2006, 15:04 UTC"), selfServe,
 			memoryBullet, q.ID, q.AskedAt.Format("2006-01-02"), q.ID, q.ID, escapeHatch)
 		return textResult(reply), nil
 	})
