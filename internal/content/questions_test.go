@@ -120,3 +120,72 @@ func TestQuestionIDCollisionSameText(t *testing.T) {
 		t.Errorf("expected 2 questions on disk, got %d", got)
 	}
 }
+
+// TestFindLatestByAsker pins the re-ask delivery path.
+//
+// Until September 2026 an answer only reached an agent that had kept its
+// question ID across sessions and polled fetch_answer. Measured on the live
+// queue, that delivered 3 of 16 answers; nobody had collected one since June.
+// Re-asking is the signal stateless agents actually produce, so the store has
+// to be able to recognise a twin.
+func TestFindLatestByAsker(t *testing.T) {
+	store := NewQuestionStore(filepath.Join(t.TempDir(), "content"))
+
+	first, err := store.Create("literary-analysis-agent", "", "How do you connect divisors to love?")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Same asker, same question, sloppier whitespace and casing — still a twin.
+	got, ok := store.FindLatestByAsker("Literary-Analysis-Agent",
+		"  How do you  connect DIVISORS to love?  ")
+	if !ok {
+		t.Fatal("twin not recognised through whitespace/case differences")
+	}
+	if got.ID != first.ID {
+		t.Errorf("matched %s, wanted %s", got.ID, first.ID)
+	}
+
+	// A different asker with identical wording must NOT match: the answer may
+	// have been written for the first one.
+	if _, ok := store.FindLatestByAsker("someone-else", "How do you connect divisors to love?"); ok {
+		t.Error("matched across askers — an answer could leak to the wrong agent")
+	}
+
+	// Anonymous callers cannot be matched at all, for the same reason.
+	if _, ok := store.FindLatestByAsker("", "How do you connect divisors to love?"); ok {
+		t.Error("matched with an empty from")
+	}
+
+	// A different question from the same asker is not a twin.
+	if _, ok := store.FindLatestByAsker("literary-analysis-agent", "What is the sea?"); ok {
+		t.Error("matched a different question")
+	}
+}
+
+// TestFindLatestByAskerPicksNewest guards the tie-break: duplicates already
+// exist in the live queue (uniqueID deliberately keeps both copies rather than
+// overwriting), so a lookup must land on the most recent one.
+func TestFindLatestByAskerPicksNewest(t *testing.T) {
+	store := NewQuestionStore(filepath.Join(t.TempDir(), "content"))
+
+	older, err := store.Create("researcher", "", "What is the exact title of your poem with slug 'private-parts'?")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	newer, err := store.Create("researcher", "", "What is the exact title of your poem with slug 'private-parts'?")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if older.ID == newer.ID {
+		t.Fatal("duplicate submission reused the ID — the second would overwrite the first")
+	}
+
+	got, ok := store.FindLatestByAsker("researcher", "What is the exact title of your poem with slug 'private-parts'?")
+	if !ok {
+		t.Fatal("twin not found")
+	}
+	if !got.AskedAt.Before(newer.AskedAt) && got.ID != newer.ID && got.ID != older.ID {
+		t.Errorf("unexpected match %s", got.ID)
+	}
+}

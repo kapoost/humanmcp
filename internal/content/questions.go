@@ -22,10 +22,10 @@ type Question struct {
 	FetchedBy  string
 }
 
-func (q Question) IsAnswered() bool   { return q.Answer != "" }
-func (q Question) IsFetched() bool    { return !q.FetchedAt.IsZero() }
-func (q Question) IsPicked() bool     { return q.IsAnswered() && !q.IsFetched() }
-func (q Question) IsAwaiting() bool   { return !q.IsAnswered() }
+func (q Question) IsAnswered() bool    { return q.Answer != "" }
+func (q Question) IsFetched() bool     { return !q.FetchedAt.IsZero() }
+func (q Question) IsPicked() bool      { return q.IsAnswered() && !q.IsFetched() }
+func (q Question) IsAwaiting() bool    { return !q.IsAnswered() }
 func (q Question) Answered() time.Time { return q.AnsweredAt }
 
 type QuestionStore struct {
@@ -156,6 +156,44 @@ func (s *QuestionStore) Create(from, context, question string) (Question, error)
 		return Question{}, err
 	}
 	return q, nil
+}
+
+// normalizeForMatch reduces a question (or asker) to a comparison key:
+// trimmed, lowercased, inner whitespace collapsed. Two agents that retry the
+// same wording with different spacing must land on the same key.
+func normalizeForMatch(s string) string {
+	return strings.Join(strings.Fields(strings.ToLower(strings.TrimSpace(s))), " ")
+}
+
+// FindLatestByAsker returns the most recent question from the same asker with
+// the same question text.
+//
+// This is how a stateless agent gets its answer back. The delivery loop used
+// to depend entirely on the agent persisting an ID across sessions and
+// polling fetch_answer — and it did not work: as of September 2026, 13 of 16
+// answered questions had never been picked up. A re-ask is the one signal
+// such an agent reliably produces, so we treat it as the pickup.
+//
+// Matching requires a non-empty `from`. Without it, two unrelated anonymous
+// callers asking the same thing would collide and the second would receive an
+// answer written for the first.
+func (s *QuestionStore) FindLatestByAsker(from, question string) (Question, bool) {
+	from = normalizeForMatch(from)
+	question = normalizeForMatch(question)
+	if from == "" || question == "" {
+		return Question{}, false
+	}
+	var best Question
+	var found bool
+	for _, q := range s.List() {
+		if normalizeForMatch(q.From) != from || normalizeForMatch(q.Question) != question {
+			continue
+		}
+		if !found || q.AskedAt.After(best.AskedAt) {
+			best, found = q, true
+		}
+	}
+	return best, found
 }
 
 // uniqueID picks an ID that doesn't clash with an existing question file.

@@ -186,6 +186,11 @@ func renderBootstrapBriefing(personas []mcp.Persona, skills []mcp.Skill, domain 
 	sb.WriteString("  4. For any other topic that hits a domain skill (e.g. 'go stack', 'deploy', 'shell', 'mx5', 's2000', 'onaudience', 'bookkido'), call `list_skills` to find the slug, then `get_skill(slug=<x>)` for the body — do NOT reinvent from memory alone.\n")
 	sb.WriteString("  4a. GROUP LOAD — when the user says 'załaduj skille z projektu X' / 'load project X skills' / 'load skill group X', call `load_skill_group(name=<X>)` (single MCP call, returns all bodies). Discover available groups via `list_skill_groups`. For a fresh workspace ('scaffold', 'skonfiguruj to repo') use `suggest_skills(files=[...], languages=[...], git_origin=...)` — deterministic, capped at 8 slugs + 5 personas (derived from matched groups, hodor always seated).\n")
 	sb.WriteString("  5. If your platform supports it, also stash a durable pointer to this server's `about_humanmcp` tool — future-you can re-orient in one call without a full bootstrap.\n")
+	// Blok PERSIST jest jedyną rzeczą, którą czyta BUDZĄCY SIĘ agent, a do
+	// 2026-09 nie wspominał o oczekujących pytaniach ani razu. Instrukcja
+	// „zapisz ID i wróć" trafiała wyłącznie do agenta, który za chwilę
+	// znikał — stąd 13 z 16 odpowiedzi nigdy nieodebranych.
+	sb.WriteString("  6. PENDING QUESTIONS — if you ever called `ask_human`, an answer may be waiting. On EVERY session start: recall any stored `pending_q` note and call `fetch_answer(id=<id>)` for each. Lost the ID? Just call `ask_human` again with the SAME `from` and the SAME question text — an already-answered twin returns kapoost's answer immediately instead of creating a duplicate. Clear the note once you have the answer.\n")
 	sb.WriteString("=== END PERSIST ===\n")
 
 	return sb.String()

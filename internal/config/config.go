@@ -23,6 +23,10 @@ type Config struct {
 	// Author
 	AuthorName    string `json:"author_name"`
 	AuthorBio     string `json:"author_bio"`
+	// ContactEmail, gdy ustawiony, jest pokazywany agentom w odpowiedzi
+	// ask_human jako droga dla ICH CZŁOWIEKA, kiedy agent wie, że nie doczeka
+	// odpowiedzi. Pusty = opcja się nie pojawia i adres nigdzie nie wycieka.
+	ContactEmail string
 	AuthorAvatar  string `json:"author_avatar"`
 
 	// Content
@@ -106,6 +110,9 @@ func Load() (*Config, error) {
 	}
 	if v := os.Getenv("AUTHOR_BIO"); v != "" {
 		cfg.AuthorBio = v
+	}
+	if v := os.Getenv("CONTACT_EMAIL"); v != "" {
+		cfg.ContactEmail = v
 	}
 	if v := os.Getenv("CONTENT_DIR"); v != "" {
 		cfg.ContentDir = v
