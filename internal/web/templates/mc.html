@@ -243,7 +243,11 @@ a:hover{text-decoration:underline}
 <div class="mc-section">
   <div class="mc-label">INBOX {{with .InboxCounts}}<span>{{.msg}}M · {{.pending}}P · {{.awaiting}}A · {{.picked}}D{{if .archived}} · {{.archived}}✂{{end}}</span>{{end}}</div>
 
-  {{if .AnswersWritten}}
+  {{/* Sekcja INBOX stoi POZA {{with .Stats}} — działa, bo InboxCounts jedzie
+       osobnym kluczem mapy. Bez tego opakowania .AnswersWritten szukałoby
+       pola w mapie najwyższego poziomu, cicho dawało zero i panel znikał
+       bez śladu błędu. */}}
+  {{with .Stats}}{{if .AnswersWritten}}
   <!-- Skuteczność pętli odpowiedzi. 21 IX 2026: 3 z 13 (23%), zero odbiorów
        od czerwca. Odpowiedź, której nikt nie odebrał, jest jak nienapisana. -->
   <div class="mc-delivery" title="Odpowiedzi odebrane przez agenta / napisane przez Ciebie">
@@ -251,7 +255,7 @@ a:hover{text-decoration:underline}
     <span class="mc-delivery-detail">dowiezionych — {{.AnswersDelivered}} z {{.AnswersWritten}}</span>
     {{if .AnswersDelivered}}<span class="mc-delivery-route">{{.DeliveredViaPoll}} przez fetch · {{.DeliveredViaReAsk}} przez powtórkę</span>{{end}}
   </div>
-  {{end}}
+  {{end}}{{end}}
 
 {{if .Inbox}}{{range .Inbox}}
 
