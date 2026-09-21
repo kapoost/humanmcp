@@ -71,8 +71,11 @@ func (s *QuestionStore) Get(id string) (Question, error) {
 }
 
 func (s *QuestionStore) load(id string) (Question, error) {
-	path := filepath.Join(s.dir, id+".txt")
-	data, err := os.ReadFile(path)
+	return s.loadFrom(s.dir, id)
+}
+
+func (s *QuestionStore) loadFrom(dir, id string) (Question, error) {
+	data, err := os.ReadFile(filepath.Join(dir, id+".txt"))
 	if err != nil {
 		return Question{}, err
 	}
@@ -245,6 +248,66 @@ func slugifyForID(s string) string {
 	if len(out) > 40 {
 		out = strings.TrimRight(out[:40], "-")
 	}
+	return out
+}
+
+// archiveDir trzyma pytania zdjęte z kolejki. Podkatalog, nie usunięcie:
+// List() pomija katalogi, więc archiwum znika z widoku samo, a plik nadal
+// istnieje i da się go cofnąć. Kasowanie byłoby nieodwracalne, a kolejka
+// bywa jedynym śladem, że ktoś w ogóle zapytał.
+func (s *QuestionStore) archiveDir() string { return filepath.Join(s.dir, "archived") }
+
+// Archive zdejmuje pytanie z kolejki bez niszczenia go.
+//
+// Do września 2026 magazyn miał wyłącznie Create/Answer/MarkFetched — nie
+// było jak niczego sprzątnąć. Dlatego „test" i „hello" z lipca wisiały
+// miesiącami w sekcji „pending — need your answer", rozcieńczając to, co
+// naprawdę czekało na odpowiedź.
+func (s *QuestionStore) Archive(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	src := filepath.Join(s.dir, id+".txt")
+	if _, err := os.Stat(src); err != nil {
+		return fmt.Errorf("no such question: %s", id)
+	}
+	if err := os.MkdirAll(s.archiveDir(), 0o755); err != nil {
+		return err
+	}
+	return os.Rename(src, filepath.Join(s.archiveDir(), id+".txt"))
+}
+
+// Unarchive wraca pytanie do kolejki.
+func (s *QuestionStore) Unarchive(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	src := filepath.Join(s.archiveDir(), id+".txt")
+	if _, err := os.Stat(src); err != nil {
+		return fmt.Errorf("no such archived question: %s", id)
+	}
+	return os.Rename(src, filepath.Join(s.dir, id+".txt"))
+}
+
+// ListArchived zwraca zdjęte pytania, żeby archiwum nie było czarną dziurą.
+func (s *QuestionStore) ListArchived() []Question {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	entries, err := os.ReadDir(s.archiveDir())
+	if err != nil {
+		return nil
+	}
+	var out []Question
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".txt") {
+			continue
+		}
+		id := strings.TrimSuffix(e.Name(), ".txt")
+		q, err := s.loadFrom(s.archiveDir(), id)
+		if err != nil {
+			continue
+		}
+		out = append(out, q)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].AskedAt.After(out[j].AskedAt) })
 	return out
 }
 
