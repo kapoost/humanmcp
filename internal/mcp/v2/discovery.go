@@ -156,7 +156,16 @@ func registerSearchContent(s *sdk.Server, src Source) {
 		if strings.TrimSpace(a.Query) == "" {
 			return textResult("query required — one or more words to look for."), nil
 		}
-		src.StatStore().Record(content.Event{Type: content.EventList, Caller: content.CallerAgent})
+		// EventSearch, nie EventList: inaczej użycie wyszukiwarki jest nie do
+		// odróżnienia od listowania i nie da się sprawdzić, czy zdjęła
+		// pytania z kolejki. Query jedzie ze zdarzeniem, bo „czego agenci
+		// szukają" jest ciekawsze niż sam licznik wywołań.
+		src.StatStore().Record(content.Event{
+			Type:   content.EventSearch,
+			Caller: content.CallerAgent,
+			Query:  a.Query,
+			Kind:   "search_content",
+		})
 		return textResult(renderSearchContent(a.Query, src.Store().Search(a.Query, a.Limit))), nil
 	})
 }

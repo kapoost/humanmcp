@@ -262,3 +262,25 @@ func TestExplicitFromWinsOverClientInfo(t *testing.T) {
 		t.Errorf("From = %q, oczekiwano chapbook-editor", qs[0].From)
 	}
 }
+
+// search_content zapisywało się jako EventList, czyli nie do odróżnienia od
+// list_content. Bez własnego typu zdarzenia nie da się sprawdzić, czy
+// wyszukiwarka faktycznie zdjęła pytania z kolejki — a właśnie po to
+// powstała.
+func TestSearchContentRecordsSearchEventWithQuery(t *testing.T) {
+	h, cfg := gateFixtureWithPieces(t,
+		[4]string{"private-parts", "deka-log", "public", "Wspólny mianownik."})
+
+	callV2Tool(t, h, "search_content", map[string]any{"query": "mianownik"}, nil)
+
+	stats, err := content.NewStatStore(cfg.ContentDir).Compute()
+	if err != nil {
+		t.Fatalf("Compute: %v", err)
+	}
+	if stats.TotalSearches < 1 {
+		t.Errorf("TotalSearches = %d — wyszukiwanie nie policzyło się jako wyszukiwanie", stats.TotalSearches)
+	}
+	if stats.TopSearches["mianownik"] < 1 {
+		t.Errorf("zapytania nie ma w TopSearches: %v — nie dowiemy się, czego agenci szukają", stats.TopSearches)
+	}
+}
