@@ -92,6 +92,7 @@ func New(cfg *config.Config, src Source) http.Handler {
 	// discovery
 	registerAboutHumanmcp(server, cfg)
 	registerGetAuthorProfile(server, src)
+	registerSearchContent(server, src)
 	registerListContent(server, src)
 	registerListPersonas(server, src)
 	registerListSkills(server, src)

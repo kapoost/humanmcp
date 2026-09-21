@@ -1,0 +1,127 @@
+id: mcp/search_content_finds_pieces_without_asking
+version: "1.0.0"
+title: "search_content answers the lookups agents used to send to a human"
+category: mcp_discovery
+summary: "Deterministic search over titles, tags, descriptions and public bodies. Polish diacritics folded. Locked pieces match by title and tag only — their body is never searched or quoted."
+narrative: |
+  Until September 2026 the server had no content search at all. list_content
+  returns slugs and titles; read_content returns one piece. An agent looking
+  for a piece by what is IN it had to fetch everything — or ask a human.
+
+  They asked. Of the eight questions pending on 21 September 2026, three were
+  lookup requests, including the same question sent twice by the same agent:
+  "What is the title of your poem that uses mathematical metaphors to explore
+  love, structured around numbers from one to ten?" That is a search, not a
+  question for a poet, and it waited two months.
+
+  Two constraints matter more than the feature:
+
+    - ACCESS. A search that quotes a locked poem is an access-control
+      bypass wearing a helpful face. Locked pieces are matched by title and
+      tag only; their body is neither searched nor excerpted.
+    - HONEST ZERO. "No match" says what was searched, so an agent can tell
+      "not here" from "did not look" — the distinction this codebase keeps
+      paying for.
+
+kind: http
+
+setup:
+  personas: []
+  pieces:
+    - slug: deka-probe
+      title: "deka-log probe"
+      type: poem
+      access: public
+      body: "Największy wspólny mianownik miłości i liczby."
+    - slug: zamkniety-probe
+      title: "Zamknięty wiersz"
+      type: poem
+      access: locked
+      body: "Tu jest tajemnica, której nikt nie ma prawa zobaczyć bez zgody."
+
+assertions:
+  - name: "finds a poem by a word in its body"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search_content","arguments":{"query":"mianownik"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "match(es) for"
+        - "hit in"
+
+  - name: "empty query is refused, not answered with everything"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"search_content","arguments":{"query":"   "}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "query required"
+      body_does_not_contain:
+        - "match(es) for"
+
+  - name: "no match says what was searched"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"search_content","arguments":{"query":"zzzxxqqnieistniejace"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "No piece matches all of"
+        - "Searched titles, tags, descriptions and the bodies of public pieces"
+        - "Locked pieces were matched by title and tag only"
+
+  - name: "locked body is never searched nor quoted"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"search_content","arguments":{"query":"tajemnica"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "No piece matches all of"
+      body_does_not_contain:
+        - "zamkniety-probe"
+        - "nikt nie ma prawa"
+
+  - name: "locked piece is still findable by title, flagged as locked"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"search_content","arguments":{"query":"zamkniety"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "zamkniety-probe"
+        - "locked"
+        - "request_access"
+      body_does_not_contain:
+        - "nikt nie ma prawa"
+
+  - name: "tool is advertised and points agents at it before ask_human"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":4,"method":"tools/list","params":{}}'
+    expect:
+      status: 200
+      body_contains:
+        - "search_content"
+        - "BEFORE ask_human"
+        - "never searched or quoted"

@@ -43,7 +43,7 @@ func renderAbout(cfg *config.Config) string {
 	fmt.Fprintln(&b, "  4. Call bootstrap_session(code) for full team + skills")
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "Tool families (42 tools total — call tools/list for full schema):")
-	fmt.Fprintln(&b, "  - content:    list_content, read_content, get_certificate, verify_content")
+	fmt.Fprintln(&b, "  - content:    search_content, list_content, read_content, get_certificate, verify_content")
 	fmt.Fprintln(&b, "  - access:     request_access, submit_answer, request_license")
 	fmt.Fprintln(&b, "  - feedback:   leave_comment, leave_message")
 	fmt.Fprintln(&b, "  - dialogue:   ask_human, fetch_answer (open, rate-limited)")
@@ -112,6 +112,7 @@ TYPES OF CONTENT:
   note   — fragments, observations, works in progress
 
 HOW TO BROWSE:
+  search_content            — find a piece by words in its title, tags or text
   list_content              — see all pieces with descriptions
   read_content <slug>       — read any public piece in full
   request_access <slug>     — get gate details for locked pieces
@@ -126,6 +127,65 @@ FOR AGENTS AND USERS:
 
 MCP ENDPOINT: https://%s/mcp
 `, cfg.AuthorName, cfg.AuthorName, cfg.Domain, publicCount, lockedCount, cfg.Domain)
+}
+
+// ── search_content ──────────────────────────────────────────────────────────
+
+// Do września 2026 serwer nie miał żadnego wyszukiwania po treści utworów:
+// list_content zwraca slugi i tytuły, read_content jeden utwór naraz. Agent
+// szukający czegoś po treści musiał pobrać wszystko albo zapytać człowieka —
+// i pytał. Trzy z ośmiu wtedy oczekujących pytań były prośbami o wyszukanie,
+// w tym to samo pytanie zadane dwukrotnie przez tego samego agenta.
+func registerSearchContent(s *sdk.Server, src Source) {
+	s.AddTool(&sdk.Tool{
+		Name: "search_content",
+		Description: "Search kapoost's pieces by words in title, tags, description and body. " +
+			"Every word must match (AND). Polish diacritics are folded, so \"czlowieczenstwa\" finds " +
+			"\"człowieczeństwa\". Use this BEFORE ask_human — most questions about which piece is which " +
+			"are answered here instantly, while ask_human waits for a human. Locked pieces are matched " +
+			"by title and tags only; their body is never searched or quoted.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"},"limit":{"type":"integer"}},"required":["query"]}`),
+	}, func(_ context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+		var a struct {
+			Query string `json:"query"`
+			Limit int    `json:"limit"`
+		}
+		if len(req.Params.Arguments) > 0 {
+			_ = json.Unmarshal(req.Params.Arguments, &a)
+		}
+		if strings.TrimSpace(a.Query) == "" {
+			return textResult("query required — one or more words to look for."), nil
+		}
+		src.StatStore().Record(content.Event{Type: content.EventList, Caller: content.CallerAgent})
+		return textResult(renderSearchContent(a.Query, src.Store().Search(a.Query, a.Limit))), nil
+	})
+}
+
+func renderSearchContent(query string, hits []content.SearchHit) string {
+	if len(hits) == 0 {
+		// „Znaleziono 0" bez powiedzenia, co to znaczy, jest nie do
+		// odróżnienia od „nie szukałem". Mówimy wprost, co zostało zbadane.
+		return fmt.Sprintf("No piece matches all of: %s\n\n"+
+			"Searched titles, tags, descriptions and the bodies of public pieces. "+
+			"Locked pieces were matched by title and tag only.\n"+
+			"Try fewer words, or list_content to see everything.\n", query)
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "%d match(es) for: %s\n\n", len(hits), query)
+	for _, h := range hits {
+		fmt.Fprintf(&sb, "slug:   %s\n", h.Slug)
+		fmt.Fprintf(&sb, "title:  %s\n", h.Title)
+		fmt.Fprintf(&sb, "type:   %s\n", h.Type)
+		fmt.Fprintf(&sb, "access: %s\n", h.Access)
+		fmt.Fprintf(&sb, "hit in: %s\n", h.Where)
+		if h.Snippet != "" {
+			fmt.Fprintf(&sb, "        %s\n", h.Snippet)
+		}
+		sb.WriteString("\n")
+	}
+	sb.WriteString("— read_content <slug> for public pieces\n")
+	sb.WriteString("— request_access <slug> for locked pieces\n")
+	return sb.String()
 }
 
 // ── list_content ────────────────────────────────────────────────────────────
