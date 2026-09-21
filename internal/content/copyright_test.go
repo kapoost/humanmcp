@@ -240,7 +240,11 @@ func TestFormatCertificateLicenseTerms(t *testing.T) {
 		"cc-by-nc":   "Non-Commercial",
 		"commercial": "sats",
 		"exclusive":  "negotiate",
-		"all-rights": "all rights",
+		// Nie przypadkowy podciąg: od 2026-09-21 certyfikat all-rights ma
+		// mówić, że pełnia praw NIE jest na sprzedaż. Dawna asercja („all
+		// rights") przechodziła dzięki frazie „selling all rights", czyli
+		// dokładnie temu, co usunęliśmy.
+		"all-rights": "NOT for sale",
 	}
 	for lic, expected := range licenses {
 		p := &Piece{Title: "T", Body: "B", License: lic, PriceSats: 100}
