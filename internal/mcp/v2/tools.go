@@ -16,6 +16,7 @@ func ToolNames() []string {
 		// discovery
 		"about_humanmcp",
 		"get_author_profile",
+		"search_content",
 		"list_content",
 		"list_personas",
 		"list_skills",
