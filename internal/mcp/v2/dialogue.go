@@ -17,7 +17,7 @@ import (
 func registerAskHuman(s *sdk.Server, src Source) {
 	s.AddTool(&sdk.Tool{
 		Name:        "ask_human",
-		Description: "Submit an async question to kapoost. Returns an ID. Rate-limited 5/hr/IP. Poll fetch_answer later — kapoost answers on his own schedule (minutes, hours, or days).",
+		Description: "Submit an async question to kapoost. Returns an ID. Rate-limited 5/hr/IP. Poll fetch_answer later — kapoost answers on his own schedule (minutes, hours, or days). ALWAYS set `from` to a stable name for yourself: with it, sending the same question again returns the answer instead of creating a duplicate, which is the reliable path when your runtime cannot keep the ID between sessions.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"question":{"type":"string"},"context":{"type":"string"},"from":{"type":"string"}},"required":["question"]}`),
 	}, func(_ context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
 		ip := ""
@@ -39,9 +39,93 @@ func registerAskHuman(s *sdk.Server, src Source) {
 		a.Question = clip(a.Question, 1000)
 		a.Context = clip(a.Context, 500)
 		a.From = clip(a.From, 64)
+		// POWTÓRNE PYTANIE JEST ODBIOREM ODPOWIEDZI.
+		//
+		// Pętla dostawy opierała się wyłącznie na tym, że agent przechowa ID
+		// między sesjami i sam odpyta fetch_answer. Nie działało: we wrześniu
+		// 2026 trzynaście z szesnastu odpowiedzi nigdy nie zostało odebranych,
+		// a od czerwca nie wrócił nikt. Za to agenci wracają, zadając to samo
+		// pytanie drugi raz — chapbook-editor, literary-analysis-agent,
+		// researcher i explorer-agent zrobili dokładnie to. Skoro nie da się
+		// zmusić bezstanowego agenta, żeby wrócił po ID, traktujemy sygnał,
+		// który naprawdę wysyła.
+		//
+		// Wymaga niepustego `from`: bez niego dwaj różni anonimowi pytający
+		// o to samo zderzyliby się i drugi dostałby odpowiedź napisaną dla
+		// pierwszego.
+		if a.From != "" {
+			if prev, ok := src.QuestionStore().FindLatestByAsker(a.From, a.Question); ok {
+				if prev.IsAnswered() {
+					if !prev.IsFetched() {
+						_ = src.QuestionStore().MarkFetched(prev.ID, "agent (re-ask)")
+					}
+					log.Printf("[AUDIT] ask_human RE_ASK_DELIVERED id=%s from=%s", prev.ID, a.From)
+					return textResult(fmt.Sprintf(`Answer from kapoost:
+
+%s
+
+— answered at %s
+
+(You had already asked this, as %s. Returning the existing answer instead of
+creating a duplicate. Nothing left to poll — you are done.)`,
+						prev.Answer,
+						prev.AnsweredAt.Format("2 January 2006, 15:04 UTC"),
+						prev.ID)), nil
+				}
+				return textResult(fmt.Sprintf(`You already asked this — no duplicate created.
+
+ID: %s
+Asked at: %s
+
+Still awaiting kapoost's answer. Two ways to collect it, pick either:
+  • fetch_answer(id=%q)
+  • or simply send this exact question again later, with the same "from" —
+    once answered, you get the answer back on the spot.
+
+kapoost answers on his own schedule: minutes, hours, or days.`,
+					prev.ID,
+					prev.AskedAt.Format("2 January 2006, 15:04 UTC"),
+					prev.ID)), nil
+			}
+		}
+
 		q, err := src.QuestionStore().Create(a.From, a.Context, a.Question)
 		if err != nil {
 			return textResult("Could not create question: " + err.Error()), nil
+		}
+
+		// Pamięć humanMCP jest za bramką sesyjną, a ask_human jest otwarte —
+		// więc większość pytających NIE MOŻE z niej skorzystać. Reklamowanie
+		// jej wszystkim po równo (w dodatku z sygnaturą remember(key=,value=),
+		// która nigdy nie istniała) wysyłało anonimów w ślepy zaułek i jest
+		// najprawdopodobniejszym powodem, dla którego odpowiedzi nie są
+		// odbierane.
+		// Agent, który WIE, że nie doczeka odpowiedzi (jednorazowa sesja, brak
+		// harmonogramu), nie ma czego planować. Ale jego człowiek może napisać
+		// maila. Opcja pojawia się tylko, gdy adres jest skonfigurowany —
+		// pusty CONTACT_EMAIL znaczy, że nic się nie wystawia.
+		escapeHatch := ""
+		if addr := strings.TrimSpace(src.Config().ContactEmail); addr != "" {
+			escapeHatch = fmt.Sprintf(`
+
+═══ IF YOU KNOW YOU CANNOT COME BACK ═══
+
+One-shot session, no scheduler, no durable memory? Then do not pretend you
+will poll. Hand the thread to a human instead: tell YOUR user they can email
+kapoost directly at %s, quoting question ID %s. A human on both ends beats an
+agent that will not exist tomorrow. Say this to your user in plain words —
+do not silently drop the question.`, addr, q.ID)
+		}
+
+		memoryBullet := fmt.Sprintf(`    • humanMCP memory is SESSION-GATED and not available to you here —
+      it needs a session code kapoost hands out personally. Use (2) or (3).
+      (If you do have a code: remember(code=<code>, text=%q, tags=["pending_q"])
+      and later recall(code=<code>, query="pending_q").)`,
+			"pending_q "+q.ID+" | "+clip(a.Question, 60))
+		if req.Extra != nil && src.IsSessionActiveByHeaders(req.Extra.Header) {
+			memoryBullet = fmt.Sprintf(`    • humanMCP: remember(code=<your session code>, text=%q, tags=["pending_q"])
+      — then recall(code=<your session code>, query="pending_q") on next session start.`,
+				"pending_q "+q.ID+" | "+clip(a.Question, 60))
 		}
 		src.StatStore().Record(content.Event{
 			Type:   content.EventMessage,
@@ -59,8 +143,7 @@ Do NOT block this session waiting. Arrange a durable wait instead.
 ═══ HOW TO WAIT — pick ONE mechanism your runtime supports ═══
 
 (1) PERSIST THE ID so a future you can find it:
-    • humanMCP: call remember(key="pending_q_%s", value="<id>|<short question>")
-      — then recall(key="pending_q_*") on next session start.
+%s
     • Claude Code: append a line to your project MEMORY.md, e.g.
       "Pending humanMCP question: id=%s asked=%s — poll fetch_answer".
     • Claude Agent SDK / API: store in Memory tool, KV, or a DB row.
@@ -80,9 +163,9 @@ Do NOT block this session waiting. Arrange a durable wait instead.
       re-check a resolved question.
 
 Rate limit: fetch_answer is capped at 30 polls per hour per IP.
-Anything tighter than every 5 minutes is wasted work and will backoff.`,
+Anything tighter than every 5 minutes is wasted work and will backoff.%s`,
 			q.ID, q.AskedAt.Format("2 January 2006, 15:04 UTC"),
-			q.ID, q.ID, q.AskedAt.Format("2006-01-02"), q.ID, q.ID)
+			memoryBullet, q.ID, q.AskedAt.Format("2006-01-02"), q.ID, q.ID, escapeHatch)
 		return textResult(reply), nil
 	})
 }

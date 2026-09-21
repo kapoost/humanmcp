@@ -1,0 +1,112 @@
+id: mcp/ask_human_reask_delivers_answer
+version: "1.0.0"
+title: "ask_human treats a re-ask as pickup, and stops advertising a gated memory API"
+category: mcp_inbox
+summary: "Sending the same question again with the same `from` returns kapoost's existing answer instead of creating a duplicate. The wait instructions no longer advertise remember(key=)/recall(key=) — a signature that never existed, on tools anonymous callers cannot reach anyway."
+narrative: |
+  Measured on the live queue, 21 September 2026:
+
+    - kapoost had written 16 answers.
+    - Agents had collected 3, one of which was kapoost's own smoke test.
+    - Nobody had collected an answer since June.
+
+  The delivery loop assumed the agent would keep the ID returned by
+  ask_human across sessions and poll fetch_answer. The ask_human reply
+  spent 35 lines instructing it how. Two reasons that failed:
+
+    - The instructions reach the agent that is about to disappear. The
+      PERSIST block, the one artefact a waking agent reads, never
+      mentioned pending questions at all.
+    - The most prominent option told the agent to call
+      remember(key=..., value=...) and recall(key="pending_q_*").
+      Those parameters do not exist — the real signatures are
+      remember(code, text) and recall(code, query) — and both tools are
+      session-gated, while ask_human is open. Anonymous callers were
+      sent down a dead end.
+
+  What agents DO produce reliably is a re-ask: chapbook-editor,
+  literary-analysis-agent, researcher and explorer-agent each asked the
+  same question twice. So the re-ask is now the pickup.
+
+  Matching requires a non-empty `from`. Two unrelated anonymous callers
+  asking the same thing must not collide — the second would receive an
+  answer written for the first.
+
+kind: http
+
+setup:
+  personas: []
+
+assertions:
+  - name: "first ask — normal submission, wait instructions present"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"ask_human","arguments":{"from":"storyboard-reask","question":"Does a re-ask deliver the answer?","context":"storyboard"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "Question submitted"
+        - "HOW TO WAIT"
+      body_does_not_contain:
+        - "remember(key="
+        - "recall(key="
+        - "pending_q_*"
+
+  - name: "re-ask before an answer exists — no duplicate, original ID returned"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ask_human","arguments":{"from":"storyboard-reask","question":"Does a re-ask deliver the answer?","context":"storyboard"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "already asked this"
+        - "Still awaiting"
+      body_does_not_contain:
+        - "Question submitted"
+
+  - name: "anonymous caller is never matched against someone else's question"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ask_human","arguments":{"question":"Does a re-ask deliver the answer?","context":"storyboard"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "Question submitted"
+      body_does_not_contain:
+        - "already asked this"
+
+  - name: "anonymous caller is told the memory option is closed to them"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"ask_human","arguments":{"from":"storyboard-anon-memory","question":"Where do I keep this id?","context":"storyboard"}}}'
+    expect:
+      status: 200
+      body_contains:
+        - "SESSION-GATED"
+        - "Use (2) or (3)"
+      body_does_not_contain:
+        - "remember(key="
+
+  - name: "tool description tells agents to set from"
+    request:
+      method: POST
+      path: /mcp
+      headers:
+        Content-Type: application/json
+      body: '{"jsonrpc":"2.0","id":5,"method":"tools/list","params":{}}'
+    expect:
+      status: 200
+      body_contains:
+        - "ALWAYS set `from`"
