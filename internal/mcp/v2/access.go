@@ -187,8 +187,82 @@ func registerRequestLicense(s *sdk.Server, src Source) {
 		})
 		msgText := fmt.Sprintf("[license request] use=%s caller=%s", a.IntendedUse, a.CallerID)
 		_, _ = src.MsgStore().Save(a.CallerID, msgText, a.Slug)
-		return textResult(renderLicense(p, a.IntendedUse, src.Config().AuthorName)), nil
+
+		terms := renderLicense(p, a.IntendedUse, src.Config().AuthorName)
+		if !licenseNeedsHuman(content.LicenseType(p.License), a.IntendedUse) {
+			return textResult(terms), nil
+		}
+		return textResult(terms + escalateLicenseToQueue(src, p, a.IntendedUse, a.CallerID)), nil
 	})
+}
+
+// licenseNeedsHuman mówi, czy odpowiedź na wniosek JEST ostateczna, czy
+// wymaga decyzji kapoosta. Ta sama logika co w renderLicense — gdy tekst
+// mówi „contact the author", wniosek musi trafić tam, gdzie da się
+// odpowiedzieć.
+func licenseNeedsHuman(license content.LicenseType, intendedUse string) bool {
+	if license == "" {
+		license = content.LicenseCCBY
+	}
+	commercial := isCommercialUse(intendedUse)
+	switch license {
+	case content.LicenseCCBY:
+		return false
+	case content.LicenseCCBYNC:
+		return false // odpowiedź jest ostateczna w obie strony
+	case content.LicenseFree:
+		return commercial
+	case content.LicenseCommercial, content.LicenseExclusive, content.LicenseAllRights:
+		return true
+	default:
+		return true
+	}
+}
+
+func isCommercialUse(intendedUse string) bool {
+	u := strings.ToLower(intendedUse)
+	return strings.Contains(u, "commercial") || strings.Contains(u, "train") ||
+		strings.Contains(u, "publish")
+}
+
+// escalateLicenseToQueue przenosi wniosek do kolejki pytań.
+//
+// Do 22 września 2026 wnioski lądowały wyłącznie w skrzynce wiadomości,
+// która NIE MA kanału odpowiedzi: Message nie ma pola kontaktu, komentarze
+// nie są publiczne, a Kind="response" jest zadeklarowane i nigdzie
+// nietworzone. Ana Adams złożyła ten sam wniosek trzy razy w sześć dni.
+// Kolejka pytań ma odpowiedzi i — od 21 września — odbiór przez powtórne
+// pytanie, więc wniosek wymagający decyzji należy tam, a nie do skrzynki.
+//
+// Powtórny wniosek nie tworzy bliźniaka: jeśli taki sam już istnieje,
+// oddajemy jego odpowiedź albo jego identyfikator.
+func escalateLicenseToQueue(src Source, p *content.Piece, intendedUse, callerID string) string {
+	question := fmt.Sprintf("Licence request for %q (%s): %s", p.Title, p.Slug, intendedUse)
+	ctx := fmt.Sprintf("Raised automatically from request_license. Piece licence: %s.", p.License)
+
+	if prev, ok := src.QuestionStore().FindLatestByAsker(callerID, question); ok {
+		if prev.IsAnswered() {
+			if !prev.IsFetched() {
+				_ = src.QuestionStore().MarkFetched(prev.ID, "agent (re-ask)")
+			}
+			return fmt.Sprintf("\n\nANSWER FROM KAPOOST (you asked this before, as %s):\n\n%s\n",
+				prev.ID, prev.Answer)
+		}
+		return fmt.Sprintf("\n\nThis needs kapoost's decision and you have already asked — "+
+			"no duplicate created.\nQuestion ID: %s\nPoll fetch_answer(id=%q), or send this same "+
+			"request again later; once answered you get the answer here on the spot.\n",
+			prev.ID, prev.ID)
+	}
+
+	q, err := src.QuestionStore().Create(callerID, ctx, question)
+	if err != nil {
+		return "\n\nThis needs kapoost's decision, but the question could not be filed: " +
+			err.Error() + "\nUse ask_human directly.\n"
+	}
+	return fmt.Sprintf("\n\nThis one is not automatic — it needs kapoost's decision, so it has been "+
+		"put in his queue where answers actually reach you.\nQuestion ID: %s\nPoll "+
+		"fetch_answer(id=%q), or send this same request again later; once answered you get the "+
+		"answer here on the spot. Do not keep a session open waiting.\n", q.ID, q.ID)
 }
 
 func renderLicense(p *content.Piece, intendedUse, authorName string) string {
@@ -205,9 +279,7 @@ func renderLicense(p *content.Piece, intendedUse, authorName string) string {
 		sb.WriteString("Price:         free\n")
 	}
 	fmt.Fprintf(&sb, "Intended use:  %s\n\n", intendedUse)
-	commercialUse := strings.Contains(strings.ToLower(intendedUse), "commercial") ||
-		strings.Contains(strings.ToLower(intendedUse), "train") ||
-		strings.Contains(strings.ToLower(intendedUse), "publish")
+	commercialUse := isCommercialUse(intendedUse)
 	switch license {
 	case content.LicenseFree:
 		if commercialUse {
