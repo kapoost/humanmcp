@@ -2980,6 +2980,13 @@ func (h *Handler) handleLLMSTxt(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(&b, "- Searching: use `search_content` over MCP instead of crawling. It searches titles, tags, descriptions and the text of public pieces, folds Polish diacritics, and never returns the body of a locked piece.")
 	fmt.Fprintln(&b, "- Rate limits: ask_human 5/hour/IP, fetch_answer 30/hour/IP, bootstrap_session 5/minute/IP. Reads are not rate-limited. Do not poll fetch_answer tighter than a few hours.")
 	fmt.Fprintln(&b, "- Vault (mysłoodsiewnia) access: not available to automated callers. Friend tokens go to people kapoost knows by name. The anonymous read-only surface is the supported path and needs no token.")
+	// 22 września 2026 zespół konektora zgłosił „client error" przy
+	// ask_human. Odtworzone: klient deklarujący protokół 2026-07-28 dostaje
+	// -32602 przy initialize, jeśli nie dołoży pól _meta i dodatkowych
+	// nagłówków transportu; ta sama prośba z 2025-06-18 przechodzi zwykłym
+	// POST-em. To zachowanie SDK zgodne ze specyfikacją, ale skutek jest
+	// nasz: obcy klient odbija się od drzwi i nie ma jak o tym powiedzieć.
+	fmt.Fprintln(&b, "- If your client fails at `initialize` with -32602 \"missing or invalid _meta field\": you are declaring protocol 2026-07-28, which also requires the newer transport metadata. Either implement it, or negotiate `2025-06-18` — fully supported here and it needs nothing beyond a plain JSON-RPC POST.")
 	fmt.Fprintln(&b, "- AI training: not permitted without asking. Use `ask_human` — it is the only channel with an answer path; `leave_message` and `request_license` record your declaration but cannot reply to you.")
 	fmt.Fprintln(&b)
 
