@@ -2952,6 +2952,37 @@ func (h *Handler) handleLLMSTxt(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(&b)
 	}
 
+	// Warunki dla wywołujących automatycznie.
+	//
+	// 22 września 2026 zespół budujący konektor badawczy złożył wniosek
+	// licencyjny pytający o atrybucję, cache'owanie, limity i dostęp do
+	// skarbca — czytając przy tym ten właśnie plik, który o żadnej z tych
+	// rzeczy nie mówił ani słowa. Wcześniej Ana Adams złożyła ten sam
+	// wniosek trzy razy w sześć dni. Warunki, o które ludzie pytają, mają
+	// być opublikowane, nie wysyłane prywatnie — tym bardziej że skrzynka
+	// wiadomości nie ma żadnego kanału odpowiedzi.
+	//
+	// Liczby licencji liczone z rzeczywistej zawartości, nie wpisane na
+	// sztywno: wpisany licznik zdryfuje przy pierwszym nowym utworze.
+	byLicense := map[string]int{}
+	for _, pc := range h.store.List(false) {
+		lic := pc.License
+		if lic == "" {
+			lic = "cc-by"
+		}
+		byLicense[lic]++
+	}
+	fmt.Fprintln(&b, "## Terms for automated agents")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "- Attribution, one line per piece: `<title> — kapoost — <source URL>`. Lowercase name, keep the link. For CC-BY also name the licence and note any modification.")
+	fmt.Fprintf(&b, "- Licences in use right now: %s. Never infer a licence from the fact that a piece is publicly readable — call `get_certificate(slug)`, which returns it signed.\n", describeLicenseMix(byLicense))
+	fmt.Fprintln(&b, "- Caching and redistribution: permitted for CC-BY pieces, commercial use included. Not permitted for all-rights pieces — quote them with attribution and read them from the server. CC-BY-NC pieces are non-commercial only.")
+	fmt.Fprintln(&b, "- Searching: use `search_content` over MCP instead of crawling. It searches titles, tags, descriptions and the text of public pieces, folds Polish diacritics, and never returns the body of a locked piece.")
+	fmt.Fprintln(&b, "- Rate limits: ask_human 5/hour/IP, fetch_answer 30/hour/IP, bootstrap_session 5/minute/IP. Reads are not rate-limited. Do not poll fetch_answer tighter than a few hours.")
+	fmt.Fprintln(&b, "- Vault (mysłoodsiewnia) access: not available to automated callers. Friend tokens go to people kapoost knows by name. The anonymous read-only surface is the supported path and needs no token.")
+	fmt.Fprintln(&b, "- AI training: not permitted without asking. Use `ask_human` — it is the only channel with an answer path; `leave_message` and `request_license` record your declaration but cannot reply to you.")
+	fmt.Fprintln(&b)
+
 	// MCP entry points.
 	fmt.Fprintln(&b, "## MCP endpoint")
 	fmt.Fprintln(&b)
@@ -2968,6 +2999,29 @@ func (h *Handler) handleLLMSTxt(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(&b, "- [RSS](https://%s/rss.xml): piece publication feed.\n", h.cfg.Domain)
 	fmt.Fprintf(&b, "- [Sitemap](https://%s/sitemap.xml): full URL inventory for crawlers.\n", h.cfg.Domain)
 	w.Write([]byte(b.String()))
+}
+
+// describeLicenseMix opisuje rozkład licencji słowami, po jednej pozycji na
+// licencję faktycznie używaną. Pusty zbiór daje zdanie, które nie kłamie.
+func describeLicenseMix(byLicense map[string]int) string {
+	if len(byLicense) == 0 {
+		return "none published yet"
+	}
+	keys := make([]string, 0, len(byLicense))
+	for k := range byLicense {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if byLicense[keys[i]] != byLicense[keys[j]] {
+			return byLicense[keys[i]] > byLicense[keys[j]]
+		}
+		return keys[i] < keys[j]
+	})
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, fmt.Sprintf("%d × %s", byLicense[k], k))
+	}
+	return strings.Join(parts, ", ")
 }
 
 // /llms-edit — owner editor for /llms.txt
