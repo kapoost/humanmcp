@@ -322,7 +322,6 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/subscribe", h.handleSubscribeForm)
 	mux.HandleFunc("/subscribe/confirm", h.handleSubscribeConfirm)
 	mux.HandleFunc("/llms.txt", h.handleLLMSTxt)
-	mux.Handle("/llms-edit", h.auth.RequireOwner(http.HandlerFunc(h.handleLLMSTxtEdit)))
 	mux.HandleFunc("/stats", h.handleStats)
 	mux.HandleFunc("/gallery", h.handleGallery)
 
@@ -2921,12 +2920,12 @@ func (h *Handler) vaultOnline() bool {
 // /data/llms.txt exists it overrides the auto-generated body.
 func (h *Handler) handleLLMSTxt(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	dataDir := filepath.Dir(h.cfg.ContentDir)
-	custom := filepath.Join(dataDir, "llms.txt")
-	if data, err := os.ReadFile(custom); err == nil {
-		w.Write(data)
-		return
-	}
+	// llms.txt jest WYŁĄCZNIE generowany. Ręcznie zapisany /data/llms.txt
+	// zwracał się wcześniej w całości i pomijał wszystko generowane — czyli
+	// jedno zapisanie przez edytor cicho kasowało warunki, limity, rozkład
+	// licencji i podpowiedź o wersji protokołu. Edytor został usunięty, a ta
+	// ścieżka odczytu razem z nim: plik, który nadpisuje prawdę i nikt tego
+	// nie zauważa, jest gorszy niż brak możliwości edycji.
 	var b strings.Builder
 	// H1 + blockquote description per spec. AuthorBio is the
 	// project-scale description; MCP endpoint + tool count go in a
@@ -2975,49 +2974,7 @@ func (h *Handler) handleLLMSTxt(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(&b)
 	}
 
-	// Warunki dla wywołujących automatycznie.
-	//
-	// 22 września 2026 zespół budujący konektor badawczy złożył wniosek
-	// licencyjny pytający o atrybucję, cache'owanie, limity i dostęp do
-	// skarbca — czytając przy tym ten właśnie plik, który o żadnej z tych
-	// rzeczy nie mówił ani słowa. Wcześniej Ana Adams złożyła ten sam
-	// wniosek trzy razy w sześć dni. Warunki, o które ludzie pytają, mają
-	// być opublikowane, nie wysyłane prywatnie — tym bardziej że skrzynka
-	// wiadomości nie ma żadnego kanału odpowiedzi.
-	//
-	// Liczby licencji liczone z rzeczywistej zawartości, nie wpisane na
-	// sztywno: wpisany licznik zdryfuje przy pierwszym nowym utworze.
-	// Liczymy TE SAME utwory, które katalog wyżej wymienia. Wcześniej suma
-	// obejmowała też pozycje zablokowane, których ten plik świadomie nie
-	// pokazuje — czyli liczby nie zgadzały się z listą tuż nad nimi.
-	byLicense := map[string]int{}
-	for _, pc := range h.store.List(false) {
-		if !pc.IsUnlocked() {
-			continue
-		}
-		lic := pc.License
-		if lic == "" {
-			lic = "cc-by"
-		}
-		byLicense[lic]++
-	}
-	fmt.Fprintln(&b, "## Terms for automated agents")
-	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "- Attribution, one line per piece: `<title> — kapoost — <source URL>`. Lowercase name, keep the link. For CC-BY also name the licence and note any modification.")
-	fmt.Fprintf(&b, "- Licences in use right now: %s. Never infer a licence from the fact that a piece is publicly readable — call `get_certificate(slug)`, which returns it signed.\n", describeLicenseMix(byLicense))
-	fmt.Fprintln(&b, "- Caching and redistribution: permitted for CC-BY pieces, commercial use included. Not permitted for all-rights pieces — quote them with attribution and read them from the server. CC-BY-NC pieces are non-commercial only.")
-	fmt.Fprintln(&b, "- Searching: use `search_content` over MCP instead of crawling. It searches titles, tags, descriptions and the text of public pieces, folds Polish diacritics, and never returns the body of a locked piece.")
-	fmt.Fprintln(&b, "- Rate limits: ask_human 5/hour/IP, fetch_answer 30/hour/IP, bootstrap_session 5/minute/IP. Reads are not rate-limited. Do not poll fetch_answer tighter than a few hours.")
-	fmt.Fprintln(&b, "- Vault (mysłoodsiewnia) access: not available to automated callers. Friend tokens go to people kapoost knows by name. The anonymous read-only surface is the supported path and needs no token.")
-	// 22 września 2026 zespół konektora zgłosił „client error" przy
-	// ask_human. Odtworzone: klient deklarujący protokół 2026-07-28 dostaje
-	// -32602 przy initialize, jeśli nie dołoży pól _meta i dodatkowych
-	// nagłówków transportu; ta sama prośba z 2025-06-18 przechodzi zwykłym
-	// POST-em. To zachowanie SDK zgodne ze specyfikacją, ale skutek jest
-	// nasz: obcy klient odbija się od drzwi i nie ma jak o tym powiedzieć.
-	fmt.Fprintln(&b, "- If your client fails at `initialize` with -32602 \"missing or invalid _meta field\": you are declaring protocol 2026-07-28, which also requires the newer transport metadata. Either implement it, or negotiate `2025-06-18` — fully supported here and it needs nothing beyond a plain JSON-RPC POST.")
-	fmt.Fprintln(&b, "- AI training: not permitted without asking. Use `ask_human` — it is the only channel with an answer path; `leave_message` and `request_license` record your declaration but cannot reply to you.")
-	fmt.Fprintln(&b)
+	b.WriteString(h.renderAgentTerms())
 
 	// MCP entry points.
 	fmt.Fprintln(&b, "## MCP endpoint")
@@ -3060,40 +3017,66 @@ func describeLicenseMix(byLicense map[string]int) string {
 	return strings.Join(parts, ", ")
 }
 
-// /llms-edit — owner editor for /llms.txt
-func (h *Handler) handleLLMSTxtEdit(w http.ResponseWriter, r *http.Request) {
-	dataDir := filepath.Dir(h.cfg.ContentDir)
-	custom := filepath.Join(dataDir, "llms.txt")
-	if r.Method == http.MethodPost {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, err.Error(), 400)
-			return
+// renderAgentTerms buduje sekcję warunków dla wywołujących automatycznie.
+//
+// Wydzielone, bo handleLLMSTxt ma DWIE ścieżki: plik własny z /data/llms.txt
+// i wersję generowaną. Do 23 września 2026 plik własny zwracał się w całości
+// i pomijał wszystko, co generowane — czyli jedno zapisanie przez /llms-edit
+// wyciszyłoby warunki, podpowiedź o wersji protokołu i rozkład licencji, bez
+// żadnego śladu. Warunki dopisują się teraz do OBU ścieżek.
+func (h *Handler) renderAgentTerms() string {
+	var b strings.Builder
+	// Warunki dla wywołujących automatycznie.
+	//
+	// 22 września 2026 zespół budujący konektor badawczy złożył wniosek
+	// licencyjny pytający o atrybucję, cache'owanie, limity i dostęp do
+	// skarbca — czytając przy tym ten właśnie plik, który o żadnej z tych
+	// rzeczy nie mówił ani słowa. Wcześniej Ana Adams złożyła ten sam
+	// wniosek trzy razy w sześć dni. Warunki, o które ludzie pytają, mają
+	// być opublikowane, nie wysyłane prywatnie — tym bardziej że skrzynka
+	// wiadomości nie ma żadnego kanału odpowiedzi.
+	//
+	// Liczby licencji liczone z rzeczywistej zawartości, nie wpisane na
+	// sztywno: wpisany licznik zdryfuje przy pierwszym nowym utworze.
+	// Liczymy TE SAME utwory, które katalog wyżej wymienia. Wcześniej suma
+	// obejmowała też pozycje zablokowane, których ten plik świadomie nie
+	// pokazuje — czyli liczby nie zgadzały się z listą tuż nad nimi.
+	byLicense := map[string]int{}
+	for _, pc := range h.store.List(false) {
+		if !pc.IsUnlocked() {
+			continue
 		}
-		body := r.FormValue("body")
-		if err := os.WriteFile(custom, []byte(body), 0o644); err != nil {
-			http.Error(w, err.Error(), 500)
-			return
+		lic := pc.License
+		if lic == "" {
+			lic = "cc-by"
 		}
-		http.Redirect(w, r, "/llms.txt", http.StatusFound)
-		return
+		byLicense[lic]++
 	}
-	body := ""
-	if data, err := os.ReadFile(custom); err == nil {
-		body = string(data)
-	}
-	h.render(w, "llms-edit.html", map[string]interface{}{
-		"Author": h.cfg.AuthorName,
-		"Domain": h.cfg.Domain,
-		"Body":   body,
-	})
+	fmt.Fprintln(&b, "## Terms for automated agents")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "- Attribution, one line per piece: `<title> — kapoost — <source URL>`. Lowercase name, keep the link. For CC-BY also name the licence and note any modification.")
+	fmt.Fprintf(&b, "- Licences in use right now: %s. Never infer a licence from the fact that a piece is publicly readable — call `get_certificate(slug)`, which returns it signed.\n", describeLicenseMix(byLicense))
+	fmt.Fprintln(&b, "- Caching and redistribution: permitted for CC-BY pieces, commercial use included. Not permitted for all-rights pieces — quote them with attribution and read them from the server. CC-BY-NC pieces are non-commercial only.")
+	fmt.Fprintln(&b, "- Searching: use `search_content` over MCP instead of crawling. It searches titles, tags, descriptions and the text of public pieces, folds Polish diacritics, and never returns the body of a locked piece.")
+	fmt.Fprintln(&b, "- Rate limits: ask_human 5/hour/IP, fetch_answer 30/hour/IP, bootstrap_session 5/minute/IP. Reads are not rate-limited. Do not poll fetch_answer tighter than a few hours.")
+	fmt.Fprintln(&b, "- Vault (mysłoodsiewnia) access: not available to automated callers. Friend tokens go to people kapoost knows by name. The anonymous read-only surface is the supported path and needs no token.")
+	// 22 września 2026 zespół konektora zgłosił „client error" przy
+	// ask_human. Odtworzone: klient deklarujący protokół 2026-07-28 dostaje
+	// -32602 przy initialize, jeśli nie dołoży pól _meta i dodatkowych
+	// nagłówków transportu; ta sama prośba z 2025-06-18 przechodzi zwykłym
+	// POST-em. To zachowanie SDK zgodne ze specyfikacją, ale skutek jest
+	// nasz: obcy klient odbija się od drzwi i nie ma jak o tym powiedzieć.
+	fmt.Fprintln(&b, "- If your client fails at `initialize` with -32602 \"missing or invalid _meta field\": you are declaring protocol 2026-07-28, which also requires the newer transport metadata. Either implement it, or negotiate `2025-06-18` — fully supported here and it needs nothing beyond a plain JSON-RPC POST.")
+	// Model zagrożeń wypisany wprost, zamiast udawania, że odpowiedzi są
+	// prywatne. Odbiór przez powtórne pytanie i odzyskiwanie po zgubionym ID
+	// to ta sama zdolność: kto zna treść, dostaje odpowiedź.
+	fmt.Fprintln(&b, "- How answers are protected, so you can judge for yourself: an answer is returned to whoever presents its question ID, or repeats the same question text with the same `from` and `context`. IDs carry random entropy and are not guessable, but the question text is the recovery key — treat an answer as readable by anyone who could reproduce your wording, not as private correspondence.")
+	fmt.Fprintln(&b, "- AI training: not permitted without asking. Use `ask_human` — it is the only channel with an answer path; `leave_message` and `request_license` record your declaration but cannot reply to you.")
+	fmt.Fprintln(&b)
+
+	return b.String()
 }
 
-// handleCollection serves both the listing (/collection) and the detail
-// page (/collection/<slug>). Anonymous visitors see only items with
-// Access == "public"; owner sees everything.
-//
-// The /collection/<slug>/provenance subpath routes through to the
-// shared ProvenanceStore with OwnerKind = collection.
 func (h *Handler) handleCollection(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 	isOwner := h.auth.IsOwner(r)
