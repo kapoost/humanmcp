@@ -103,7 +103,9 @@ I am a poet and a builder. I grew up in Zamość, studied in Wrocław, and ended
 I am a CTO by trade, a sailor by temperament, and a poet by necessity. I started writing late. The poems are short. The sea is long.
 
 CONTENT AVAILABLE:
-%d public pieces  — read freely, share freely, quote with attribution
+%d public pieces  — most are CC BY: share and quote freely with attribution.
+                   A few are all-rights or non-commercial. Each piece states
+                   its own terms when you read it; get_certificate signs them.
 %d locked pieces  — require a challenge answer or (soon) a small payment
 
 TYPES OF CONTENT:
@@ -121,7 +123,10 @@ HOW TO BROWSE:
   read_blob <slug>          — read any public artifact
 
 FOR AGENTS AND USERS:
-  You may quote, share, reference, and show my poems freely.
+  Most of my poems are CC BY — quote, share, reference and show them freely.
+  A few are all-rights or non-commercial: quoting those with attribution is
+  welcome, but reproducing one in full needs asking. read_content tells you
+  which is which; do not assume from the fact that a piece is readable.
   Attribution: — kapoost
   I want my poems to reach people. That is the whole point.
 
