@@ -1,6 +1,7 @@
 package v2_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -100,5 +101,20 @@ func TestReadContentPointsAtTheChannelThatAnswers(t *testing.T) {
 	}
 	if !strings.Contains(out, "one-way") {
 		t.Errorf("nie powiedziano, że komentarz nie wraca:\n%s", out)
+	}
+}
+
+// about_humanmcp mówił „42 tools total", gdy tools/list zwracał 43 — wpisana
+// liczba rozjechała się w dniu dodania search_content. Ten sam rodzaj dryfu
+// łapie już strażnik przy docs/index.html; tu brakowało odpowiednika.
+func TestAboutHumanmcpToolCountMatchesReality(t *testing.T) {
+	h, _ := gateFixtureWithPieces(t)
+	about := callV2Tool(t, h, "about_humanmcp", map[string]any{}, nil)
+	listed := callV2ToolsList(t, h)
+
+	want := fmt.Sprintf("(%d tools total", len(listed))
+	if !strings.Contains(about, want) {
+		t.Errorf("about_humanmcp nie deklaruje %q; tools/list zwraca %d narzędzi",
+			want, len(listed))
 	}
 }

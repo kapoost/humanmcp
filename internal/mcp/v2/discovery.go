@@ -42,7 +42,10 @@ func renderAbout(cfg *config.Config) string {
 	fmt.Fprintln(&b, "  3. Ask the user for the session code (a Polish poetry fragment)")
 	fmt.Fprintln(&b, "  4. Call bootstrap_session(code) for full team + skills")
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "Tool families (42 tools total — call tools/list for full schema):")
+	// Wyliczane, nie wpisane. Wpisana liczba rozjechała się z rzeczywistością
+	// w dniu dodania search_content: about_humanmcp mówił 42, tools/list
+	// zwracał 43. Ten sam dryf złapał wcześniej strażnik przy docs/index.html.
+	fmt.Fprintf(&b, "Tool families (%d tools total — call tools/list for full schema):\n", len(ToolNames()))
 	fmt.Fprintln(&b, "  - content:    search_content, list_content, read_content, get_certificate, verify_content")
 	fmt.Fprintln(&b, "  - access:     request_access, submit_answer, request_license")
 	fmt.Fprintln(&b, "  - feedback:   leave_comment, leave_message")

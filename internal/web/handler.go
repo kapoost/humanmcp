@@ -2508,7 +2508,30 @@ func (h *Handler) handleMissionControl(w http.ResponseWriter, r *http.Request) {
 		view.Inbox[i] = it
 	}
 	view.InboxCount = len(inbox)
-	archivedCount := len(h.questionStore.ListArchived())
+	archived := h.questionStore.ListArchived()
+	archivedCount := len(archived)
+
+	// Zarchiwizowane odpowiedzi liczą się do WSKAŹNIKA, ale nie do nagłówka
+	// skrzynki — inaczej zdjęte z kolejki pytania wróciłyby tam jako
+	// oczekujące. Bez tego z kolei sprzątanie starych, nieodebranych
+	// odpowiedzi podbijałoby wskaźnik ku 100% bez żadnej zmiany zachowania,
+	// a to jest liczba, którą umówiliśmy się obserwować przez miesiąc.
+	deliveredTotal, writtenTotal := pickedCount, awaitingCount+pickedCount
+	pollTotal, reAskTotal := viaPoll, viaReAsk
+	for _, q := range archived {
+		if !q.IsAnswered() {
+			continue
+		}
+		writtenTotal++
+		if q.IsFetched() {
+			deliveredTotal++
+			if isReAskPickup(q.FetchedBy) {
+				reAskTotal++
+			} else {
+				pollTotal++
+			}
+		}
+	}
 	view.InboxCounts = map[string]int{
 		"msg":      msgCount,
 		"pending":  pendingCount,
@@ -2516,11 +2539,11 @@ func (h *Handler) handleMissionControl(w http.ResponseWriter, r *http.Request) {
 		"picked":   pickedCount,
 		"archived": archivedCount,
 	}
-	view.AnswersWritten = awaitingCount + pickedCount
-	view.AnswersDelivered = pickedCount
-	view.DeliveredViaPoll = viaPoll
-	view.DeliveredViaReAsk = viaReAsk
-	view.DeliveryRate = deliveryRate(pickedCount, view.AnswersWritten)
+	view.AnswersWritten = writtenTotal
+	view.AnswersDelivered = deliveredTotal
+	view.DeliveredViaPoll = pollTotal
+	view.DeliveredViaReAsk = reAskTotal
+	view.DeliveryRate = deliveryRate(deliveredTotal, writtenTotal)
 
 	sessionExp := time.Date(now.Year(), now.Month(), now.Day(), now.Hour()+1, 0, 0, 0, now.Location())
 
@@ -2964,8 +2987,14 @@ func (h *Handler) handleLLMSTxt(w http.ResponseWriter, r *http.Request) {
 	//
 	// Liczby licencji liczone z rzeczywistej zawartości, nie wpisane na
 	// sztywno: wpisany licznik zdryfuje przy pierwszym nowym utworze.
+	// Liczymy TE SAME utwory, które katalog wyżej wymienia. Wcześniej suma
+	// obejmowała też pozycje zablokowane, których ten plik świadomie nie
+	// pokazuje — czyli liczby nie zgadzały się z listą tuż nad nimi.
 	byLicense := map[string]int{}
 	for _, pc := range h.store.List(false) {
+		if !pc.IsUnlocked() {
+			continue
+		}
 		lic := pc.License
 		if lic == "" {
 			lic = "cc-by"

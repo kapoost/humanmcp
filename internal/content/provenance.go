@@ -25,15 +25,15 @@ const ProvenanceSchemaVersion = 1
 type ProvenanceType string
 
 const (
-	ProvenanceCertificate     ProvenanceType = "certificate_of_authenticity"
-	ProvenanceInvoice         ProvenanceType = "invoice"
-	ProvenanceExhibition      ProvenanceType = "exhibition_record"
-	ProvenanceConservation    ProvenanceType = "conservation_report"
-	ProvenanceAppraisal       ProvenanceType = "appraisal"
-	ProvenanceSaleRecord      ProvenanceType = "sale_record"
-	ProvenancePhotoRecord     ProvenanceType = "photograph_of_record"
-	ProvenanceShipping        ProvenanceType = "shipping_record"
-	ProvenanceInsurance       ProvenanceType = "insurance_document"
+	ProvenanceCertificate  ProvenanceType = "certificate_of_authenticity"
+	ProvenanceInvoice      ProvenanceType = "invoice"
+	ProvenanceExhibition   ProvenanceType = "exhibition_record"
+	ProvenanceConservation ProvenanceType = "conservation_report"
+	ProvenanceAppraisal    ProvenanceType = "appraisal"
+	ProvenanceSaleRecord   ProvenanceType = "sale_record"
+	ProvenancePhotoRecord  ProvenanceType = "photograph_of_record"
+	ProvenanceShipping     ProvenanceType = "shipping_record"
+	ProvenanceInsurance    ProvenanceType = "insurance_document"
 )
 
 // ProvenanceCategory groups types for UI rendering. Derived from Type;
@@ -93,7 +93,7 @@ const (
 
 // ProvenanceItem is one dossier entry.
 type ProvenanceItem struct {
-	ID            string             `json:"id"`
+	ID string `json:"id"`
 	// Owner identifies the parent. Older items wrote ArtworkSlug only;
 	// loader fills OwnerKind=piece when that legacy field is present
 	// and OwnerKind/OwnerSlug are not.
@@ -130,9 +130,9 @@ func (it *ProvenanceItem) normalizeOwner() {
 // ProvenanceStore persists items grouped by artwork slug — one JSON file
 // per artwork plus a per-artwork files directory.
 type ProvenanceStore struct {
-	dir     string // /data/provenance
+	dir      string // /data/provenance
 	filesDir string // /data/provenance/files
-	mu      sync.RWMutex
+	mu       sync.RWMutex
 }
 
 func NewProvenanceStore(contentDir string) *ProvenanceStore {

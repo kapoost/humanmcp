@@ -120,3 +120,33 @@ func TestCommentSaysItCannotBeAnswered(t *testing.T) {
 		t.Errorf("nie wskazano kanału z odpowiedzią:\n%s", asking)
 	}
 }
+
+// „not for training" klasyfikowane jako komercyjne nie tylko dawało zły
+// komunikat — od chwili, gdy eskalacja zapisuje do kolejki, tworzyło pytanie
+// o użycie, którego wnioskodawca wprost się wyrzekł.
+func TestCommercialDetectionReadsNegation(t *testing.T) {
+	h, cfg := gateFixtureWithPieces(t,
+		[5]string{"wolny", "Wolny", "public", "Treść.", "free"})
+	qs := content.NewQuestionStore(cfg.ContentDir)
+
+	out := callV2Tool(t, h, "request_license", map[string]any{
+		"slug": "wolny", "intended_use": "research corpus, not for training",
+		"caller_id": "research-team",
+	}, nil)
+
+	if strings.Contains(out, "needs kapoost's decision") {
+		t.Errorf("zaprzeczenie zignorowane, wniosek eskalowany:\n%s", out)
+	}
+	if got := len(qs.List()); got != 0 {
+		t.Errorf("utworzono %d pytań o użycie, którego wnioskodawca się wyrzekł", got)
+	}
+
+	// Kontrola pozytywna: prawdziwe użycie komercyjne nadal wykrywane.
+	out2 := callV2Tool(t, h, "request_license", map[string]any{
+		"slug": "wolny", "intended_use": "commercial training dataset",
+		"caller_id": "other-team",
+	}, nil)
+	if !strings.Contains(out2, "needs kapoost's decision") {
+		t.Errorf("prawdziwe użycie komercyjne nie zostało wykryte:\n%s", out2)
+	}
+}

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
+	"regexp"
 	"strings"
 	"time"
 
@@ -163,8 +165,11 @@ func registerRequestLicense(s *sdk.Server, src Source) {
 			_ = json.Unmarshal(req.Params.Arguments, &a)
 		}
 		a.Slug = strings.TrimSpace(a.Slug)
-		a.IntendedUse = strings.TrimSpace(a.IntendedUse)
-		a.CallerID = strings.TrimSpace(a.CallerID)
+		// Przycinane jak w ask_human: intended_use ląduje w treści pytania
+		// w kolejce, więc bez limitu jeden wywołujący zapisałby dowolnie duży
+		// plik na wolumenie.
+		a.IntendedUse = clip(strings.TrimSpace(a.IntendedUse), 500)
+		a.CallerID = clip(strings.TrimSpace(a.CallerID), 64)
 		if a.Slug == "" || a.IntendedUse == "" || a.CallerID == "" {
 			return nil, errors.New("slug, intended_use and caller_id required")
 		}
@@ -190,6 +195,21 @@ func registerRequestLicense(s *sdk.Server, src Source) {
 		terms := renderLicense(p, a.IntendedUse, src.Config().AuthorName)
 		if !licenseNeedsHuman(content.LicenseType(p.License), a.IntendedUse) {
 			return textResult(terms), nil
+		}
+		// Eskalacja ZAPISUJE do kolejki, więc konsumuje ten sam budżet co
+		// ask_human. Bez tego request_license byłby obejściem limitu, który
+		// publikujemy w llms.txt: intended_use jedzie do treści pytania, więc
+		// zmiana jednego znaku omija odsiewanie duplikatów i tworzy nowy plik
+		// przy każdym wywołaniu.
+		ip := ""
+		if req.Extra != nil {
+			ip = src.ClientIPFromHeaders(req.Extra.Header)
+		}
+		if !src.CheckAskHumanRateLimit(ip) {
+			log.Printf("[AUDIT] request_license ESCALATION_RATE_LIMITED ip=%s", ip)
+			return textResult(terms + "\n\nThis needs kapoost's decision, but you have reached " +
+				"the limit of 5 filed questions per hour. The terms above still stand. " +
+				"Try again later, or use ask_human once the window resets.\n"), nil
 		}
 		return textResult(terms + escalateLicenseToQueue(src, p, a.IntendedUse, a.CallerID)), nil
 	})
@@ -218,10 +238,22 @@ func licenseNeedsHuman(license content.LicenseType, intendedUse string) bool {
 	}
 }
 
+// isCommercialUse jest heurystyką po słowach, więc musi choć odczytać
+// zaprzeczenie. „research corpus, NOT for training" klasyfikowane jako
+// komercyjne nie tylko dawało zły komunikat — od chwili, gdy eskalacja
+// zapisuje do kolejki, tworzyło pytanie o użycie, którego wnioskodawca
+// wprost się wyrzekł.
+var commercialNegation = regexp.MustCompile(
+	`(?i)\b(not|no|never|non|without|excluding|nie|bez)\b[^.]{0,30}\b(commercial|train\w*|publish\w*|komercyj\w*)`)
+
 func isCommercialUse(intendedUse string) bool {
 	u := strings.ToLower(intendedUse)
-	return strings.Contains(u, "commercial") || strings.Contains(u, "train") ||
+	hit := strings.Contains(u, "commercial") || strings.Contains(u, "train") ||
 		strings.Contains(u, "publish")
+	if !hit {
+		return false
+	}
+	return !commercialNegation.MatchString(intendedUse)
 }
 
 // escalateLicenseToQueue przenosi wniosek do kolejki pytań.
@@ -239,7 +271,7 @@ func escalateLicenseToQueue(src Source, p *content.Piece, intendedUse, callerID 
 	question := fmt.Sprintf("Licence request for %q (%s): %s", p.Title, p.Slug, intendedUse)
 	ctx := fmt.Sprintf("Raised automatically from request_license. Piece licence: %s.", p.License)
 
-	if prev, ok := src.QuestionStore().FindLatestByAsker(callerID, question); ok {
+	if prev, ok := src.QuestionStore().FindLatestByAsker(callerID, question, ctx); ok {
 		if prev.IsAnswered() {
 			if !prev.IsFetched() {
 				_ = src.QuestionStore().MarkFetched(prev.ID, "agent (re-ask)")

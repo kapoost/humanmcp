@@ -9,7 +9,7 @@ import (
 // Used by Store, BlobStore, StatStore to avoid re-reading files on every request.
 
 type cacheEntry[T any] struct {
-	value   T
+	value    T
 	loadedAt time.Time
 }
 

@@ -35,17 +35,17 @@ const (
 )
 
 type Event struct {
-	At      time.Time  `json:"at"`
-	Type    EventType  `json:"type"`
-	Caller  CallerType `json:"caller"`
-	Slug    string     `json:"slug,omitempty"`
-	UA      string     `json:"ua,omitempty"`
-	From    string     `json:"from,omitempty"`
-	Ref     string     `json:"ref,omitempty"`
-	Country string     `json:"country,omitempty"`
-	VisitorHash string `json:"vh,omitempty"`
-	Query   string     `json:"query,omitempty"`
-	Kind    string     `json:"kind,omitempty"`
+	At          time.Time  `json:"at"`
+	Type        EventType  `json:"type"`
+	Caller      CallerType `json:"caller"`
+	Slug        string     `json:"slug,omitempty"`
+	UA          string     `json:"ua,omitempty"`
+	From        string     `json:"from,omitempty"`
+	Ref         string     `json:"ref,omitempty"`
+	Country     string     `json:"country,omitempty"`
+	VisitorHash string     `json:"vh,omitempty"`
+	Query       string     `json:"query,omitempty"`
+	Kind        string     `json:"kind,omitempty"`
 }
 
 type HourBucket struct {
@@ -55,15 +55,15 @@ type HourBucket struct {
 
 type Stats struct {
 	// Counters
-	TotalReads    int `json:"total_reads"`
-	TotalSearches int `json:"total_searches"`
-	TotalMessages int `json:"total_messages"`
-	TotalComments int `json:"total_comments"`
-	TotalUnlocks  int `json:"total_unlocks"`
-	TotalInterest int `json:"total_interest"`
-	TotalLicenses int `json:"total_licenses"`
-	AgentCalls    int `json:"agent_calls"`
-	HumanVisits   int `json:"human_visits"`
+	TotalReads     int `json:"total_reads"`
+	TotalSearches  int `json:"total_searches"`
+	TotalMessages  int `json:"total_messages"`
+	TotalComments  int `json:"total_comments"`
+	TotalUnlocks   int `json:"total_unlocks"`
+	TotalInterest  int `json:"total_interest"`
+	TotalLicenses  int `json:"total_licenses"`
+	AgentCalls     int `json:"agent_calls"`
+	HumanVisits    int `json:"human_visits"`
 	UniqueVisitors int `json:"unique_visitors"`
 
 	// Breakdowns
@@ -426,8 +426,14 @@ func (ss *StatStore) ComputeWindows(now time.Time) (*Windows, error) {
 }
 
 // TopN returns the top N entries from a map by value
-func TopN(m map[string]int, n int) []struct{ Key string; Val int } {
-	type kv struct{ Key string; Val int }
+func TopN(m map[string]int, n int) []struct {
+	Key string
+	Val int
+} {
+	type kv struct {
+		Key string
+		Val int
+	}
 	var sorted []kv
 	for k, v := range m {
 		sorted = append(sorted, kv{k, v})
@@ -436,9 +442,15 @@ func TopN(m map[string]int, n int) []struct{ Key string; Val int } {
 	if len(sorted) > n {
 		sorted = sorted[:n]
 	}
-	result := make([]struct{ Key string; Val int }, len(sorted))
+	result := make([]struct {
+		Key string
+		Val int
+	}, len(sorted))
 	for i, kv := range sorted {
-		result[i] = struct{ Key string; Val int }{kv.Key, kv.Val}
+		result[i] = struct {
+			Key string
+			Val int
+		}{kv.Key, kv.Val}
 	}
 	return result
 }
@@ -511,6 +523,8 @@ func VisitorHash(ip, date string) string {
 	for _, c := range ip + "|" + date {
 		h = h*31 + int(c)
 	}
-	if h < 0 { h = -h }
+	if h < 0 {
+		h = -h
+	}
 	return fmt.Sprintf("%x", h)
 }

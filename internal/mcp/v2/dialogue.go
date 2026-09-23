@@ -63,9 +63,18 @@ func registerAskHuman(s *sdk.Server, src Source) {
 		a.Question = clip(a.Question, 1000)
 		a.Context = clip(a.Context, 500)
 		a.From = clip(a.From, 64)
-		// Bez `from` nie da się rozpoznać powtórnego pytania ani posortować
-		// kolejki. Skoro klient i tak się przedstawia przy initialize,
-		// używamy tego zamiast zostawiać puste pole.
+		// clientInfo NIE MOŻE służyć do dopasowania powtórki.
+		//
+		// callerIdentity zwraca nazwę OPROGRAMOWANIA klienta („claude-code/2.x"),
+		// identyczną dla wszystkich jego użytkowników. Użyta jako klucz
+		// dopasowania sprawiłaby, że dwóch niezależnych anonimów z tego samego
+		// klienta, pytających o to samo, zderzy się: drugi dostałby odpowiedź
+		// napisaną dla pierwszego, a jego własne pytanie nigdy by nie powstało.
+		// To dokładnie ten wyciek, któremu miało zapobiegać wymaganie `from`.
+		//
+		// Więc: jawne `from` służy do DOPASOWANIA, clientInfo wyłącznie do
+		// podpisania wpisu w kolejce.
+		matchKey := a.From
 		if a.From == "" {
 			a.From = clip(callerIdentity(req), 64)
 		}
@@ -83,8 +92,8 @@ func registerAskHuman(s *sdk.Server, src Source) {
 		// Wymaga niepustego `from`: bez niego dwaj różni anonimowi pytający
 		// o to samo zderzyliby się i drugi dostałby odpowiedź napisaną dla
 		// pierwszego.
-		if a.From != "" {
-			if prev, ok := src.QuestionStore().FindLatestByAsker(a.From, a.Question); ok {
+		if matchKey != "" {
+			if prev, ok := src.QuestionStore().FindLatestByAsker(matchKey, a.Question, a.Context); ok {
 				if prev.IsAnswered() {
 					if !prev.IsFetched() {
 						_ = src.QuestionStore().MarkFetched(prev.ID, "agent (re-ask)")

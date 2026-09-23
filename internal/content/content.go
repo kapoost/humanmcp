@@ -24,9 +24,9 @@ type GateType string
 const (
 	GatePayment   GateType = "payment"
 	GateChallenge GateType = "challenge"
-	GateManual    GateType = "manual"   // owner reviews + approves
-	GateTime      GateType = "time"     // unlocks on a date
-	GateTrade     GateType = "trade"    // future: peer exchange
+	GateManual    GateType = "manual" // owner reviews + approves
+	GateTime      GateType = "time"   // unlocks on a date
+	GateTrade     GateType = "trade"  // future: peer exchange
 )
 
 type Piece struct {
@@ -37,14 +37,14 @@ type Piece struct {
 	Gate        GateType    `json:"Gate"`
 	Challenge   string      `json:"Challenge"`
 	Answer      string      `json:"Answer"`
-	License     string      `json:"License"`    // LicenseType string
+	License     string      `json:"License"` // LicenseType string
 	PriceSats   int         `json:"PriceSats"`
 	UnlockAfter time.Time   `json:"UnlockAfter"` // for time gate
 	Tags        []string    `json:"Tags"`
 	Published   time.Time   `json:"Published"`
 	Description string      `json:"Description"`
 	Body        string      `json:"Body"`
-	Signature   string      `json:"Signature"`  // Ed25519 signature (base64)
+	Signature   string      `json:"Signature"` // Ed25519 signature (base64)
 	FilePath    string      `json:"-"`
 
 	// v273 fields used by templates (best-effort: empty by default)
@@ -73,7 +73,7 @@ func (p *Piece) IsUnlocked() bool {
 type Store struct {
 	dir    string
 	pieces map[string]*Piece
-	cache  *Cache[[]*Piece]  // TTL cache for List()
+	cache  *Cache[[]*Piece] // TTL cache for List()
 }
 
 func NewStore(dir string) *Store {
@@ -113,9 +113,15 @@ func (s *Store) Load() error {
 		if p.Slug == "" {
 			p.Slug = strings.TrimSuffix(filepath.Base(path), ".md")
 		}
-		if p.Type == "" { p.Type = "poem" }
-		if p.Access == "" { p.Access = AccessPublic }
-		if p.Published.IsZero() { p.Published = time.Now() }
+		if p.Type == "" {
+			p.Type = "poem"
+		}
+		if p.Access == "" {
+			p.Access = AccessPublic
+		}
+		if p.Published.IsZero() {
+			p.Published = time.Now()
+		}
 		s.pieces[p.Slug] = p
 		return nil
 	})
@@ -220,9 +226,20 @@ func parsePiece(path string) (*Piece, error) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		lineNum++
-		if lineNum == 1 && line == "---" { inFM = true; continue }
-		if inFM && line == "---" { inFM = false; fmDone = true; continue }
-		if inFM { fmLines = append(fmLines, line) } else if fmDone { bodyLines = append(bodyLines, line) }
+		if lineNum == 1 && line == "---" {
+			inFM = true
+			continue
+		}
+		if inFM && line == "---" {
+			inFM = false
+			fmDone = true
+			continue
+		}
+		if inFM {
+			fmLines = append(fmLines, line)
+		} else if fmDone {
+			bodyLines = append(bodyLines, line)
+		}
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, err
