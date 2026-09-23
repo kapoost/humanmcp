@@ -118,7 +118,15 @@ input[type=radio]:checked + .type-label{border-color:var(--accent);background:va
   </div>
   <div>
     <label class="fl">License</label>
-    <select name="license" id="aw-license">
+    <!-- BEZ name= — to pole steruje tylko widocznością ceny (patrz skrypt
+         niżej). Z atrybutem name wysyłało się razem z formularzem, a że
+         FormValue bierze PIERWSZĄ wartość i pierwszą opcją jest
+         „all rights reserved", zapisanie edycji ustawiało all-rights KAŻDEMU
+         utworowi — także pięciu, które nie mają zapisanej licencji i działają
+         na domyślnym CC-BY, w tym okładce chapbooka i wierszom z newslettera.
+         Prawdziwy wybór licencji jest w polu niżej, z opcją pustą i logiką
+         zaznaczania. -->
+    <select id="aw-license">
       <option value="all-rights">all rights reserved</option>
       <option value="commercial">commercial (set price)</option>
       <option value="cc-by">CC-BY (attribution)</option>
