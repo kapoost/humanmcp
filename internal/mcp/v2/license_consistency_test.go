@@ -2,8 +2,17 @@ package v2_test
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kapoost/humanmcp-go/internal/auth"
+	"github.com/kapoost/humanmcp-go/internal/config"
+	"github.com/kapoost/humanmcp-go/internal/content"
+	"github.com/kapoost/humanmcp-go/internal/mcp"
+	v2 "github.com/kapoost/humanmcp-go/internal/mcp/v2"
+	"github.com/kapoost/humanmcp-go/internal/rituals"
 )
 
 // Certyfikat i request_license opisują TĘ SAMĄ licencję. 21 września 2026
@@ -116,5 +125,46 @@ func TestAboutHumanmcpToolCountMatchesReality(t *testing.T) {
 	if !strings.Contains(about, want) {
 		t.Errorf("about_humanmcp nie deklaruje %q; tools/list zwraca %d narzędzi",
 			want, len(listed))
+	}
+}
+
+// Pole Description pokazywała dotąd wyłącznie strona /p/. Czytelnik przez
+// przeglądarkę widział notę autorską, a agent czytający ten sam utwór przez
+// read_content — nie. Skoro komentarze są jednokierunkowe, odpowiedź autora
+// musi umieć dotrzeć sama.
+func TestReadContentShowsAuthorNote(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	md := "---\nslug: piosenki\ntitle: Piosenka1.txt\ntype: poem\naccess: public\n" +
+		"license: cc-by\npublished: 2026-03-31\ndescription: Brama i napis w pierwszym wersie są zamierzone.\n---\n\nTen bóg to prąd."
+	if err := os.WriteFile(filepath.Join(dir, "piosenki.md"), []byte(md), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store := content.NewStore(dir)
+	if err := store.Load(); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	cfg := &config.Config{AuthorName: "kapoost", Domain: "test.example", ContentDir: dir,
+		EditToken: "testtoken", SessionSecret: "s"}
+	h := v2.New(cfg, mcp.NewBackend(cfg, store, auth.New("testtoken"), rituals.New(cfg)))
+
+	out := callV2Tool(t, h, "read_content", map[string]any{"slug": "piosenki"}, nil)
+	if !strings.Contains(out, "Od autora:") {
+		t.Errorf("nota autorska nie dociera przez read_content:\n%s", out)
+	}
+	if !strings.Contains(out, "są zamierzone") {
+		t.Errorf("treść noty zgubiona:\n%s", out)
+	}
+}
+
+// Utwór bez noty nie może dostać pustego nagłówka.
+func TestReadContentWithoutNoteHasNoEmptyHeading(t *testing.T) {
+	h, _ := gateFixtureWithPieces(t,
+		[5]string{"bez-noty", "Bez noty", "public", "Treść.", "cc-by"})
+	out := callV2Tool(t, h, "read_content", map[string]any{"slug": "bez-noty"}, nil)
+	if strings.Contains(out, "Od autora:") {
+		t.Errorf("pusta nota wyrenderowana:\n%s", out)
 	}
 }
