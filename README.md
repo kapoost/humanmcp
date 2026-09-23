@@ -131,7 +131,6 @@ string. What neither replaces: improvising the personas from memory.
 | `/timestamp-all` | Bulk-stamp every signed piece |
 | `/questions` / `/questions/answer` | Inbox of `ask_human` questions + answer form |
 | `/upload` | Blob upload (images, contacts, datasets) |
-| `/llms-edit` | Edit the custom llms.txt |
 | `/api/content`, `/api/content/`, `/api/skills`, `/api/blobs`, `/api/messages/` | Owner JSON APIs |
 
 ## Content types

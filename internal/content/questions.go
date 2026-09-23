@@ -1,6 +1,7 @@
 package content
 
 import (
+	"crypto/rand"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -235,10 +236,35 @@ func (s *QuestionStore) uniqueID(t time.Time, question string) string {
 func generateQuestionID(t time.Time, question string) string {
 	stamp := t.Format("20060102-1504")
 	slug := slugifyForID(question)
-	if slug == "" {
-		return stamp
+	base := stamp
+	if slug != "" {
+		base = stamp + "-" + slug
 	}
-	return stamp + "-" + slug
+	return base + "-" + randomIDSuffix()
+}
+
+// randomIDSuffix czyni identyfikator NIEZGADYWALNYM.
+//
+// Do 23 września 2026 ID było wyłącznie znacznikiem czasu plus slugiem
+// pytania — czyli dawało się odtworzyć, znając utwór i przybliżoną godzinę.
+// A fetch_answer(id) nie ma żadnej innej bramki: kto zna identyfikator, ten
+// czyta odpowiedź. Cztery znaki entropii zamieniają to w klucz, który się
+// dostało, zamiast napisu, który się zgaduje.
+//
+// Nie rozwiązuje to dopasowania po treści — kto zna dokładne brzmienie
+// pytania i nadawcę, nadal odbierze odpowiedź. To ta sama zdolność, co
+// odzyskanie odpowiedzi po zgubieniu ID, i jednego bez drugiego mieć się nie da.
+func randomIDSuffix() string {
+	const alphabet = "abcdefghijkmnpqrstuvwxyz23456789" // bez l, o, 0, 1
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		// Awaria źródła losowości nie może cicho dać przewidywalnego ID.
+		return fmt.Sprintf("t%03d", time.Now().UnixNano()%1000)
+	}
+	for i := range b {
+		b[i] = alphabet[int(b[i])%len(alphabet)]
+	}
+	return string(b)
 }
 
 func slugifyForID(s string) string {

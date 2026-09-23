@@ -2,7 +2,9 @@ package content
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 // TestQuestionLifecycle exercises the full Create → Get → Answer →
@@ -186,5 +188,36 @@ func TestFindLatestByAskerPicksNewest(t *testing.T) {
 	}
 	if !got.AskedAt.Before(newer.AskedAt) && got.ID != newer.ID && got.ID != older.ID {
 		t.Errorf("unexpected match %s", got.ID)
+	}
+}
+
+// ID było wyłącznie znacznikiem czasu plus slugiem pytania — dawało się
+// odtworzyć, znając utwór i przybliżoną godzinę. A fetch_answer(id) nie ma
+// innej bramki: kto zna identyfikator, ten czyta odpowiedź.
+func TestQuestionIDsAreNotGuessable(t *testing.T) {
+	store := NewQuestionStore(filepath.Join(t.TempDir(), "content"))
+
+	const text = "Jaki jest tytuł tego utworu?"
+	seen := map[string]bool{}
+	for i := 0; i < 20; i++ {
+		q, err := store.Create("badacz", "", text)
+		if err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		if seen[q.ID] {
+			t.Fatalf("powtórzony identyfikator: %s", q.ID)
+		}
+		seen[q.ID] = true
+	}
+
+	// Sam znacznik czasu plus slug nie może wystarczyć do trafienia w ID.
+	guess := generateQuestionID(time.Now().UTC(), text)
+	for id := range seen {
+		if id == guess {
+			t.Errorf("identyfikator odtwarzalny z samej treści i czasu: %s", id)
+		}
+	}
+	if _, err := store.Get(strings.TrimSuffix(guess, guess[len(guess)-5:])); err == nil {
+		t.Error("pytanie da się pobrać po samym przedrostku bez losowej końcówki")
 	}
 }
