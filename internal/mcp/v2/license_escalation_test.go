@@ -91,3 +91,32 @@ func TestRepeatedLicenseRequestDoesNotDuplicate(t *testing.T) {
 		t.Errorf("trzeci wniosek utworzył pytanie: %d", got)
 	}
 }
+
+// Komentarze są jednokierunkowe i nic tego nie mówiło. 23 września 2026
+// krakowska grupa pisarska wpisała w komentarz dwa prawdziwe pytania do
+// autora — przed spotkaniem 14 października — i nie było jak odpowiedzieć.
+func TestCommentSaysItCannotBeAnswered(t *testing.T) {
+	h, _ := gateFixtureWithPieces(t,
+		[5]string{"piosenki", "Piosenka1.txt", "public", "Ten bóg to prąd.", "cc-by"})
+
+	plain := callV2Tool(t, h, "leave_comment", map[string]any{
+		"slug": "piosenki", "text": "Piękny wiersz.", "from": "czytelnik",
+	}, nil)
+	if !strings.Contains(plain, "one-way") {
+		t.Errorf("komentarz nie mówi, że jest jednokierunkowy:\n%s", plain)
+	}
+	if strings.Contains(plain, "contains a question") {
+		t.Errorf("zwykły komentarz potraktowany jak pytanie:\n%s", plain)
+	}
+
+	asking := callV2Tool(t, h, "leave_comment", map[string]any{
+		"slug": "piosenki", "text": "Czy echo w tytule jest zamierzone?",
+		"from": "krakow-writing-group",
+	}, nil)
+	if !strings.Contains(asking, "contains a question") {
+		t.Errorf("pytanie w komentarzu nierozpoznane:\n%s", asking)
+	}
+	if !strings.Contains(asking, "ask_human") {
+		t.Errorf("nie wskazano kanału z odpowiedzią:\n%s", asking)
+	}
+}

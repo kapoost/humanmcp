@@ -43,8 +43,22 @@ func registerLeaveComment(s *sdk.Server, src Source) {
 			Slug:   a.Slug,
 			From:   a.From,
 		})
-		reply := fmt.Sprintf("Comment recorded. kapoost will read it.\n\nPiece: %s\nAt: %s",
+		// Komentarze są JEDNOKIERUNKOWE i nic tego dotąd nie mówiło.
+		// 23 września 2026 krakowska grupa pisarska wpisała w komentarz dwa
+		// prawdziwe pytania do autora — o wymowę zakończenia i o to, czy
+		// pewna aluzja jest zamierzona — przed spotkaniem 14 października.
+		// Nie było jak im odpowiedzieć: Message nie ma pola kontaktu,
+		// komentarze nie są widoczne publicznie, Kind="response" jest
+		// zadeklarowane i nigdzie nietworzone.
+		reply := fmt.Sprintf("Comment recorded. kapoost will read it.\n\nPiece: %s\nAt: %s\n\n"+
+			"Note: comments are one-way. They reach kapoost but carry no reply channel, "+
+			"so nothing you write here can be answered.",
 			a.Slug, m.At.Format("2 January 2006, 15:04 UTC"))
+		if strings.Contains(a.Text, "?") {
+			reply += "\n\nYour comment contains a question. Ask it again with `ask_human` — " +
+				"that is the only channel kapoost can answer through, and the answer comes " +
+				"back to you there."
+		}
 		return textResult(reply), nil
 	})
 }
