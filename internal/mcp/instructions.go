@@ -87,7 +87,9 @@ before responding in Polish — applies across all kapoost's projects
 
 WHAT LIVES HERE (%d MCP tools, %d personas, %d skills):
 - Content — kapoost's poems, essays, artworks. Signed Ed25519. Read + quote
-  freely with attribution. Locked pieces require completing a gate.
+  freely with attribution. Most are CC BY and may be shared in full; a few are
+  all-rights or non-commercial, and each read states its own terms — check
+  before reusing. Locked pieces require completing a gate.
 - Team — 24 personas ranging from principal engineer (Mira) through
   security (Ghost, Hodor, Yuki), operations (Conductor), decision structure
   (Hermes), documentation (Hermiona), UX (Eleanor), legal (Harvey), data
