@@ -43,6 +43,38 @@ func registerReadContent(s *sdk.Server, src Source) {
 	})
 }
 
+// pieceFooter zamyka każdy odczyt utworu. Dwie rzeczy, obie wyszły z ruchu
+// na serwerze we wrześniu 2026.
+//
+// PRAWA. Do 23 września pod KAŻDYM utworem stało „You may share, quote, and
+// reference this piece freely with attribution" — również pod utworami
+// all-rights. Czyli najgłośniejsza powierzchnia serwera dawała pisemną zgodę
+// na rozpowszechnianie tego, czego autor rozpowszechniać nie chce, przecząc
+// certyfikatowi, request_license i opublikowanym warunkom. Teraz każdy utwór
+// mówi swoje własne warunki.
+//
+// KANAŁ. Stopka kierowała wyłącznie do leave_comment — kanału bez drogi
+// powrotnej. 23 września krakowska grupa pisarska wpisała w komentarz dwa
+// pytania do autora, bo nic nie wskazało im ask_human. Teraz wskazuje.
+func pieceFooter(p *content.Piece) string {
+	var sb strings.Builder
+	switch content.LicenseType(p.License) {
+	case content.LicenseCCBY, "":
+		sb.WriteString("\nCC BY 4.0 — share, quote and adapt freely, including commercially, with attribution: kapoost — " + p.Title + "\n")
+	case content.LicenseCCBYNC:
+		sb.WriteString("\nCC BY-NC 4.0 — non-commercial use only, with attribution: kapoost — " + p.Title + "\n")
+	case content.LicenseAllRights:
+		sb.WriteString("\nAll rights reserved. Quoting with attribution is welcome; reproducing the whole piece needs permission — ask via ask_human. Full IP is not for sale.\n")
+	case content.LicenseExclusive, content.LicenseCommercial:
+		sb.WriteString("\nNot free to reuse. Call request_license with your intended use before doing anything with this piece.\n")
+	default:
+		sb.WriteString("\nRights unclear from this view — call get_certificate for the signed terms before reusing.\n")
+	}
+	sb.WriteString("\n— Reactions: leave_comment (one-way, cannot be answered).\n")
+	sb.WriteString("— Questions for kapoost: ask_human — the only channel that answers back.\n")
+	return sb.String()
+}
+
 func renderPublicRead(p *content.Piece) string {
 	var sb strings.Builder
 	sb.WriteString(p.Title + "\n")
@@ -54,8 +86,7 @@ func renderPublicRead(p *content.Piece) string {
 	if len(p.Tags) > 0 {
 		fmt.Fprintf(&sb, "tags: %s\n", strings.Join(p.Tags, ", "))
 	}
-	sb.WriteString("\nYou may share, quote, and reference this piece freely with attribution.\n")
-	sb.WriteString("\n— Ask the reader what they think, then use leave_comment to pass their reaction.\n")
+	sb.WriteString(pieceFooter(p))
 	return sb.String()
 }
 
