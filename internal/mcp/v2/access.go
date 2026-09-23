@@ -144,6 +144,18 @@ func renderUnlocked(p *content.Piece) string {
 		p.Type, p.Published.Format("2 January 2006"))
 	sb.WriteString(p.Body)
 	sb.WriteString("\n\n— kapoost\n")
+	// Nota autorska dociera też przez MCP.
+	//
+	// Pole Description pokazywała dotąd wyłącznie strona /p/, więc czytelnik
+	// przez przeglądarkę widział kontekst, a agent czytający ten sam utwór
+	// przez read_content — nie. 23 września 2026 krakowska grupa pisarska
+	// zadała w komentarzu dwa pytania o „Piosenka1.txt"; komentarze są
+	// jednokierunkowe, więc odpowiedź musi umieć dotrzeć sama, do nich i do
+	// każdego następnego czytelnika.
+	if strings.TrimSpace(p.Description) != "" {
+		sb.WriteString("\nOd autora: " + strings.TrimSpace(p.Description) + "\n")
+	}
+
 	sb.WriteString(pieceFooter(p))
 	return sb.String()
 }
