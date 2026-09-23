@@ -22,10 +22,10 @@ import (
 type Subscription struct {
 	ID          string    `json:"id"`
 	CreatedAt   time.Time `json:"created_at"`
-	Channel     string    `json:"channel"`                 // webhook | mcp
-	CallbackURL string    `json:"callback_url,omitempty"`  // webhook only
-	FilterTypes []string  `json:"filter_types,omitempty"`  // sell/buy/offer/request/trade
-	FilterTags  []string  `json:"filter_tags,omitempty"`   // tag names without #
+	Channel     string    `json:"channel"`                // webhook | mcp
+	CallbackURL string    `json:"callback_url,omitempty"` // webhook only
+	FilterTypes []string  `json:"filter_types,omitempty"` // sell/buy/offer/request/trade
+	FilterTags  []string  `json:"filter_tags,omitempty"`  // tag names without #
 }
 
 type SubscriptionStore struct {

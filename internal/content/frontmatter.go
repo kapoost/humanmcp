@@ -1,8 +1,8 @@
 package content
 
 import (
-	"strconv"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -10,16 +10,26 @@ import (
 func parseFrontmatter(lines []string, p *Piece) {
 	for _, line := range lines {
 		k, v, ok := splitKV(line)
-		if !ok { continue }
+		if !ok {
+			continue
+		}
 		switch k {
-		case "slug":        p.Slug = unquote(v)
-		case "title":       p.Title = unquote(v)
-		case "type":        p.Type = unquote(v)
-		case "access":      p.Access = AccessLevel(unquote(v))
-		case "gate":        p.Gate = GateType(unquote(v))
-		case "challenge":   p.Challenge = unquote(v)
-		case "answer":      p.Answer = unquote(v)
-		case "description": p.Description = unquote(v)
+		case "slug":
+			p.Slug = unquote(v)
+		case "title":
+			p.Title = unquote(v)
+		case "type":
+			p.Type = unquote(v)
+		case "access":
+			p.Access = AccessLevel(unquote(v))
+		case "gate":
+			p.Gate = GateType(unquote(v))
+		case "challenge":
+			p.Challenge = unquote(v)
+		case "answer":
+			p.Answer = unquote(v)
+		case "description":
+			p.Description = unquote(v)
 		case "price_sats":
 			n, _ := strconv.Atoi(strings.TrimSpace(v))
 			p.PriceSats = n
@@ -52,7 +62,9 @@ func parseFrontmatter(lines []string, p *Piece) {
 
 func splitKV(line string) (string, string, bool) {
 	parts := strings.SplitN(line, ":", 2)
-	if len(parts) < 2 { return "", "", false }
+	if len(parts) < 2 {
+		return "", "", false
+	}
 	k := strings.TrimSpace(parts[0])
 	v := strings.TrimSpace(parts[1])
 	return k, v, k != ""
@@ -76,7 +88,9 @@ func parseStringSlice(s string) []string {
 	out := make([]string, 0, len(parts))
 	for _, p := range parts {
 		v := unquote(strings.TrimSpace(p))
-		if v != "" { out = append(out, v) }
+		if v != "" {
+			out = append(out, v)
+		}
 	}
 	return out
 }
@@ -84,24 +98,50 @@ func parseStringSlice(s string) []string {
 func marshalFrontmatter(p *Piece) string {
 	var sb strings.Builder
 	wf := func(k, v string) {
-		if v != "" { sb.WriteString(k + ": " + v + "\n") }
+		if v != "" {
+			sb.WriteString(k + ": " + v + "\n")
+		}
 	}
 	wf("slug", p.Slug)
 	wf("title", quoteIfNeeded(p.Title))
 	wf("type", p.Type)
 	wf("access", string(p.Access))
-	if p.Gate != "" { wf("gate", string(p.Gate)) }
-	if p.Challenge != "" { wf("challenge", quoteIfNeeded(p.Challenge)) }
-	if p.Answer != ""    { wf("answer", quoteIfNeeded(p.Answer)) }
-	if p.Description != "" { wf("description", quoteIfNeeded(p.Description)) }
-	if p.PriceSats > 0 { sb.WriteString("price_sats: " + strconv.Itoa(p.PriceSats) + "\n") }
-	if !p.UnlockAfter.IsZero() { wf("unlock_after", p.UnlockAfter.Format("2006-01-02 15:04")) }
-	if len(p.Tags) > 0 { sb.WriteString("tags: [" + strings.Join(p.Tags, ", ") + "]\n") }
-	if p.Signature != "" { wf("signature", p.Signature) }
-	if p.OTSProof != "" { wf("ots_proof", p.OTSProof) }
-	if p.License != "" { wf("license", p.License) }
-	if p.PriceSats > 0 { sb.WriteString(fmt.Sprintf("price_sats: %d\n", p.PriceSats)) }
-	if !p.Published.IsZero() { sb.WriteString("published: " + p.Published.Format("2006-01-02") + "\n") }
+	if p.Gate != "" {
+		wf("gate", string(p.Gate))
+	}
+	if p.Challenge != "" {
+		wf("challenge", quoteIfNeeded(p.Challenge))
+	}
+	if p.Answer != "" {
+		wf("answer", quoteIfNeeded(p.Answer))
+	}
+	if p.Description != "" {
+		wf("description", quoteIfNeeded(p.Description))
+	}
+	if p.PriceSats > 0 {
+		sb.WriteString("price_sats: " + strconv.Itoa(p.PriceSats) + "\n")
+	}
+	if !p.UnlockAfter.IsZero() {
+		wf("unlock_after", p.UnlockAfter.Format("2006-01-02 15:04"))
+	}
+	if len(p.Tags) > 0 {
+		sb.WriteString("tags: [" + strings.Join(p.Tags, ", ") + "]\n")
+	}
+	if p.Signature != "" {
+		wf("signature", p.Signature)
+	}
+	if p.OTSProof != "" {
+		wf("ots_proof", p.OTSProof)
+	}
+	if p.License != "" {
+		wf("license", p.License)
+	}
+	if p.PriceSats > 0 {
+		sb.WriteString(fmt.Sprintf("price_sats: %d\n", p.PriceSats))
+	}
+	if !p.Published.IsZero() {
+		sb.WriteString("published: " + p.Published.Format("2006-01-02") + "\n")
+	}
 	return sb.String()
 }
 

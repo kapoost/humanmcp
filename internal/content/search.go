@@ -3,6 +3,8 @@ package content
 import (
 	"sort"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // FoldDiacritics sprowadza polskie (i czesko-podobne) znaki do ASCII, żeby
@@ -31,6 +33,8 @@ type SearchHit struct {
 	Snippet string
 	Score   int
 }
+
+const maxSearchLimit = 100
 
 const (
 	scoreTitle = 100
@@ -63,6 +67,9 @@ func (s *Store) Search(query string, limit int) []SearchHit {
 	if limit <= 0 {
 		limit = 20
 	}
+	if limit > maxSearchLimit {
+		limit = maxSearchLimit // jedno wywołanie nie zwraca całego serwisu
+	}
 
 	var hits []SearchHit
 	for _, p := range s.List(true) {
@@ -70,8 +77,12 @@ func (s *Store) Search(query string, limit int) []SearchHit {
 		tags := normalizeForSearch(strings.Join(p.Tags, " "))
 		desc := normalizeForSearch(p.Description)
 
+		// IsUnlocked, nie AccessPublic: utwór z bramką czasową, której termin
+		// minął, jest już czytany w całości przez read_content i wymieniony
+		// w llms.txt. Wykluczanie go tutaj ukrywało tekst publicznie dostępny
+		// i odsyłało agenta do bramki, której nie ma.
 		body := ""
-		if p.Access == AccessPublic {
+		if p.IsUnlocked() {
 			body = normalizeForSearch(p.Body)
 		}
 
@@ -171,9 +182,20 @@ func containsToken(haystack, needle string) bool {
 			return false
 		}
 		i += from
-		beforeOK := i == 0 || !isWordish(rune(haystack[i-1]))
+		// Granice liczone na RUNACH, nie na bajtach: rune(haystack[i-1]) na
+		// bajcie kontynuacji UTF-8 nigdy nie jest „wyrazowy", więc tytuł
+		// wewnątrz dłuższego słowa niełacińskiego liczyłby się jako wzmianka.
+		beforeOK := true
+		if i > 0 {
+			r, _ := utf8.DecodeLastRuneInString(haystack[:i])
+			beforeOK = !isWordish(r)
+		}
 		after := i + len(needle)
-		afterOK := after >= len(haystack) || !isWordish(rune(haystack[after]))
+		afterOK := true
+		if after < len(haystack) {
+			r, _ := utf8.DecodeRuneInString(haystack[after:])
+			afterOK = !isWordish(r)
+		}
 		if beforeOK && afterOK {
 			return true
 		}
@@ -182,8 +204,7 @@ func containsToken(haystack, needle string) bool {
 }
 
 func isWordish(r rune) bool {
-	return r == '-' || r == '_' ||
-		(r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
+	return r == '-' || r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r)
 }
 
 // slugLooksLikeSlug odróżnia identyfikator od zwykłego wyrazu. „private-parts"

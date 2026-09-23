@@ -32,12 +32,24 @@ Line two.`)
 		t.Fatalf("want 1 piece, got %d", len(pieces))
 	}
 	p := pieces[0]
-	if p.Slug != "hello" { t.Errorf("slug: got %q", p.Slug) }
-	if p.Title != "Hello World" { t.Errorf("title: got %q", p.Title) }
-	if p.Type != "poem" { t.Errorf("type: got %q", p.Type) }
-	if p.Access != AccessPublic { t.Errorf("access: got %q", p.Access) }
-	if len(p.Tags) != 1 || p.Tags[0] != "test" { t.Errorf("tags: got %v", p.Tags) }
-	if p.Body != "Line one.\nLine two." { t.Errorf("body: got %q", p.Body) }
+	if p.Slug != "hello" {
+		t.Errorf("slug: got %q", p.Slug)
+	}
+	if p.Title != "Hello World" {
+		t.Errorf("title: got %q", p.Title)
+	}
+	if p.Type != "poem" {
+		t.Errorf("type: got %q", p.Type)
+	}
+	if p.Access != AccessPublic {
+		t.Errorf("access: got %q", p.Access)
+	}
+	if len(p.Tags) != 1 || p.Tags[0] != "test" {
+		t.Errorf("tags: got %v", p.Tags)
+	}
+	if p.Body != "Line one.\nLine two." {
+		t.Errorf("body: got %q", p.Body)
+	}
 }
 
 func TestStoreGetLockedRedactsBody(t *testing.T) {
@@ -59,12 +71,18 @@ The secret body.`)
 
 	// Without unlock — body should be empty
 	p, err := s.Get("secret", false)
-	if err != nil { t.Fatalf("Get: %v", err) }
-	if p.Body != "" { t.Errorf("locked piece should have empty body, got %q", p.Body) }
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if p.Body != "" {
+		t.Errorf("locked piece should have empty body, got %q", p.Body)
+	}
 
 	// With unlock — body should be present
 	p2, _ := s.Get("secret", true)
-	if p2.Body != "The secret body." { t.Errorf("unlocked body: got %q", p2.Body) }
+	if p2.Body != "The secret body." {
+		t.Errorf("unlocked body: got %q", p2.Body)
+	}
 }
 
 func TestStoreCheckAnswer(t *testing.T) {
@@ -83,12 +101,24 @@ body`)
 	s := NewStore(dir)
 	s.Load()
 
-	if !s.CheckAnswer("q", "blue") { t.Error("exact answer should pass") }
-	if !s.CheckAnswer("q", "Blue") { t.Error("case-insensitive should pass") }
-	if !s.CheckAnswer("q", "  blue  ") { t.Error("trimmed whitespace should pass") }
-	if s.CheckAnswer("q", "red") { t.Error("wrong answer should fail") }
-	if s.CheckAnswer("q", "") { t.Error("empty answer should fail") }
-	if s.CheckAnswer("nonexistent", "blue") { t.Error("nonexistent slug should fail") }
+	if !s.CheckAnswer("q", "blue") {
+		t.Error("exact answer should pass")
+	}
+	if !s.CheckAnswer("q", "Blue") {
+		t.Error("case-insensitive should pass")
+	}
+	if !s.CheckAnswer("q", "  blue  ") {
+		t.Error("trimmed whitespace should pass")
+	}
+	if s.CheckAnswer("q", "red") {
+		t.Error("wrong answer should fail")
+	}
+	if s.CheckAnswer("q", "") {
+		t.Error("empty answer should fail")
+	}
+	if s.CheckAnswer("nonexistent", "blue") {
+		t.Error("nonexistent slug should fail")
+	}
 }
 
 func TestStoreSaveAndDelete(t *testing.T) {
@@ -118,9 +148,15 @@ func TestStoreSaveAndDelete(t *testing.T) {
 	s2 := NewStore(dir)
 	s2.Load()
 	loaded, err := s2.Get("new-poem", false)
-	if err != nil { t.Fatalf("Get after Save: %v", err) }
-	if loaded.Title != "New Poem" { t.Errorf("title: got %q", loaded.Title) }
-	if loaded.Body != "Hello world." { t.Errorf("body: got %q", loaded.Body) }
+	if err != nil {
+		t.Fatalf("Get after Save: %v", err)
+	}
+	if loaded.Title != "New Poem" {
+		t.Errorf("title: got %q", loaded.Title)
+	}
+	if loaded.Body != "Hello world." {
+		t.Errorf("body: got %q", loaded.Body)
+	}
 
 	// Delete
 	if err := s.Delete("new-poem"); err != nil {
@@ -178,9 +214,15 @@ body`)
 	s := NewStore(dir)
 	s.Load()
 	p, err := s.Get("quoted", false)
-	if err != nil { t.Fatalf("Get: %v", err) }
-	if p.Title != "A Title: With Colon" { t.Errorf("title: got %q", p.Title) }
-	if p.Description != "Short desc." { t.Errorf("desc: got %q", p.Description) }
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if p.Title != "A Title: With Colon" {
+		t.Errorf("title: got %q", p.Title)
+	}
+	if p.Description != "Short desc." {
+		t.Errorf("desc: got %q", p.Description)
+	}
 }
 
 func TestFrontmatterTagsBracketSyntax(t *testing.T) {
@@ -197,7 +239,9 @@ body`)
 	s := NewStore(dir)
 	s.Load()
 	p, _ := s.Get("tags", false)
-	if len(p.Tags) != 3 { t.Fatalf("want 3 tags, got %d: %v", len(p.Tags), p.Tags) }
+	if len(p.Tags) != 3 {
+		t.Fatalf("want 3 tags, got %d: %v", len(p.Tags), p.Tags)
+	}
 	if p.Tags[0] != "sea" || p.Tags[1] != "sailing" || p.Tags[2] != "code" {
 		t.Errorf("tags: got %v", p.Tags)
 	}
@@ -227,13 +271,25 @@ func TestFrontmatterRoundTrip(t *testing.T) {
 	s2 := NewStore(dir)
 	s2.Load()
 	loaded, err := s2.GetForEdit("roundtrip")
-	if err != nil { t.Fatalf("GetForEdit: %v", err) }
+	if err != nil {
+		t.Fatalf("GetForEdit: %v", err)
+	}
 
-	if loaded.Title != original.Title { t.Errorf("title: %q != %q", loaded.Title, original.Title) }
-	if loaded.Gate != original.Gate { t.Errorf("gate: %q != %q", loaded.Gate, original.Gate) }
-	if loaded.Challenge != original.Challenge { t.Errorf("challenge: %q", loaded.Challenge) }
-	if loaded.Answer != original.Answer { t.Errorf("answer: %q", loaded.Answer) }
-	if loaded.Body != original.Body { t.Errorf("body: %q != %q", loaded.Body, original.Body) }
+	if loaded.Title != original.Title {
+		t.Errorf("title: %q != %q", loaded.Title, original.Title)
+	}
+	if loaded.Gate != original.Gate {
+		t.Errorf("gate: %q != %q", loaded.Gate, original.Gate)
+	}
+	if loaded.Challenge != original.Challenge {
+		t.Errorf("challenge: %q", loaded.Challenge)
+	}
+	if loaded.Answer != original.Answer {
+		t.Errorf("answer: %q", loaded.Answer)
+	}
+	if loaded.Body != original.Body {
+		t.Errorf("body: %q != %q", loaded.Body, original.Body)
+	}
 }
 
 // TestFrontmatterRoundTripOTSProof — the OTSProof field is a long base64

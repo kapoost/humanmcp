@@ -36,16 +36,32 @@ func TestBlobSaveAndLoad(t *testing.T) {
 	}
 
 	blobs, err := bs.Load()
-	if err != nil { t.Fatalf("Load: %v", err) }
-	if len(blobs) != 1 { t.Fatalf("want 1, got %d", len(blobs)) }
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(blobs) != 1 {
+		t.Fatalf("want 1, got %d", len(blobs))
+	}
 
 	loaded := blobs[0]
-	if loaded.Slug != "my-vector" { t.Errorf("slug: %q", loaded.Slug) }
-	if loaded.BlobType != BlobVector { t.Errorf("type: %q", loaded.BlobType) }
-	if loaded.Schema != "text-embedding-3-small" { t.Errorf("schema: %q", loaded.Schema) }
-	if loaded.Dimensions != 1536 { t.Errorf("dimensions: %d", loaded.Dimensions) }
-	if loaded.Encoding != "base64-float32" { t.Errorf("encoding: %q", loaded.Encoding) }
-	if loaded.Base64Data != "AAAA" { t.Errorf("base64_data: %q", loaded.Base64Data) }
+	if loaded.Slug != "my-vector" {
+		t.Errorf("slug: %q", loaded.Slug)
+	}
+	if loaded.BlobType != BlobVector {
+		t.Errorf("type: %q", loaded.BlobType)
+	}
+	if loaded.Schema != "text-embedding-3-small" {
+		t.Errorf("schema: %q", loaded.Schema)
+	}
+	if loaded.Dimensions != 1536 {
+		t.Errorf("dimensions: %d", loaded.Dimensions)
+	}
+	if loaded.Encoding != "base64-float32" {
+		t.Errorf("encoding: %q", loaded.Encoding)
+	}
+	if loaded.Base64Data != "AAAA" {
+		t.Errorf("base64_data: %q", loaded.Base64Data)
+	}
 	if len(loaded.Audience) != 1 || loaded.Audience[0].Kind != "agent" {
 		t.Errorf("audience: %v", loaded.Audience)
 	}
@@ -61,11 +77,17 @@ func TestBlobGetBySlug(t *testing.T) {
 	bs.Save(&Blob{Slug: "beta", Title: "Beta", BlobType: BlobContact, Access: AccessPublic})
 
 	b, err := bs.Get("beta")
-	if err != nil { t.Fatalf("Get: %v", err) }
-	if b.Title != "Beta" { t.Errorf("title: %q", b.Title) }
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if b.Title != "Beta" {
+		t.Errorf("title: %q", b.Title)
+	}
 
 	_, err = bs.Get("nonexistent")
-	if err == nil { t.Error("should error for nonexistent slug") }
+	if err == nil {
+		t.Error("should error for nonexistent slug")
+	}
 }
 
 func TestBlobDelete(t *testing.T) {
@@ -75,10 +97,14 @@ func TestBlobDelete(t *testing.T) {
 	bs := NewBlobStore(contentDir)
 
 	bs.Save(&Blob{Slug: "todelete", Title: "Delete Me", BlobType: BlobDataset, Access: AccessPublic})
-	if err := bs.Delete("todelete"); err != nil { t.Fatalf("Delete: %v", err) }
+	if err := bs.Delete("todelete"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
 
 	_, err := bs.Get("todelete")
-	if err == nil { t.Error("should be gone after delete") }
+	if err == nil {
+		t.Error("should be gone after delete")
+	}
 }
 
 func TestBlobStoreFile(t *testing.T) {
@@ -89,21 +115,35 @@ func TestBlobStoreFile(t *testing.T) {
 
 	data := []byte{0xFF, 0xD8, 0xFF} // JPEG magic bytes
 	ref, err := bs.StoreFile("photo-slug", "photo.jpg", data)
-	if err != nil { t.Fatalf("StoreFile: %v", err) }
-	if ref != "files/photo-slug.jpg" { t.Errorf("ref: %q", ref) }
+	if err != nil {
+		t.Fatalf("StoreFile: %v", err)
+	}
+	if ref != "files/photo-slug.jpg" {
+		t.Errorf("ref: %q", ref)
+	}
 
 	read, err := bs.ReadFile(ref)
-	if err != nil { t.Fatalf("ReadFile: %v", err) }
-	if string(read) != string(data) { t.Error("file content mismatch") }
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(read) != string(data) {
+		t.Error("file content mismatch")
+	}
 }
 
 // --- Audience / access control tests ---
 
 func TestIsAccessibleToPublic(t *testing.T) {
 	b := &Blob{Access: AccessPublic}
-	if !b.IsAccessibleTo("agent", "claude") { t.Error("public should be accessible to anyone") }
-	if !b.IsAccessibleTo("human", "alice") { t.Error("public should be accessible to anyone") }
-	if !b.IsAccessibleTo("", "") { t.Error("public should be accessible to anyone") }
+	if !b.IsAccessibleTo("agent", "claude") {
+		t.Error("public should be accessible to anyone")
+	}
+	if !b.IsAccessibleTo("human", "alice") {
+		t.Error("public should be accessible to anyone")
+	}
+	if !b.IsAccessibleTo("", "") {
+		t.Error("public should be accessible to anyone")
+	}
 }
 
 func TestIsAccessibleToAudience(t *testing.T) {
@@ -114,10 +154,18 @@ func TestIsAccessibleToAudience(t *testing.T) {
 			{Kind: "human", ID: "alice"},
 		},
 	}
-	if !b.IsAccessibleTo("agent", "claude") { t.Error("claude should have access") }
-	if !b.IsAccessibleTo("human", "alice") { t.Error("alice should have access") }
-	if b.IsAccessibleTo("agent", "gpt") { t.Error("gpt should NOT have access") }
-	if b.IsAccessibleTo("human", "bob") { t.Error("bob should NOT have access") }
+	if !b.IsAccessibleTo("agent", "claude") {
+		t.Error("claude should have access")
+	}
+	if !b.IsAccessibleTo("human", "alice") {
+		t.Error("alice should have access")
+	}
+	if b.IsAccessibleTo("agent", "gpt") {
+		t.Error("gpt should NOT have access")
+	}
+	if b.IsAccessibleTo("human", "bob") {
+		t.Error("bob should NOT have access")
+	}
 }
 
 func TestIsAccessibleToWildcard(t *testing.T) {
@@ -125,9 +173,15 @@ func TestIsAccessibleToWildcard(t *testing.T) {
 		Access:   AccessLocked,
 		Audience: []AudienceEntry{{Kind: "agent", ID: "*"}},
 	}
-	if !b.IsAccessibleTo("agent", "claude") { t.Error("any agent should have access") }
-	if !b.IsAccessibleTo("agent", "gpt") { t.Error("any agent should have access") }
-	if b.IsAccessibleTo("human", "alice") { t.Error("humans should NOT have access via agent wildcard") }
+	if !b.IsAccessibleTo("agent", "claude") {
+		t.Error("any agent should have access")
+	}
+	if !b.IsAccessibleTo("agent", "gpt") {
+		t.Error("any agent should have access")
+	}
+	if b.IsAccessibleTo("human", "alice") {
+		t.Error("humans should NOT have access via agent wildcard")
+	}
 }
 
 func TestIsAccessibleCaseInsensitive(t *testing.T) {
@@ -135,8 +189,12 @@ func TestIsAccessibleCaseInsensitive(t *testing.T) {
 		Access:   AccessLocked,
 		Audience: []AudienceEntry{{Kind: "agent", ID: "Claude"}},
 	}
-	if !b.IsAccessibleTo("agent", "claude") { t.Error("should be case-insensitive") }
-	if !b.IsAccessibleTo("AGENT", "CLAUDE") { t.Error("should be case-insensitive") }
+	if !b.IsAccessibleTo("agent", "claude") {
+		t.Error("should be case-insensitive")
+	}
+	if !b.IsAccessibleTo("AGENT", "CLAUDE") {
+		t.Error("should be case-insensitive")
+	}
 }
 
 // --- Blob signing tests ---
@@ -149,11 +207,15 @@ func TestSignAndVerifyBlob(t *testing.T) {
 		Base64Data: "AAABBBCCC",
 	}
 	sig, err := SignBlob(b, kp)
-	if err != nil { t.Fatalf("SignBlob: %v", err) }
+	if err != nil {
+		t.Fatalf("SignBlob: %v", err)
+	}
 	b.Signature = sig
 
 	ok, status := VerifyBlob(b, kp.PublicKeyHex())
-	if !ok { t.Errorf("should verify: %s", status) }
+	if !ok {
+		t.Errorf("should verify: %s", status)
+	}
 }
 
 func TestVerifyBlobFailsOnTamperedData(t *testing.T) {
@@ -164,7 +226,9 @@ func TestVerifyBlobFailsOnTamperedData(t *testing.T) {
 	b.Base64Data = "tampered"
 
 	ok, _ := VerifyBlob(b, kp.PublicKeyHex())
-	if ok { t.Error("tampered data should fail") }
+	if ok {
+		t.Error("tampered data should fail")
+	}
 }
 
 // --- Contact/dataset content roundtrip ---
@@ -194,7 +258,9 @@ func TestContactBlobRoundTrip(t *testing.T) {
 	bs.Save(b)
 
 	loaded, _ := bs.Get("my-contact")
-	if loaded.TextData == "" { t.Error("TextData should survive roundtrip") }
+	if loaded.TextData == "" {
+		t.Error("TextData should survive roundtrip")
+	}
 
 	var roundtripped map[string]string
 	if err := json.Unmarshal([]byte(loaded.TextData), &roundtripped); err != nil {
@@ -229,7 +295,13 @@ func TestVectorBlobRoundTrip(t *testing.T) {
 	bs.Save(b)
 
 	loaded, _ := bs.Get("poem-embedding")
-	if loaded.Schema != "text-embedding-3-small" { t.Errorf("schema: %q", loaded.Schema) }
-	if loaded.Dimensions != 1536 { t.Errorf("dimensions: %d", loaded.Dimensions) }
-	if loaded.Base64Data != fakeVector { t.Error("vector data should survive roundtrip") }
+	if loaded.Schema != "text-embedding-3-small" {
+		t.Errorf("schema: %q", loaded.Schema)
+	}
+	if loaded.Dimensions != 1536 {
+		t.Errorf("dimensions: %d", loaded.Dimensions)
+	}
+	if loaded.Base64Data != fakeVector {
+		t.Error("vector data should survive roundtrip")
+	}
 }

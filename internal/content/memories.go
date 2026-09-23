@@ -17,9 +17,9 @@ import (
 // pick up where it left off across conversations.
 type Memory struct {
 	ID        string    `json:"id"`
-	Code      string    `json:"code"`              // session code that owns this memory
-	From      string    `json:"from,omitempty"`    // optional agent identity
-	Tags      []string  `json:"tags,omitempty"`    // optional tags for grouping
+	Code      string    `json:"code"`           // session code that owns this memory
+	From      string    `json:"from,omitempty"` // optional agent identity
+	Tags      []string  `json:"tags,omitempty"` // optional tags for grouping
 	Body      string    `json:"body"`
 	CreatedAt time.Time `json:"created_at"`
 }

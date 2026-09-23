@@ -137,8 +137,7 @@ func TestFindLatestByAsker(t *testing.T) {
 	}
 
 	// Same asker, same question, sloppier whitespace and casing — still a twin.
-	got, ok := store.FindLatestByAsker("Literary-Analysis-Agent",
-		"  How do you  connect DIVISORS to love?  ")
+	got, ok := store.FindLatestByAsker("Literary-Analysis-Agent", "  How do you  connect DIVISORS to love?  ", "")
 	if !ok {
 		t.Fatal("twin not recognised through whitespace/case differences")
 	}
@@ -148,17 +147,17 @@ func TestFindLatestByAsker(t *testing.T) {
 
 	// A different asker with identical wording must NOT match: the answer may
 	// have been written for the first one.
-	if _, ok := store.FindLatestByAsker("someone-else", "How do you connect divisors to love?"); ok {
+	if _, ok := store.FindLatestByAsker("someone-else", "How do you connect divisors to love?", ""); ok {
 		t.Error("matched across askers — an answer could leak to the wrong agent")
 	}
 
 	// Anonymous callers cannot be matched at all, for the same reason.
-	if _, ok := store.FindLatestByAsker("", "How do you connect divisors to love?"); ok {
+	if _, ok := store.FindLatestByAsker("", "How do you connect divisors to love?", ""); ok {
 		t.Error("matched with an empty from")
 	}
 
 	// A different question from the same asker is not a twin.
-	if _, ok := store.FindLatestByAsker("literary-analysis-agent", "What is the sea?"); ok {
+	if _, ok := store.FindLatestByAsker("literary-analysis-agent", "What is the sea?", ""); ok {
 		t.Error("matched a different question")
 	}
 }
@@ -181,7 +180,7 @@ func TestFindLatestByAskerPicksNewest(t *testing.T) {
 		t.Fatal("duplicate submission reused the ID — the second would overwrite the first")
 	}
 
-	got, ok := store.FindLatestByAsker("researcher", "What is the exact title of your poem with slug 'private-parts'?")
+	got, ok := store.FindLatestByAsker("researcher", "What is the exact title of your poem with slug 'private-parts'?", "")
 	if !ok {
 		t.Fatal("twin not found")
 	}

@@ -288,3 +288,57 @@ func TestSearchContentRecordsSearchEventWithQuery(t *testing.T) {
 		t.Errorf("zapytania nie ma w TopSearches: %v — nie dowiemy się, czego agenci szukają", stats.TopSearches)
 	}
 }
+
+// clientInfo to nazwa OPROGRAMOWANIA klienta, identyczna dla wszystkich jego
+// użytkowników. Użyta jako klucz dopasowania sprawiłaby, że drugi anonimowy
+// pytający z tego samego klienta dostaje odpowiedź napisaną dla pierwszego,
+// a jego własne pytanie nigdy nie powstaje. To ten sam wyciek, któremu
+// wymaganie `from` miało zapobiegać.
+func TestClientInfoNeverMatchesSomeoneElsesAnswer(t *testing.T) {
+	h, cfg := gateFixtureWithPieces(t)
+	store := content.NewQuestionStore(cfg.ContentDir)
+
+	// Pierwszy anonim pyta; From uzupełnia się nazwą klienta.
+	callV2Tool(t, h, "ask_human", map[string]any{"question": "Ile masz lat?"}, nil)
+	first := store.List()[0]
+	if err := store.Answer(first.ID, "Tajemnica dla pierwszego."); err != nil {
+		t.Fatalf("Answer: %v", err)
+	}
+
+	// Drugi, niezależny anonim z tego samego klienta pyta o to samo.
+	out := callV2Tool(t, h, "ask_human", map[string]any{"question": "Ile masz lat?"}, nil)
+
+	if strings.Contains(out, "Tajemnica dla pierwszego") {
+		t.Error("drugi anonim dostał odpowiedź napisaną dla pierwszego")
+	}
+	if !strings.Contains(out, "Question submitted") {
+		t.Errorf("pytanie drugiego anonima nie powstało:\n%s", out)
+	}
+	if got := len(store.List()); got != 2 {
+		t.Errorf("pytań w kolejce: %d, oczekiwano 2", got)
+	}
+}
+
+// Kontekst jest częścią klucza: ta sama treść pytania o inny utwór to inne
+// pytanie, a opis narzędzia wprost zachęca do powtarzania treści.
+func TestReAskDistinguishesByContext(t *testing.T) {
+	h, cfg := gateFixtureWithPieces(t)
+	store := content.NewQuestionStore(cfg.ContentDir)
+
+	q1, _ := store.Create("badacz", "slug: 1775059694", "Jaki jest tytuł tego utworu?")
+	if err := store.Answer(q1.ID, "2006-2009 Ireland"); err != nil {
+		t.Fatalf("Answer: %v", err)
+	}
+
+	out := callV2Tool(t, h, "ask_human", map[string]any{
+		"from": "badacz", "question": "Jaki jest tytuł tego utworu?",
+		"context": "slug: private-parts",
+	}, nil)
+
+	if strings.Contains(out, "2006-2009 Ireland") {
+		t.Error("pytanie o inny utwór dostało odpowiedź o poprzednim")
+	}
+	if !strings.Contains(out, "Question submitted") {
+		t.Errorf("pytanie o inny utwór nie powstało:\n%s", out)
+	}
+}

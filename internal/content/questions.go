@@ -180,16 +180,27 @@ func normalizeForMatch(s string) string {
 // Matching requires a non-empty `from`. Without it, two unrelated anonymous
 // callers asking the same thing would collide and the second would receive an
 // answer written for the first.
-func (s *QuestionStore) FindLatestByAsker(from, question string) (Question, bool) {
+func (s *QuestionStore) FindLatestByAsker(from, question, context string) (Question, bool) {
 	from = normalizeForMatch(from)
 	question = normalizeForMatch(question)
+	context = normalizeForMatch(context)
 	if from == "" || question == "" {
 		return Question{}, false
 	}
 	var best Question
 	var found bool
-	for _, q := range s.List() {
+	// Archiwum też: odpowiedź zdjęta z kolejki nadal jest odpowiedzią, a agent
+	// powtarzający pytanie ma ją dostać zamiast tworzyć duplikat.
+	candidates := append(s.List(), s.ListArchived()...)
+	for _, q := range candidates {
 		if normalizeForMatch(q.From) != from || normalizeForMatch(q.Question) != question {
+			continue
+		}
+		// Kontekst jest częścią klucza: ask_human ma osobne pole `context`,
+		// a opis narzędzia wprost zachęca do powtarzania tej samej TREŚCI
+		// pytania. Bez tego „jaki jest tytuł tego utworu?" z kontekstem
+		// wskazującym inny slug oddawałoby odpowiedź o poprzednim.
+		if normalizeForMatch(q.Context) != context {
 			continue
 		}
 		if !found || q.AskedAt.After(best.AskedAt) {
@@ -207,7 +218,12 @@ func (s *QuestionStore) uniqueID(t time.Time, question string) string {
 	base := generateQuestionID(t, question)
 	id := base
 	for i := 2; ; i++ {
-		if _, err := os.Stat(filepath.Join(s.dir, id+".txt")); os.IsNotExist(err) {
+		_, liveErr := os.Stat(filepath.Join(s.dir, id+".txt"))
+		_, archErr := os.Stat(filepath.Join(s.archiveDir(), id+".txt"))
+		// Archiwum też blokuje identyfikator. Bez tego nowe pytanie z tej samej
+		// minuty i tym samym slugiem dostawało ID zarchiwizowanego, a późniejsze
+		// Unarchive nadpisywało je bez śladu.
+		if os.IsNotExist(liveErr) && os.IsNotExist(archErr) {
 			return id
 		}
 		id = fmt.Sprintf("%s-%d", base, i)
@@ -263,7 +279,21 @@ func (s *QuestionStore) archiveDir() string { return filepath.Join(s.dir, "archi
 // było jak niczego sprzątnąć. Dlatego „test" i „hello" z lipca wisiały
 // miesiącami w sekcji „pending — need your answer", rozcieńczając to, co
 // naprawdę czekało na odpowiedź.
+// safeQuestionID odrzuca identyfikatory, które po złożeniu ścieżki wyszłyby
+// poza katalog pytań. Generowane ID nigdy nie zawierają separatorów, więc
+// odrzucenie niczego prawidłowego nie psuje — ale nieświeża wartość
+// z formularza ma dawać błąd, a nie przenosić cudzy plik.
+func safeQuestionID(id string) error {
+	if id == "" || strings.ContainsAny(id, `/\`) || strings.Contains(id, "..") {
+		return fmt.Errorf("invalid question id: %q", id)
+	}
+	return nil
+}
+
 func (s *QuestionStore) Archive(id string) error {
+	if err := safeQuestionID(id); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	src := filepath.Join(s.dir, id+".txt")
@@ -278,13 +308,21 @@ func (s *QuestionStore) Archive(id string) error {
 
 // Unarchive wraca pytanie do kolejki.
 func (s *QuestionStore) Unarchive(id string) error {
+	if err := safeQuestionID(id); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	src := filepath.Join(s.archiveDir(), id+".txt")
 	if _, err := os.Stat(src); err != nil {
 		return fmt.Errorf("no such archived question: %s", id)
 	}
-	return os.Rename(src, filepath.Join(s.dir, id+".txt"))
+	dst := filepath.Join(s.dir, id+".txt")
+	// Nigdy nie nadpisuj żywego pytania przywracaniem.
+	if _, err := os.Stat(dst); err == nil {
+		return fmt.Errorf("a live question already uses id %s — not overwriting", id)
+	}
+	return os.Rename(src, dst)
 }
 
 // ListArchived zwraca zdjęte pytania, żeby archiwum nie było czarną dziurą.

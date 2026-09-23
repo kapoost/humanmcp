@@ -85,8 +85,13 @@ func TestArchivedQuestionIsNotMatchedByReAsk(t *testing.T) {
 	if err := store.Archive(q.ID); err != nil {
 		t.Fatalf("Archive: %v", err)
 	}
-	if _, ok := store.FindLatestByAsker("noisy-agent", "hello"); ok {
-		t.Error("re-ask dopasował zarchiwizowane pytanie")
+	// Zmiana wobec pierwotnego założenia: zarchiwizowana ODPOWIEDŹ ma wracać.
+	// Archiwum zdejmuje pytanie z kolejki właściciela, ale nie unieważnia
+	// odpowiedzi, którą już napisał. Inaczej zarchiwizowanie odpowiedzianego
+	// pytania cicho psuje jego dostarczenie — agent powtarza pytanie
+	// i dostaje duplikat zamiast gotowej odpowiedzi.
+	if _, ok := store.FindLatestByAsker("noisy-agent", "hello", ""); !ok {
+		t.Error("zarchiwizowane pytanie nie jest już odnajdywane — odpowiedź przepada")
 	}
 }
 

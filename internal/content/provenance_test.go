@@ -150,9 +150,9 @@ func TestProvenanceDelete(t *testing.T) {
 	store := NewProvenanceStore(dir)
 	saved, _ := store.Save(ProvenanceItem{
 		OwnerKind: OwnerPiece, OwnerSlug: "x",
-		Type:        ProvenanceCertificate,
-		Title:       "C1",
-		IssuedAt:    time.Now(),
+		Type:     ProvenanceCertificate,
+		Title:    "C1",
+		IssuedAt: time.Now(),
 	}, nil)
 	if err := store.Delete(OwnerPiece, "x", saved.ID); err != nil {
 		t.Fatalf("Delete: %v", err)
@@ -170,9 +170,9 @@ func TestProvenanceRejectsFreeFormType(t *testing.T) {
 	store := NewProvenanceStore(filepath.Join(t.TempDir(), "content"))
 	_, err := store.Save(ProvenanceItem{
 		OwnerKind: OwnerPiece, OwnerSlug: "x",
-		Type:        "other",
-		Title:       "X",
-		IssuedAt:    time.Now(),
+		Type:     "other",
+		Title:    "X",
+		IssuedAt: time.Now(),
 	}, nil)
 	if err == nil {
 		t.Error(`save with Type="other" should error — closed set`)

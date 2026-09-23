@@ -44,13 +44,13 @@ type Blob struct {
 	Gate        GateType        `json:"Gate"`
 	Challenge   string          `json:"Challenge"`
 	Answer      string          `json:"Answer"`
-	TextData    string          `json:"TextData"`    // inline text/JSON/CSV
-	Base64Data  string          `json:"Base64Data"`  // inline binary as base64
-	FileRef     string          `json:"FileRef"`     // path under blobs/files/
-	Schema      string          `json:"Schema"`      // e.g. "text-embedding-3-small"
-	MimeType    string          `json:"MimeType"`    // e.g. "image/jpeg"
-	Dimensions  int             `json:"Dimensions"`  // for vectors
-	Encoding    string          `json:"Encoding"`    // "base64-float32", "utf-8"
+	TextData    string          `json:"TextData"`   // inline text/JSON/CSV
+	Base64Data  string          `json:"Base64Data"` // inline binary as base64
+	FileRef     string          `json:"FileRef"`    // path under blobs/files/
+	Schema      string          `json:"Schema"`     // e.g. "text-embedding-3-small"
+	MimeType    string          `json:"MimeType"`   // e.g. "image/jpeg"
+	Dimensions  int             `json:"Dimensions"` // for vectors
+	Encoding    string          `json:"Encoding"`   // "base64-float32", "utf-8"
 	Signature   string          `json:"Signature"`
 	Tags        []string        `json:"Tags"`
 	FilePath    string          `json:"-"`
@@ -153,7 +153,9 @@ func (bs *BlobStore) Save(b *Blob) error {
 
 func (bs *BlobStore) Delete(slug string) error {
 	err := os.Remove(filepath.Join(bs.dir, slug+".blob"))
-	if err == nil { bs.cache.Invalidate() }
+	if err == nil {
+		bs.cache.Invalidate()
+	}
 	return err
 }
 
@@ -224,9 +226,20 @@ func parseBlob(path string) (*Blob, error) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		lineNum++
-		if lineNum == 1 && line == "---" { inFM = true; continue }
-		if inFM && line == "---" { inFM = false; fmDone = true; continue }
-		if inFM { fmLines = append(fmLines, line) } else if fmDone { bodyLines = append(bodyLines, line) }
+		if lineNum == 1 && line == "---" {
+			inFM = true
+			continue
+		}
+		if inFM && line == "---" {
+			inFM = false
+			fmDone = true
+			continue
+		}
+		if inFM {
+			fmLines = append(fmLines, line)
+		} else if fmDone {
+			bodyLines = append(bodyLines, line)
+		}
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, err
@@ -245,24 +258,42 @@ func parseBlob(path string) (*Blob, error) {
 func parseBlobMeta(lines []string, b *Blob) {
 	for _, line := range lines {
 		k, v, ok := splitKV(line)
-		if !ok { continue }
+		if !ok {
+			continue
+		}
 		switch k {
-		case "slug":        b.Slug = unquote(v)
-		case "title":       b.Title = unquote(v)
-		case "blob_type":   b.BlobType = BlobType(unquote(v))
-		case "description": b.Description = unquote(v)
-		case "access":      b.Access = AccessLevel(unquote(v))
-		case "gate":        b.Gate = GateType(unquote(v))
-		case "challenge":   b.Challenge = unquote(v)
-		case "answer":      b.Answer = unquote(v)
-		case "mime_type":   b.MimeType = unquote(v)
-		case "schema":      b.Schema = unquote(v)
-		case "encoding":    b.Encoding = unquote(v)
-		case "file_ref":    b.FileRef = unquote(v)
-		case "base64_data": b.Base64Data = strings.TrimSpace(v)
-		case "signature":   b.Signature = unquote(v)
-		case "tags":        b.Tags = parseStringSlice(v)
-		case "dimensions":  fmt.Sscanf(strings.TrimSpace(v), "%d", &b.Dimensions)
+		case "slug":
+			b.Slug = unquote(v)
+		case "title":
+			b.Title = unquote(v)
+		case "blob_type":
+			b.BlobType = BlobType(unquote(v))
+		case "description":
+			b.Description = unquote(v)
+		case "access":
+			b.Access = AccessLevel(unquote(v))
+		case "gate":
+			b.Gate = GateType(unquote(v))
+		case "challenge":
+			b.Challenge = unquote(v)
+		case "answer":
+			b.Answer = unquote(v)
+		case "mime_type":
+			b.MimeType = unquote(v)
+		case "schema":
+			b.Schema = unquote(v)
+		case "encoding":
+			b.Encoding = unquote(v)
+		case "file_ref":
+			b.FileRef = unquote(v)
+		case "base64_data":
+			b.Base64Data = strings.TrimSpace(v)
+		case "signature":
+			b.Signature = unquote(v)
+		case "tags":
+			b.Tags = parseStringSlice(v)
+		case "dimensions":
+			fmt.Sscanf(strings.TrimSpace(v), "%d", &b.Dimensions)
 		case "audience":
 			for _, p := range parseStringSlice(v) {
 				parts := strings.SplitN(p, ":", 2)
@@ -283,28 +314,58 @@ func parseBlobMeta(lines []string, b *Blob) {
 
 func marshalBlobMeta(b *Blob) string {
 	var sb strings.Builder
-	wf := func(k, v string) { if v != "" { sb.WriteString(k + ": " + v + "\n") } }
+	wf := func(k, v string) {
+		if v != "" {
+			sb.WriteString(k + ": " + v + "\n")
+		}
+	}
 	wf("slug", b.Slug)
 	wf("title", quoteIfNeeded(b.Title))
 	wf("blob_type", string(b.BlobType))
 	wf("description", quoteIfNeeded(b.Description))
 	wf("access", string(b.Access))
-	if b.Gate != "" { wf("gate", string(b.Gate)) }
-	if b.Challenge != "" { wf("challenge", quoteIfNeeded(b.Challenge)) }
-	if b.Answer != "" { wf("answer", quoteIfNeeded(b.Answer)) }
-	if b.MimeType != "" { wf("mime_type", b.MimeType) }
-	if b.Schema != "" { wf("schema", quoteIfNeeded(b.Schema)) }
-	if b.Encoding != "" { wf("encoding", b.Encoding) }
-	if b.Dimensions > 0 { sb.WriteString(fmt.Sprintf("dimensions: %d\n", b.Dimensions)) }
-	if b.FileRef != "" { wf("file_ref", b.FileRef) }
-	if b.Base64Data != "" { sb.WriteString("base64_data: " + b.Base64Data + "\n") }
-	if b.Signature != "" { wf("signature", b.Signature) }
-	if len(b.Tags) > 0 { sb.WriteString("tags: [" + strings.Join(b.Tags, ", ") + "]\n") }
+	if b.Gate != "" {
+		wf("gate", string(b.Gate))
+	}
+	if b.Challenge != "" {
+		wf("challenge", quoteIfNeeded(b.Challenge))
+	}
+	if b.Answer != "" {
+		wf("answer", quoteIfNeeded(b.Answer))
+	}
+	if b.MimeType != "" {
+		wf("mime_type", b.MimeType)
+	}
+	if b.Schema != "" {
+		wf("schema", quoteIfNeeded(b.Schema))
+	}
+	if b.Encoding != "" {
+		wf("encoding", b.Encoding)
+	}
+	if b.Dimensions > 0 {
+		sb.WriteString(fmt.Sprintf("dimensions: %d\n", b.Dimensions))
+	}
+	if b.FileRef != "" {
+		wf("file_ref", b.FileRef)
+	}
+	if b.Base64Data != "" {
+		sb.WriteString("base64_data: " + b.Base64Data + "\n")
+	}
+	if b.Signature != "" {
+		wf("signature", b.Signature)
+	}
+	if len(b.Tags) > 0 {
+		sb.WriteString("tags: [" + strings.Join(b.Tags, ", ") + "]\n")
+	}
 	if len(b.Audience) > 0 {
 		parts := make([]string, len(b.Audience))
-		for i, a := range b.Audience { parts[i] = a.Kind + ":" + a.ID }
+		for i, a := range b.Audience {
+			parts[i] = a.Kind + ":" + a.ID
+		}
 		sb.WriteString("audience: [" + strings.Join(parts, ", ") + "]\n")
 	}
-	if !b.Published.IsZero() { sb.WriteString("published: " + b.Published.Format("2006-01-02") + "\n") }
+	if !b.Published.IsZero() {
+		sb.WriteString("published: " + b.Published.Format("2006-01-02") + "\n")
+	}
 	return sb.String()
 }
