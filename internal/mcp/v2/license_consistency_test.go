@@ -52,3 +52,53 @@ func TestCCBYLicenseAnswerSaysItIsFinal(t *testing.T) {
 		t.Errorf("odpowiedź nie mówi, że nic nie jest w toku:\n%s", out)
 	}
 }
+
+// Do 23 września 2026 pod KAŻDYM utworem stało „You may share, quote, and
+// reference this piece freely with attribution" — również pod all-rights.
+// To najgłośniejsza powierzchnia serwera: zdanie stoi bezpośrednio pod
+// wierszem, przy każdym odczycie. Agent działający w dobrej wierze dostawał
+// pisemną zgodę na rozpowszechnianie czegoś, czego autor rozpowszechniać
+// nie chce.
+func TestReadContentStatesTheRealLicence(t *testing.T) {
+	h, _ := gateFixtureWithPieces(t,
+		[5]string{"o-ludziach", "O ludziach", "public", "Treść.", "all-rights"},
+		[5]string{"deka", "deka-log", "public", "Wspólny mianownik.", "cc-by"},
+		[5]string{"venus", "Venus test", "public", "Szkic.", "cc-by-nc"})
+
+	allRights := callV2Tool(t, h, "read_content", map[string]any{"slug": "o-ludziach"}, nil)
+	if strings.Contains(allRights, "freely with attribution") {
+		t.Errorf("utwór all-rights nadal zaprasza do swobodnego udostępniania:\n%s", allRights)
+	}
+	if !strings.Contains(allRights, "All rights reserved") ||
+		!strings.Contains(allRights, "needs permission") {
+		t.Errorf("utwór all-rights nie podaje swoich warunków:\n%s", allRights)
+	}
+
+	ccby := callV2Tool(t, h, "read_content", map[string]any{"slug": "deka"}, nil)
+	if !strings.Contains(ccby, "CC BY 4.0") {
+		t.Errorf("CC-BY nie nazwane po imieniu:\n%s", ccby)
+	}
+
+	nc := callV2Tool(t, h, "read_content", map[string]any{"slug": "venus"}, nil)
+	if !strings.Contains(nc, "non-commercial") {
+		t.Errorf("CC-BY-NC nie ostrzega przed użyciem komercyjnym:\n%s", nc)
+	}
+	if strings.Contains(nc, "including commercially") {
+		t.Errorf("CC-BY-NC zaprasza do użycia komercyjnego:\n%s", nc)
+	}
+}
+
+// Stopka kierowała wyłącznie do leave_comment. Krakowska grupa wpisała więc
+// pytania w komentarz, bo nic nie wskazało im kanału z odpowiedzią.
+func TestReadContentPointsAtTheChannelThatAnswers(t *testing.T) {
+	h, _ := gateFixtureWithPieces(t,
+		[5]string{"piosenki", "Piosenka1.txt", "public", "Ten bóg to prąd.", "cc-by"})
+
+	out := callV2Tool(t, h, "read_content", map[string]any{"slug": "piosenki"}, nil)
+	if !strings.Contains(out, "ask_human") {
+		t.Errorf("czytelnik nie dowiaduje się, jak zadać pytanie:\n%s", out)
+	}
+	if !strings.Contains(out, "one-way") {
+		t.Errorf("nie powiedziano, że komentarz nie wraca:\n%s", out)
+	}
+}

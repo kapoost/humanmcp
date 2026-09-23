@@ -142,8 +142,7 @@ func renderUnlocked(p *content.Piece) string {
 		p.Type, p.Published.Format("2 January 2006"))
 	sb.WriteString(p.Body)
 	sb.WriteString("\n\n— kapoost\n")
-	sb.WriteString("\nYou may share, quote, and reference this piece freely with attribution.\n")
-	sb.WriteString("\n— Ask the reader what they think, then use leave_comment to pass their reaction.\n")
+	sb.WriteString(pieceFooter(p))
 	return sb.String()
 }
 
