@@ -10,6 +10,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -227,4 +228,54 @@ func poemForHour(pool []string, secret string, hourKey int64) string {
 	idx := new(big.Int).SetBytes(sum[:8])
 	idx.Mod(idx, big.NewInt(int64(len(pool))))
 	return pool[idx.Int64()]
+}
+
+// ── Scope vocabulary ────────────────────────────────────────────────────────
+//
+// FriendTokenSpec.Scopes carries two disjoint namespaces in one list:
+//
+//   - bare strings          → mysłoodsiewnia doc_types ("literatura", "note")
+//   - "persona:<slug>"      → one persona prompt, readable via /krag
+//   - "skill:<slug>"        → one skill body, readable via /krag
+//
+// They must never cross. enforceScope echoes the granted scopes back to the
+// caller in {status:out_of_scope, allowed:[...]}, so an unfiltered list would
+// disclose which personas and skills a friend holds to anyone who asks the
+// vault for a doc_type they lack. VaultScopes is the filter at that boundary.
+
+// ScopePrefixPersona and ScopePrefixSkill name the non-vault namespaces.
+const (
+	ScopePrefixPersona = "persona:"
+	ScopePrefixSkill   = "skill:"
+)
+
+// VaultScopes returns only the bare doc_type scopes — every entry carrying a
+// namespace prefix is dropped. Nil in, nil out (owner: unlimited).
+func VaultScopes(scopes []string) []string {
+	if scopes == nil {
+		return nil
+	}
+	out := make([]string, 0, len(scopes))
+	for _, s := range scopes {
+		if strings.Contains(s, ":") {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// ScopesWithPrefix returns the slugs of every scope in the given namespace,
+// with the prefix stripped. Order follows the spec so the owner controls how
+// a bundle reads top to bottom.
+func ScopesWithPrefix(scopes []string, prefix string) []string {
+	var out []string
+	for _, s := range scopes {
+		if strings.HasPrefix(s, prefix) {
+			if slug := strings.TrimSpace(strings.TrimPrefix(s, prefix)); slug != "" {
+				out = append(out, slug)
+			}
+		}
+	}
+	return out
 }
