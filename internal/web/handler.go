@@ -49,6 +49,10 @@ type Handler struct {
 	// tight enough to stop bot-driven spam once we get visibility.
 	// Also reused by the /api/search-beacon endpoint (same limits).
 	contactBucket *ratelimit.Bucket
+	// kragBucket throttles /krag/<fraza>. The phrase is the whole secret and
+	// it travels in the URL, so guessing is the obvious attack: 5 tries per
+	// hour per IP makes even a short private line impractical to search.
+	kragBucket *ratelimit.Bucket
 }
 
 func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler {
@@ -66,6 +70,7 @@ func NewHandler(cfg *config.Config, store *content.Store, a *auth.Auth) *Handler
 		collectionStore:   content.NewCollectionStore(cfg.ContentDir),
 		startedAt:         time.Now(),
 		contactBucket:     ratelimit.New(10*time.Minute, 5, nil),
+		kragBucket:        ratelimit.New(time.Hour, 5, nil),
 	}
 	if cfg.SigningPrivateKey != "" {
 		if kp, err := content.KeyPairFromBase64(cfg.SigningPrivateKey); err == nil {
@@ -309,6 +314,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/provenance/files/", h.handleProvenanceFile)
 	mux.Handle("/mc", h.auth.RequireOwner(http.HandlerFunc(h.handleMissionControl)))
 	mux.HandleFunc("/team", h.handleTeam)
+	mux.HandleFunc("/krag/", h.handleKrag)
 	mux.HandleFunc("/personas", h.handlePersonasPage)
 	mux.HandleFunc("/skills", h.handleSkillsPage)
 	mux.Handle("/questions", h.auth.RequireOwner(http.HandlerFunc(h.handleQuestions)))
@@ -1483,7 +1489,10 @@ func (h *Handler) handleImages(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleRobots(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain")
-	fmt.Fprintf(w, "User-agent: *\nAllow: /\nSitemap: https://%s/sitemap.xml\n", h.cfg.Domain)
+	// /krag/ carries a friend's phrase in the path. Keeping crawlers out does
+	// not protect it (the X-Robots-Tag header and no-store do the real work),
+	// but a phrase must never end up in a search index via a leaked referrer.
+	fmt.Fprintf(w, "User-agent: *\nAllow: /\nDisallow: /krag/\nSitemap: https://%s/sitemap.xml\n", h.cfg.Domain)
 }
 
 func (h *Handler) handleSitemap(w http.ResponseWriter, r *http.Request) {

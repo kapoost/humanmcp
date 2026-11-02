@@ -8,6 +8,7 @@ import (
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/kapoost/humanmcp-go/internal/config"
 	"github.com/kapoost/humanmcp-go/internal/mysloodsiewnia"
 )
 
@@ -56,6 +57,10 @@ func registerMysloodsiewniaSearch(s *sdk.Server, src Source) {
 		if !ok {
 			return textResult(unauthorizedText), nil
 		}
+		// Drop persona:/skill: scopes before they reach the vault or the
+		// out_of_scope echo — those namespaces belong to /krag, and echoing
+		// them here would disclose a friend's bundle. See config.VaultScopes.
+		scopes = config.VaultScopes(scopes)
 		var args struct {
 			Query   string `json:"query"`
 			Limit   int    `json:"limit,omitempty"`
@@ -98,6 +103,10 @@ func registerMysloodsiewniaList(s *sdk.Server, src Source) {
 		if !ok {
 			return textResult(unauthorizedText), nil
 		}
+		// Drop persona:/skill: scopes before they reach the vault or the
+		// out_of_scope echo — those namespaces belong to /krag, and echoing
+		// them here would disclose a friend's bundle. See config.VaultScopes.
+		scopes = config.VaultScopes(scopes)
 		var args struct {
 			DocType string `json:"doc_type,omitempty"`
 			Limit   int    `json:"limit,omitempty"`
@@ -139,6 +148,10 @@ func registerMysloodsiewniaGet(s *sdk.Server, src Source) {
 		if !ok {
 			return textResult(unauthorizedText), nil
 		}
+		// Drop persona:/skill: scopes before they reach the vault or the
+		// out_of_scope echo — those namespaces belong to /krag, and echoing
+		// them here would disclose a friend's bundle. See config.VaultScopes.
+		scopes = config.VaultScopes(scopes)
 		var args struct {
 			DocSlug string `json:"doc_slug"`
 		}
